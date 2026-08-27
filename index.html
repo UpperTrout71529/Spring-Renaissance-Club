@@ -2,10 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Spring Renaissance — Private Client Portal</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Private Client Portal — Spring Renaissance</title>
   
-  <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -17,16 +16,16 @@
       --text-main: #2C2A29;
       --text-muted: #7A736E;
       --accent: #C89B83;
-      --accent-hover: #B58770;
       --border-color: #EAE5DF;
       --border-dark: #D4CDC5;
-      --success: #607D67;
+      --danger: #9E4A4A;
     }
 
     * {
       box-sizing: border-box;
       margin: 0;
       padding: 0;
+      -webkit-tap-highlight-color: transparent;
     }
 
     body {
@@ -37,168 +36,116 @@
       display: flex;
       flex-direction: column;
       opacity: 0;
-      animation: pageFadeIn 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      animation: pageFadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     }
 
-    @keyframes pageFadeIn {
-      to { opacity: 1; }
-    }
+    @keyframes pageFadeIn { to { opacity: 1; } }
 
-    @keyframes slideUp {
-      from {
-        opacity: 0;
-        transform: translateY(18px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    .animate-delay-1 { animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.1s forwards; opacity: 0; }
-    .animate-delay-2 { animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.25s forwards; opacity: 0; }
-    .animate-delay-3 { animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.4s forwards; opacity: 0; }
-    .animate-delay-4 { animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.55s forwards; opacity: 0; }
-
-    /* Header */
+    /* Auto-hiding Header on Scroll */
     header {
       width: 100%;
-      padding: 24px 40px;
+      padding: 16px 20px;
       display: flex;
-      justify-content: space-between;
+      justify-content: flex-end; /* Убран текст логотипа */
       align-items: center;
-      border-bottom: 1px solid var(--border-color);
-      background-color: rgba(251, 249, 244, 0.85);
-      backdrop-filter: blur(12px);
+      background-color: rgba(251, 249, 244, 0.92);
+      backdrop-filter: blur(10px);
       position: sticky;
       top: 0;
       z-index: 50;
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      border-bottom: 1px solid rgba(234, 229, 223, 0.5);
     }
 
-    .brand-logo {
-      font-family: 'Cormorant Garamond', serif;
-      font-size: 22px;
-      letter-spacing: 3px;
-      text-transform: uppercase;
-      font-weight: 600;
-      color: var(--text-main);
-      text-decoration: none;
+    header.header-hidden {
+      transform: translateY(-100%);
     }
 
+    /* Minimal Pill Token Badge */
     .wallet-badge {
-      display: flex;
+      display: inline-flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       background: var(--card-bg);
       border: 1px solid var(--border-color);
-      padding: 8px 16px;
-      border-radius: 40px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.02);
-      transition: all 0.3s ease;
+      padding: 6px 14px;
+      border-radius: 30px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.02);
     }
 
-    .wallet-badge:hover {
-      border-color: var(--accent);
-    }
-
-    .token-icon {
-      width: 8px;
-      height: 8px;
+    .token-dot {
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
       background-color: var(--accent);
-      box-shadow: 0 0 8px var(--accent);
     }
 
     .wallet-label {
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 1.5px;
-      text-transform: uppercase;
-      color: var(--text-muted);
-    }
-
-    .token-balance {
-      font-family: 'Cormorant Garamond', serif;
-      font-size: 18px;
-      font-weight: 600;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.5px;
       color: var(--text-main);
     }
 
     /* Container */
     main {
-      max-width: 960px;
+      max-width: 640px; /* Оптимизировано под моб. экраны */
       width: 100%;
-      margin: 40px auto;
-      padding: 0 24px;
+      margin: 20px auto;
+      padding: 0 16px;
       flex-grow: 1;
     }
 
     .welcome-header {
       text-align: center;
-      margin-bottom: 48px;
+      margin-bottom: 32px;
     }
 
     .welcome-sub {
-      font-size: 10px;
-      letter-spacing: 2.5px;
+      font-size: 9px;
+      letter-spacing: 2px;
       text-transform: uppercase;
       color: var(--accent);
       font-weight: 600;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
 
     .welcome-title {
       font-family: 'Cormorant Garamond', serif;
-      font-size: 38px;
+      font-size: 32px;
       font-weight: 400;
       letter-spacing: 0.5px;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
 
     .client-email {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text-muted);
       font-weight: 300;
     }
 
-    /* Grid Layout */
-    .portal-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 24px;
-      margin-bottom: 32px;
-    }
-
-    @media (max-width: 768px) {
-      .portal-grid { grid-template-columns: 1fr; }
-      header { padding: 16px 20px; }
-    }
-
     /* Cards */
+    .portal-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
     .card {
       background-color: var(--card-bg);
       border: 1px solid var(--border-color);
       border-radius: 12px;
-      padding: 32px;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.02);
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .card-full {
-      grid-column: 1 / -1;
+      padding: 24px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.015);
     }
 
     .card-tag {
       font-size: 9px;
       font-weight: 700;
-      letter-spacing: 1.8px;
+      letter-spacing: 1.5px;
       text-transform: uppercase;
       color: var(--text-muted);
-      margin-bottom: 16px;
+      margin-bottom: 12px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -206,57 +153,52 @@
 
     .status-badge {
       font-size: 9px;
-      padding: 4px 10px;
-      border-radius: 20px;
+      padding: 3px 8px;
+      border-radius: 12px;
       background: #F4EFEA;
       color: var(--accent);
-      border: 1px solid var(--border-color);
       font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .status-badge.offline {
+      background: #F5EBEB;
+      color: var(--danger);
     }
 
     .card-title {
       font-family: 'Cormorant Garamond', serif;
-      font-size: 26px;
+      font-size: 24px;
       font-weight: 400;
-      margin-bottom: 12px;
+      margin-bottom: 8px;
       line-height: 1.2;
     }
 
     .card-desc {
-      font-size: 13px;
-      line-height: 1.6;
+      font-size: 12px;
+      line-height: 1.5;
       color: var(--text-muted);
-      margin-bottom: 24px;
+      margin-bottom: 20px;
       font-weight: 300;
     }
 
-    /* Actions & Buttons */
-    .btn-group {
-      display: flex;
-      gap: 12px;
-    }
-
+    /* Buttons */
     .btn {
       appearance: none;
       background-color: var(--text-main);
       color: #FFFFFF;
       border: 1px solid var(--text-main);
-      padding: 14px 24px;
+      padding: 12px 20px;
       border-radius: 6px;
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
-      letter-spacing: 1.5px;
+      letter-spacing: 1.2px;
       text-transform: uppercase;
       cursor: pointer;
-      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
       width: 100%;
       text-align: center;
-    }
-
-    .btn:hover {
-      background-color: #433F3D;
-      border-color: #433F3D;
-      transform: translateY(-1px);
+      transition: all 0.2s ease;
     }
 
     .btn-secondary {
@@ -265,13 +207,15 @@
       border-color: var(--border-dark);
     }
 
-    .btn-secondary:hover {
-      background-color: var(--bg-color);
-      border-color: var(--text-main);
+    .btn-danger {
+      background-color: transparent;
+      color: var(--danger);
+      border-color: #E8D4D4;
+      margin-top: 10px;
     }
 
     .btn-disabled {
-      opacity: 0.5;
+      opacity: 0.4;
       cursor: not-allowed;
       pointer-events: none;
       background-color: #EAE5DF;
@@ -279,80 +223,57 @@
       color: #8C827A;
     }
 
-    /* Treasury Activity Ledger */
-    .ledger-list {
-      margin-top: 16px;
-    }
-
-    .ledger-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 12px 0;
-      border-bottom: 1px solid var(--border-color);
-      font-size: 12px;
-    }
-
-    .ledger-item:last-child {
-      border-bottom: none;
-    }
-
-    .ledger-date { color: var(--text-muted); font-size: 11px; }
-    .ledger-amount { font-weight: 600; color: var(--accent); }
-
     /* Footer */
     footer {
-      padding: 32px 0;
+      padding: 24px 0;
       text-align: center;
       border-top: 1px solid var(--border-color);
       margin-top: auto;
     }
 
     .footer-title {
-      font-size: 10px;
+      font-size: 9px;
       letter-spacing: 2px;
       text-transform: uppercase;
       color: var(--text-muted);
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
 
     .footer-sub {
-      font-size: 10px;
+      font-size: 9px;
       color: #B0A8A0;
     }
 
-    /* Notification Modal / Toast */
+    /* Toast Notification */
     .toast {
       position: fixed;
-      bottom: 24px;
-      right: 24px;
+      bottom: 20px;
+      left: 20px;
+      right: 20px;
       background: var(--text-main);
       color: #FFF;
-      padding: 14px 24px;
-      border-radius: 8px;
-      font-size: 12px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      padding: 12px 18px;
+      border-radius: 6px;
+      font-size: 11px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
       display: none;
       z-index: 100;
-      animation: slideUp 0.3s forwards;
+      text-align: center;
     }
   </style>
 </head>
 <body>
 
-  <!-- Sticky Luxury Header -->
-  <header>
-    <a href="#" class="brand-logo">Spring Renaissance</a>
+  <!-- Minimal Auto-hiding Header -->
+  <header id="siteHeader">
     <div class="wallet-badge">
-      <div class="token-icon"></div>
-      <span class="wallet-label">Treasury</span>
-      <span class="token-balance" id="tokenBalance">20 SRT</span>
+      <div class="token-dot"></div>
+      <span class="wallet-label">Tokens: <strong id="tokenBalance">20</strong></span>
     </div>
   </header>
 
-  <!-- Main Portal Content -->
   <main>
-    <div class="welcome-header animate-delay-1">
+    <div class="welcome-header">
       <div class="welcome-sub">Private Treasury Access</div>
       <h1 class="welcome-title">Client Private Portal</h1>
       <p class="client-email" id="userEmailDisplay">Authenticating secure allocation...</p>
@@ -360,136 +281,201 @@
 
     <div class="portal-grid">
       
-      <!-- Current Allocation Status -->
-      <div class="card card-full animate-delay-2">
-        <div>
-          <div class="card-tag">
-            <span>Current Allocation</span>
-            <span class="status-badge">First Edition reserved</span>
-          </div>
-          <h2 class="card-title">Le Vase Livre — Optical Acrylic Object</h2>
-          <p class="card-desc">Your physical object allocation is active and queued for fulfillment. Hydro-cast optical acrylic with custom collector boxing.</p>
+      <!-- Current Status -->
+      <div class="card">
+        <div class="card-tag">
+          <span>Allocation Status</span>
+          <span class="status-badge" id="dropStatusBadge">Active</span>
         </div>
-        <div style="display: flex; gap: 16px; font-size: 11px; color: var(--text-muted); border-top: 1px solid var(--border-color); padding-top: 16px;">
-          <div>Batch: <strong>300 Units (US Direct)</strong></div>
-          <div>Status: <strong>Dispatched to 3PL</strong></div>
+        <h2 class="card-title">Le Vase Livre — First Edition</h2>
+        <p class="card-desc">Your physical allocation is reserved. Optical acrylic object hydro-cast with collector packaging.</p>
+        <div style="font-size: 10px; color: var(--text-muted); border-top: 1px solid var(--border-color); padding-top: 12px; display: flex; justify-content: space-between;">
+          <span>Batch: <strong>300 Units</strong></span>
+          <span>Status: <strong>Dispatched to 3PL</strong></span>
         </div>
       </div>
 
-      <!-- Action: Skip Next Collection -->
-      <div class="card animate-delay-3">
-        <div>
-          <div class="card-tag">Upcoming Release</div>
-          <h3 class="card-title">Skip Next Drop</h3>
-          <p class="card-desc">Bypass the upcoming Q4 limited decor release without forfeiting your membership status or token treasury allocation.</p>
-        </div>
-        <button class="btn btn-secondary" id="skipBtn" onclick="handleSkipCollection()">Skip Drop</button>
+      <!-- Skip Collection -->
+      <div class="card">
+        <div class="card-tag">Upcoming Collection</div>
+        <h3 class="card-title">Skip Next Release</h3>
+        <p class="card-desc">Temporarily pause your allocation status for the upcoming drop. Your token balance will be preserved.</p>
+        <button class="btn btn-secondary" id="skipBtn" onclick="toggleSkipCollection()">Skip Drop</button>
       </div>
 
-      <!-- Action: Refund Guarantee Window -->
-      <div class="card animate-delay-3">
-        <div>
-          <div class="card-tag">
-            <span>Quarterly Liquidity</span>
-            <span class="status-badge" id="refundWindowBadge">Window Locked</span>
-          </div>
-          <h3 class="card-title">Quarterly Refund Claim</h3>
-          <p class="card-desc" id="refundDesc">Refund claims open exclusively for 7 days at the end of each fiscal quarter. Next window opens September 24th.</p>
+      <!-- Sub Cancellation & Refund Window -->
+      <div class="card">
+        <div class="card-tag">
+          <span>Membership & Claims</span>
+          <span class="status-badge" id="refundBadge">Locked</span>
         </div>
-        <button class="btn btn-secondary btn-disabled" id="refundBtn" onclick="handleRefundClaim()">Request Refund</button>
-      </div>
-
-      <!-- Treasury Token History & Concierge -->
-      <div class="card card-full animate-delay-4">
-        <div class="card-tag">Digital Treasury Activity</div>
-        <h3 class="card-title">Token Ledger & Concierge Access</h3>
-        <p class="card-desc">Tokens represent guaranteed priority reservations and private client allocations.</p>
+        <h3 class="card-title">Subscription & Refunds</h3>
+        <p class="card-desc" id="refundDesc">Full 100% money-back refund opens strictly during the last 7 days of each quarter. Subscriptions can be canceled at any time (tokens expire upon cancellation).</p>
         
-        <div class="ledger-list">
-          <div class="ledger-item">
-            <div>
-              <div style="font-weight: 500;">Initial Allocation Credit</div>
-              <div class="ledger-date">Stripe Subscription Confirmed</div>
-            </div>
-            <div class="ledger-amount">+20 SRT</div>
-          </div>
-        </div>
+        <!-- Cancel Subscription Button -->
+        <button class="btn btn-danger" id="cancelSubBtn" onclick="cancelSubscription()">Cancel Subscription</button>
+        
+        <!-- Request Refund Button (Locked except 7 days end of quarter) -->
+        <button class="btn btn-secondary btn-disabled" id="refundBtn" onclick="requestRefund()" style="margin-top: 8px;">Request Refund (100%)</button>
+      </div>
 
-        <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
-          <span style="font-size: 12px; color: var(--text-muted);">Need assistance with your private order?</span>
-          <a href="mailto:concierge@springrenaissance.store" style="font-size: 11px; font-weight: 600; color: var(--accent); text-decoration: none; letter-spacing: 1px; text-transform: uppercase;">Contact Concierge &rarr;</a>
-        </div>
+      <!-- Concierge Help -->
+      <div style="text-align: center; padding: 12px 0;">
+        <a href="mailto:concierge@springrenaissance.store" style="font-size: 10px; font-weight: 600; color: var(--accent); text-decoration: none; letter-spacing: 1.5px; text-transform: uppercase;">Contact Private Concierge &rarr;</a>
       </div>
 
     </div>
   </main>
 
-  <!-- Footer -->
   <footer>
     <div class="footer-title">Spring Renaissance</div>
-    <div class="footer-sub">Architectural & Spatial Design Studio &bull; springrenaissance.store</div>
+    <div class="footer-sub">Architectural Design Studio &bull; springrenaissance.store</div>
   </footer>
 
-  <!-- Toast Notification -->
-  <div class="toast" id="toast">Action completed successfully.</div>
+  <div class="toast" id="toast"></div>
 
   <script>
-    // URL Auth Token Parser & Simulated Data Fetch
+    const WORKER_URL = "https://spring-renaissance-club.upper-trout-71529.workers.dev"; // Укажите URL своего воркера при необходимости
     const urlParams = new URLSearchParams(window.location.search);
     const authToken = urlParams.get('auth_token');
 
-    const emailDisplay = document.getElementById('userEmailDisplay');
-    const tokenBalance = document.getElementById('tokenBalance');
+    let currentSkipState = false;
 
-    if (authToken) {
-      emailDisplay.textContent = `Authenticated via Private Token: ${authToken.substring(0, 8)}...`;
-    } else {
-      emailDisplay.textContent = `Client Session: Private Allocation Holder`;
+    // 1. Auto-hiding header scroll logic
+    let lastScrollY = window.scrollY;
+    const header = document.getElementById('siteHeader');
+
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > lastScrollY && window.scrollY > 40) {
+        header.classList.add('header-hidden');
+      } else {
+        header.classList.remove('header-hidden');
+      }
+      lastScrollY = window.scrollY;
+    });
+
+    // 2. Fetch User Data dynamically from Cloudflare Worker
+    async function loadUserData() {
+      if (!authToken) {
+        document.getElementById('userEmailDisplay').textContent = "Client Session: Private Allocation Holder";
+        return;
+      }
+
+      try {
+        const response = await fetch(`${WORKER_URL}/api/user?auth_token=${authToken}`);
+        if (response.ok) {
+          const data = await response.json();
+          document.getElementById('userEmailDisplay').textContent = data.email || "Authenticated Client";
+          document.getElementById('tokenBalance').textContent = data.tokens ?? 20;
+
+          if (data.status === "Canceled") {
+            applyCanceledState();
+          } else if (data.skipped) {
+            setOfflineState(true);
+          }
+        }
+      } catch (e) {
+        console.log("Local display mode active");
+      }
     }
 
-    // Dynamic Quarterly Refund Window Logic (Checks if current date is within last 7 days of Q1/Q2/Q3/Q4)
+    // 3. Skip Drop Toggle logic with Offline status display
+    async function toggleSkipCollection() {
+      currentSkipState = !currentSkipState;
+      setOfflineState(currentSkipState);
+
+      showToast(currentSkipState ? "Allocation status set to Paused (Offline)." : "Allocation reactivated.");
+
+      if (authToken) {
+        try {
+          await fetch(`${WORKER_URL}/api/user/skip`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ authToken, skipped: currentSkipState })
+          });
+        } catch (e) {}
+      }
+    }
+
+    function setOfflineState(isOffline) {
+      currentSkipState = isOffline;
+      const skipBtn = document.getElementById('skipBtn');
+      const badge = document.getElementById('dropStatusBadge');
+
+      if (isOffline) {
+        skipBtn.textContent = "Reactivate Drop";
+        badge.textContent = "Paused (Offline)";
+        badge.classList.add('offline');
+      } else {
+        skipBtn.textContent = "Skip Drop";
+        badge.textContent = "Active";
+        badge.classList.remove('offline');
+      }
+    }
+
+    // 4. Subscription Cancellation logic (Tokens burn, sub stops)
+    async function cancelSubscription() {
+      if (confirm("Are you sure you want to cancel your subscription? Your monthly billing will stop, and remaining tokens will burn immediately.")) {
+        applyCanceledState();
+        showToast("Subscription canceled. Billing stopped.");
+
+        if (authToken) {
+          try {
+            await fetch(`${WORKER_URL}/api/user/cancel`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ authToken })
+            });
+          } catch (e) {}
+        }
+      }
+    }
+
+    function applyCanceledState() {
+      document.getElementById('tokenBalance').textContent = "0";
+      const badge = document.getElementById('dropStatusBadge');
+      badge.textContent = "Canceled";
+      badge.classList.add('offline');
+      
+      const cancelBtn = document.getElementById('cancelSubBtn');
+      cancelBtn.textContent = "Subscription Canceled";
+      cancelBtn.classList.add('btn-disabled');
+      
+      document.getElementById('skipBtn').classList.add('btn-disabled');
+    }
+
+    // 5. Check Quarterly Refund Window (Last 7 days of March, June, September, December)
     function checkQuarterlyRefundWindow() {
       const now = new Date();
       const month = now.getMonth(); // 0-11
       const date = now.getDate();
       const daysInMonth = new Date(now.getFullYear(), month + 1, 0).getDate();
       
-      // End of quarter months: March (2), June (5), Sept (8), Dec (11)
       const isQuarterEndMonth = [2, 5, 8, 11].includes(month);
       const isLastSevenDays = (daysInMonth - date) <= 7;
 
-      const refundBtn = document.getElementById('refundBtn');
-      const refundBadge = document.getElementById('refundWindowBadge');
-      const refundDesc = document.getElementById('refundDesc');
-
       if (isQuarterEndMonth && isLastSevenDays) {
+        const refundBtn = document.getElementById('refundBtn');
+        const refundBadge = document.getElementById('refundBadge');
         refundBtn.classList.remove('btn-disabled');
         refundBadge.textContent = "Window Active";
         refundBadge.style.background = "#EBF3EC";
         refundBadge.style.color = "#4A6B51";
-        refundDesc.textContent = "The 7-day quarterly refund window is currently open. You may initiate a full refund claim.";
       }
     }
 
-    function handleSkipCollection() {
-      const skipBtn = document.getElementById('skipBtn');
-      skipBtn.innerText = "Collection Skipped";
-      skipBtn.classList.add('btn-disabled');
-      showToast("Next drop successfully skipped. Your token balance remains intact.");
+    function requestRefund() {
+      showToast("100% Refund claim submitted to Concierge.");
     }
 
-    function handleRefundClaim() {
-      showToast("Refund request submitted to Concierge. Processing will take 24-48 hours.");
-    }
-
-    function showToast(message) {
+    function showToast(msg) {
       const toast = document.getElementById('toast');
-      toast.textContent = message;
+      toast.textContent = msg;
       toast.style.display = 'block';
       setTimeout(() => { toast.style.display = 'none'; }, 4000);
     }
 
-    // Initialize checks
+    loadUserData();
     checkQuarterlyRefundWindow();
   </script>
 </body>
