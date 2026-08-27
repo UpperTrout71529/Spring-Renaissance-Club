@@ -1,1 +1,496 @@
-.
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spring Renaissance — Private Client Portal</title>
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg-color: #FBF9F4;
+      --card-bg: #FFFFFF;
+      --text-main: #2C2A29;
+      --text-muted: #7A736E;
+      --accent: #C89B83;
+      --accent-hover: #B58770;
+      --border-color: #EAE5DF;
+      --border-dark: #D4CDC5;
+      --success: #607D67;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      animation: pageFadeIn 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    @keyframes pageFadeIn {
+      to { opacity: 1; }
+    }
+
+    @keyframes slideUp {
+      from {
+        opacity: 0;
+        transform: translateY(18px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .animate-delay-1 { animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.1s forwards; opacity: 0; }
+    .animate-delay-2 { animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.25s forwards; opacity: 0; }
+    .animate-delay-3 { animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.4s forwards; opacity: 0; }
+    .animate-delay-4 { animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.55s forwards; opacity: 0; }
+
+    /* Header */
+    header {
+      width: 100%;
+      padding: 24px 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-color);
+      background-color: rgba(251, 249, 244, 0.85);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .brand-logo {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 22px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      font-weight: 600;
+      color: var(--text-main);
+      text-decoration: none;
+    }
+
+    .wallet-badge {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      padding: 8px 16px;
+      border-radius: 40px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+      transition: all 0.3s ease;
+    }
+
+    .wallet-badge:hover {
+      border-color: var(--accent);
+    }
+
+    .token-icon {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+    }
+
+    .wallet-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .token-balance {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    /* Container */
+    main {
+      max-width: 960px;
+      width: 100%;
+      margin: 40px auto;
+      padding: 0 24px;
+      flex-grow: 1;
+    }
+
+    .welcome-header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .welcome-sub {
+      font-size: 10px;
+      letter-spacing: 2.5px;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .welcome-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 38px;
+      font-weight: 400;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .client-email {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-weight: 300;
+    }
+
+    /* Grid Layout */
+    .portal-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+
+    @media (max-width: 768px) {
+      .portal-grid { grid-template-columns: 1fr; }
+      header { padding: 16px 20px; }
+    }
+
+    /* Cards */
+    .card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 32px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.02);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card-full {
+      grid-column: 1 / -1;
+    }
+
+    .card-tag {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1.8px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .status-badge {
+      font-size: 9px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: #F4EFEA;
+      color: var(--accent);
+      border: 1px solid var(--border-color);
+      font-weight: 600;
+    }
+
+    .card-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 26px;
+      font-weight: 400;
+      margin-bottom: 12px;
+      line-height: 1.2;
+    }
+
+    .card-desc {
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--text-muted);
+      margin-bottom: 24px;
+      font-weight: 300;
+    }
+
+    /* Actions & Buttons */
+    .btn-group {
+      display: flex;
+      gap: 12px;
+    }
+
+    .btn {
+      appearance: none;
+      background-color: var(--text-main);
+      color: #FFFFFF;
+      border: 1px solid var(--text-main);
+      padding: 14px 24px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      width: 100%;
+      text-align: center;
+    }
+
+    .btn:hover {
+      background-color: #433F3D;
+      border-color: #433F3D;
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background-color: transparent;
+      color: var(--text-main);
+      border-color: var(--border-dark);
+    }
+
+    .btn-secondary:hover {
+      background-color: var(--bg-color);
+      border-color: var(--text-main);
+    }
+
+    .btn-disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      pointer-events: none;
+      background-color: #EAE5DF;
+      border-color: #EAE5DF;
+      color: #8C827A;
+    }
+
+    /* Treasury Activity Ledger */
+    .ledger-list {
+      margin-top: 16px;
+    }
+
+    .ledger-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border-color);
+      font-size: 12px;
+    }
+
+    .ledger-item:last-child {
+      border-bottom: none;
+    }
+
+    .ledger-date { color: var(--text-muted); font-size: 11px; }
+    .ledger-amount { font-weight: 600; color: var(--accent); }
+
+    /* Footer */
+    footer {
+      padding: 32px 0;
+      text-align: center;
+      border-top: 1px solid var(--border-color);
+      margin-top: auto;
+    }
+
+    .footer-title {
+      font-size: 10px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .footer-sub {
+      font-size: 10px;
+      color: #B0A8A0;
+    }
+
+    /* Notification Modal / Toast */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--text-main);
+      color: #FFF;
+      padding: 14px 24px;
+      border-radius: 8px;
+      font-size: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      display: none;
+      z-index: 100;
+      animation: slideUp 0.3s forwards;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Sticky Luxury Header -->
+  <header>
+    <a href="#" class="brand-logo">Spring Renaissance</a>
+    <div class="wallet-badge">
+      <div class="token-icon"></div>
+      <span class="wallet-label">Treasury</span>
+      <span class="token-balance" id="tokenBalance">20 SRT</span>
+    </div>
+  </header>
+
+  <!-- Main Portal Content -->
+  <main>
+    <div class="welcome-header animate-delay-1">
+      <div class="welcome-sub">Private Treasury Access</div>
+      <h1 class="welcome-title">Client Private Portal</h1>
+      <p class="client-email" id="userEmailDisplay">Authenticating secure allocation...</p>
+    </div>
+
+    <div class="portal-grid">
+      
+      <!-- Current Allocation Status -->
+      <div class="card card-full animate-delay-2">
+        <div>
+          <div class="card-tag">
+            <span>Current Allocation</span>
+            <span class="status-badge">First Edition reserved</span>
+          </div>
+          <h2 class="card-title">Le Vase Livre — Optical Acrylic Object</h2>
+          <p class="card-desc">Your physical object allocation is active and queued for fulfillment. Hydro-cast optical acrylic with custom collector boxing.</p>
+        </div>
+        <div style="display: flex; gap: 16px; font-size: 11px; color: var(--text-muted); border-top: 1px solid var(--border-color); padding-top: 16px;">
+          <div>Batch: <strong>300 Units (US Direct)</strong></div>
+          <div>Status: <strong>Dispatched to 3PL</strong></div>
+        </div>
+      </div>
+
+      <!-- Action: Skip Next Collection -->
+      <div class="card animate-delay-3">
+        <div>
+          <div class="card-tag">Upcoming Release</div>
+          <h3 class="card-title">Skip Next Drop</h3>
+          <p class="card-desc">Bypass the upcoming Q4 limited decor release without forfeiting your membership status or token treasury allocation.</p>
+        </div>
+        <button class="btn btn-secondary" id="skipBtn" onclick="handleSkipCollection()">Skip Drop</button>
+      </div>
+
+      <!-- Action: Refund Guarantee Window -->
+      <div class="card animate-delay-3">
+        <div>
+          <div class="card-tag">
+            <span>Quarterly Liquidity</span>
+            <span class="status-badge" id="refundWindowBadge">Window Locked</span>
+          </div>
+          <h3 class="card-title">Quarterly Refund Claim</h3>
+          <p class="card-desc" id="refundDesc">Refund claims open exclusively for 7 days at the end of each fiscal quarter. Next window opens September 24th.</p>
+        </div>
+        <button class="btn btn-secondary btn-disabled" id="refundBtn" onclick="handleRefundClaim()">Request Refund</button>
+      </div>
+
+      <!-- Treasury Token History & Concierge -->
+      <div class="card card-full animate-delay-4">
+        <div class="card-tag">Digital Treasury Activity</div>
+        <h3 class="card-title">Token Ledger & Concierge Access</h3>
+        <p class="card-desc">Tokens represent guaranteed priority reservations and private client allocations.</p>
+        
+        <div class="ledger-list">
+          <div class="ledger-item">
+            <div>
+              <div style="font-weight: 500;">Initial Allocation Credit</div>
+              <div class="ledger-date">Stripe Subscription Confirmed</div>
+            </div>
+            <div class="ledger-amount">+20 SRT</div>
+          </div>
+        </div>
+
+        <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 12px; color: var(--text-muted);">Need assistance with your private order?</span>
+          <a href="mailto:concierge@springrenaissance.store" style="font-size: 11px; font-weight: 600; color: var(--accent); text-decoration: none; letter-spacing: 1px; text-transform: uppercase;">Contact Concierge &rarr;</a>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer>
+    <div class="footer-title">Spring Renaissance</div>
+    <div class="footer-sub">Architectural & Spatial Design Studio &bull; springrenaissance.store</div>
+  </footer>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast">Action completed successfully.</div>
+
+  <script>
+    // URL Auth Token Parser & Simulated Data Fetch
+    const urlParams = new URLSearchParams(window.location.search);
+    const authToken = urlParams.get('auth_token');
+
+    const emailDisplay = document.getElementById('userEmailDisplay');
+    const tokenBalance = document.getElementById('tokenBalance');
+
+    if (authToken) {
+      emailDisplay.textContent = `Authenticated via Private Token: ${authToken.substring(0, 8)}...`;
+    } else {
+      emailDisplay.textContent = `Client Session: Private Allocation Holder`;
+    }
+
+    // Dynamic Quarterly Refund Window Logic (Checks if current date is within last 7 days of Q1/Q2/Q3/Q4)
+    function checkQuarterlyRefundWindow() {
+      const now = new Date();
+      const month = now.getMonth(); // 0-11
+      const date = now.getDate();
+      const daysInMonth = new Date(now.getFullYear(), month + 1, 0).getDate();
+      
+      // End of quarter months: March (2), June (5), Sept (8), Dec (11)
+      const isQuarterEndMonth = [2, 5, 8, 11].includes(month);
+      const isLastSevenDays = (daysInMonth - date) <= 7;
+
+      const refundBtn = document.getElementById('refundBtn');
+      const refundBadge = document.getElementById('refundWindowBadge');
+      const refundDesc = document.getElementById('refundDesc');
+
+      if (isQuarterEndMonth && isLastSevenDays) {
+        refundBtn.classList.remove('btn-disabled');
+        refundBadge.textContent = "Window Active";
+        refundBadge.style.background = "#EBF3EC";
+        refundBadge.style.color = "#4A6B51";
+        refundDesc.textContent = "The 7-day quarterly refund window is currently open. You may initiate a full refund claim.";
+      }
+    }
+
+    function handleSkipCollection() {
+      const skipBtn = document.getElementById('skipBtn');
+      skipBtn.innerText = "Collection Skipped";
+      skipBtn.classList.add('btn-disabled');
+      showToast("Next drop successfully skipped. Your token balance remains intact.");
+    }
+
+    function handleRefundClaim() {
+      showToast("Refund request submitted to Concierge. Processing will take 24-48 hours.");
+    }
+
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.style.display = 'block';
+      setTimeout(() => { toast.style.display = 'none'; }, 4000);
+    }
+
+    // Initialize checks
+    checkQuarterlyRefundWindow();
+  </script>
+</body>
+</html>
