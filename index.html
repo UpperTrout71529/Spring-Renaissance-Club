@@ -41,12 +41,11 @@
 
     @keyframes pageFadeIn { to { opacity: 1; } }
 
-    /* Auto-hiding Header on Scroll */
     header {
       width: 100%;
       padding: 16px 20px;
       display: flex;
-      justify-content: flex-end; /* Убран текст логотипа */
+      justify-content: flex-end;
       align-items: center;
       background-color: rgba(251, 249, 244, 0.92);
       backdrop-filter: blur(10px);
@@ -61,7 +60,6 @@
       transform: translateY(-100%);
     }
 
-    /* Minimal Pill Token Badge */
     .wallet-badge {
       display: inline-flex;
       align-items: center;
@@ -87,9 +85,8 @@
       color: var(--text-main);
     }
 
-    /* Container */
     main {
-      max-width: 640px; /* Оптимизировано под моб. экраны */
+      max-width: 640px;
       width: 100%;
       margin: 20px auto;
       padding: 0 16px;
@@ -124,7 +121,6 @@
       font-weight: 300;
     }
 
-    /* Cards */
     .portal-grid {
       display: flex;
       flex-direction: column;
@@ -183,7 +179,6 @@
       font-weight: 300;
     }
 
-    /* Buttons */
     .btn {
       appearance: none;
       background-color: var(--text-main);
@@ -223,7 +218,6 @@
       color: #8C827A;
     }
 
-    /* Footer */
     footer {
       padding: 24px 0;
       text-align: center;
@@ -244,7 +238,6 @@
       color: #B0A8A0;
     }
 
-    /* Toast Notification */
     .toast {
       position: fixed;
       bottom: 20px;
@@ -264,11 +257,10 @@
 </head>
 <body>
 
-  <!-- Minimal Auto-hiding Header -->
   <header id="siteHeader">
     <div class="wallet-badge">
       <div class="token-dot"></div>
-      <span class="wallet-label">Tokens: <strong id="tokenBalance">20</strong></span>
+      <span class="wallet-label">Tokens: <strong id="tokenBalance">—</strong></span>
     </div>
   </header>
 
@@ -281,11 +273,11 @@
 
     <div class="portal-grid">
       
-      <!-- Current Status -->
+      <!-- Current Allocation Status -->
       <div class="card">
         <div class="card-tag">
           <span>Allocation Status</span>
-          <span class="status-badge" id="dropStatusBadge">Active</span>
+          <span class="status-badge" id="dropStatusBadge">Syncing...</span>
         </div>
         <h2 class="card-title">Le Vase Livre — First Edition</h2>
         <p class="card-desc">Your physical allocation is reserved. Optical acrylic object hydro-cast with collector packaging.</p>
@@ -312,14 +304,10 @@
         <h3 class="card-title">Subscription & Refunds</h3>
         <p class="card-desc" id="refundDesc">Full 100% money-back refund opens strictly during the last 7 days of each quarter. Subscriptions can be canceled at any time (tokens expire upon cancellation).</p>
         
-        <!-- Cancel Subscription Button -->
         <button class="btn btn-danger" id="cancelSubBtn" onclick="cancelSubscription()">Cancel Subscription</button>
-        
-        <!-- Request Refund Button (Locked except 7 days end of quarter) -->
         <button class="btn btn-secondary btn-disabled" id="refundBtn" onclick="requestRefund()" style="margin-top: 8px;">Request Refund (100%)</button>
       </div>
 
-      <!-- Concierge Help -->
       <div style="text-align: center; padding: 12px 0;">
         <a href="mailto:concierge@springrenaissance.store" style="font-size: 10px; font-weight: 600; color: var(--accent); text-decoration: none; letter-spacing: 1.5px; text-transform: uppercase;">Contact Private Concierge &rarr;</a>
       </div>
@@ -335,13 +323,13 @@
   <div class="toast" id="toast"></div>
 
   <script>
-    const WORKER_URL = "https://spring-renaissance-club.upper-trout-71529.workers.dev"; // Укажите URL своего воркера при необходимости
+    const WORKER_URL = "https://stripe-magiclink.sagradyanfelix.workers.dev";
     const urlParams = new URLSearchParams(window.location.search);
     const authToken = urlParams.get('auth_token');
 
     let currentSkipState = false;
 
-    // 1. Auto-hiding header scroll logic
+    // Header scroll behavior
     let lastScrollY = window.scrollY;
     const header = document.getElementById('siteHeader');
 
@@ -354,10 +342,12 @@
       lastScrollY = window.scrollY;
     });
 
-    // 2. Fetch User Data dynamically from Cloudflare Worker
+    // Fetch User Data from KV via Worker
     async function loadUserData() {
       if (!authToken) {
-        document.getElementById('userEmailDisplay').textContent = "Client Session: Private Allocation Holder";
+        document.getElementById('userEmailDisplay').textContent = "Demo Session (No auth token provided)";
+        document.getElementById('tokenBalance').textContent = "20";
+        document.getElementById('dropStatusBadge').textContent = "Active";
         return;
       }
 
@@ -366,20 +356,27 @@
         if (response.ok) {
           const data = await response.json();
           document.getElementById('userEmailDisplay').textContent = data.email || "Authenticated Client";
-          document.getElementById('tokenBalance').textContent = data.tokens ?? 20;
+          document.getElementById('tokenBalance').textContent = data.tokens ?? 0;
 
           if (data.status === "Canceled") {
             applyCanceledState();
-          } else if (data.skipped) {
+          } else if (data.skipped || data.status === "Paused (Offline)") {
             setOfflineState(true);
+          } else {
+            setOfflineState(false);
           }
+        } else {
+          document.getElementById('userEmailDisplay').textContent = "Session Expired or Invalid Token";
+          document.getElementById('dropStatusBadge').textContent = "Unauthorized";
+          document.getElementById('dropStatusBadge').classList.add('offline');
         }
       } catch (e) {
-        console.log("Local display mode active");
+        console.error("Worker sync failed:", e);
+        document.getElementById('userEmailDisplay').textContent = "Connection Error — Retry Later";
       }
     }
 
-    // 3. Skip Drop Toggle logic with Offline status display
+    // Toggle Skip Status in KV
     async function toggleSkipCollection() {
       currentSkipState = !currentSkipState;
       setOfflineState(currentSkipState);
@@ -393,7 +390,9 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ authToken, skipped: currentSkipState })
           });
-        } catch (e) {}
+        } catch (e) {
+          console.error("Skip update error:", e);
+        }
       }
     }
 
@@ -413,7 +412,7 @@
       }
     }
 
-    // 4. Subscription Cancellation logic (Tokens burn, sub stops)
+    // Cancel Subscription in KV
     async function cancelSubscription() {
       if (confirm("Are you sure you want to cancel your subscription? Your monthly billing will stop, and remaining tokens will burn immediately.")) {
         applyCanceledState();
@@ -426,7 +425,9 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ authToken })
             });
-          } catch (e) {}
+          } catch (e) {
+            console.error("Cancel error:", e);
+          }
         }
       }
     }
@@ -444,10 +445,10 @@
       document.getElementById('skipBtn').classList.add('btn-disabled');
     }
 
-    // 5. Check Quarterly Refund Window (Last 7 days of March, June, September, December)
+    // Check Quarterly Refund Window
     function checkQuarterlyRefundWindow() {
       const now = new Date();
-      const month = now.getMonth(); // 0-11
+      const month = now.getMonth();
       const date = now.getDate();
       const daysInMonth = new Date(now.getFullYear(), month + 1, 0).getDate();
       
