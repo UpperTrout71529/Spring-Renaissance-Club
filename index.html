@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Private Client Portal — Spring Renaissance</title>
-  
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -121,6 +121,21 @@
       font-weight: 300;
     }
 
+    .session-banner {
+      display: none;
+      background: #F5EBEB;
+      border: 1px solid #E8D4D4;
+      color: var(--danger);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      text-align: center;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+
     .portal-grid {
       display: flex;
       flex-direction: column;
@@ -194,6 +209,11 @@
       width: 100%;
       text-align: center;
       transition: all 0.2s ease;
+    }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: default;
     }
 
     .btn-secondary {
@@ -271,8 +291,10 @@
       <p class="client-email" id="userEmailDisplay">Authenticating secure allocation...</p>
     </div>
 
+    <div class="session-banner" id="sessionBanner">Session Expired — request a new secure link to continue</div>
+
     <div class="portal-grid">
-      
+
       <!-- Current Allocation Status -->
       <div class="card">
         <div class="card-tag">
@@ -295,17 +317,13 @@
         <button class="btn btn-secondary" id="skipBtn" onclick="toggleSkipCollection()">Skip Drop</button>
       </div>
 
-      <!-- Sub Cancellation & Refund Window -->
+      <!-- Subscription Cancellation -->
       <div class="card">
-        <div class="card-tag">
-          <span>Membership & Claims</span>
-          <span class="status-badge" id="refundBadge">Locked</span>
-        </div>
-        <h3 class="card-title">Subscription & Refunds</h3>
-        <p class="card-desc" id="refundDesc">Full 100% money-back refund opens strictly during the last 7 days of each quarter. Subscriptions can be canceled at any time (tokens expire upon cancellation).</p>
-        
+        <div class="card-tag">Membership</div>
+        <h3 class="card-title">Subscription</h3>
+        <p class="card-desc">Cancel at any time. Your monthly billing stops immediately, and any remaining tokens are forfeited upon cancellation.</p>
+
         <button class="btn btn-danger" id="cancelSubBtn" onclick="cancelSubscription()">Cancel Subscription</button>
-        <button class="btn btn-secondary btn-disabled" id="refundBtn" onclick="requestRefund()" style="margin-top: 8px;">Request Refund (100%)</button>
       </div>
 
       <div style="text-align: center; padding: 12px 0;">
@@ -324,10 +342,84 @@
 
   <script>
     const WORKER_URL = "https://stripe-magiclink.sagradyanfelix.workers.dev";
+    const OVERRIDE_TTL_MS = 120000; // 2 minutes — matches KV's worst-case propagation window
+
     const urlParams = new URLSearchParams(window.location.search);
     const authToken = urlParams.get('auth_token');
 
     let currentSkipState = false;
+    let isCanceled = false;
+    let sessionInvalid = false;
+    let requestInFlight = false;
+
+    // ---------- localStorage override helpers (scoped per auth_token) ----------
+    // Each client's optimistic override lives under its own key, so one client's
+    // pending write can never leak into another client's session on a shared device.
+
+    function overrideKey() {
+      return `sr_override_${authToken}`;
+    }
+
+    function getOverrides() {
+      if (!authToken) return { status: null, tokens: null, skipped: null, timestamp: 0 };
+      try {
+        const raw = localStorage.getItem(overrideKey());
+        if (!raw) return { status: null, tokens: null, skipped: null, timestamp: 0 };
+        const parsed = JSON.parse(raw);
+        return {
+          status: parsed.status ?? null,
+          tokens: parsed.tokens ?? null,
+          skipped: parsed.skipped ?? null,
+          timestamp: parsed.timestamp || 0
+        };
+      } catch (e) {
+        return { status: null, tokens: null, skipped: null, timestamp: 0 };
+      }
+    }
+
+    function setOverrides({ status, tokens, skipped }) {
+      if (!authToken) return;
+      const current = getOverrides();
+      const merged = {
+        status: status !== undefined ? status : current.status,
+        tokens: tokens !== undefined ? tokens : current.tokens,
+        skipped: skipped !== undefined ? skipped : current.skipped,
+        timestamp: Date.now()
+      };
+      localStorage.setItem(overrideKey(), JSON.stringify(merged));
+    }
+
+    function clearOverrides() {
+      if (!authToken) return;
+      localStorage.removeItem(overrideKey());
+    }
+
+    // Reconcile a fresh server read against any pending optimistic override.
+    // Returns the data to render, and clears the override once the server
+    // has caught up (or once it's been pending too long to trust).
+    function reconcileWithOverrides(serverData) {
+      const ov = getOverrides();
+      const hasOverride = ov.status !== null || ov.tokens !== null || ov.skipped !== null;
+      if (!hasOverride) return serverData;
+
+      const overrideExpired = !ov.timestamp || (Date.now() - ov.timestamp) > OVERRIDE_TTL_MS;
+      const serverMatches =
+        (ov.status === null || serverData.status === ov.status) &&
+        (ov.skipped === null || String(!!serverData.skipped) === String(ov.skipped));
+
+      if (serverMatches || overrideExpired) {
+        clearOverrides();
+        return serverData;
+      }
+
+      // KV still hasn't caught up — keep showing what we optimistically set
+      return {
+        ...serverData,
+        status: ov.status !== null ? ov.status : serverData.status,
+        tokens: ov.tokens !== null ? Number(ov.tokens) : serverData.tokens,
+        skipped: ov.skipped !== null ? (ov.skipped === true || ov.skipped === 'true') : serverData.skipped
+      };
+    }
 
     // Header scroll behavior
     let lastScrollY = window.scrollY;
@@ -342,6 +434,51 @@
       lastScrollY = window.scrollY;
     });
 
+    function renderUserData(data) {
+      document.getElementById('userEmailDisplay').textContent = data.email || "Authenticated Client";
+      document.getElementById('tokenBalance').textContent = data.tokens ?? 0;
+
+      if (data.status === "Canceled") {
+        applyCanceledState();
+      } else if (data.skipped || data.status === "Paused (Offline)") {
+        setOfflineState(true);
+      } else {
+        setOfflineState(false);
+      }
+    }
+
+    // Show/hide the prominent session-expired banner and lock down actions.
+    function setSessionExpired(expired) {
+      sessionInvalid = expired;
+      const banner = document.getElementById('sessionBanner');
+      banner.style.display = expired ? 'block' : 'none';
+      updateButtonAvailability();
+    }
+
+    // Single source of truth for whether the Skip/Cancel buttons should be
+    // interactive right now: never during an in-flight request, never once
+    // the subscription is canceled, and never with an invalid session.
+    function updateButtonAvailability() {
+      const skipBtn = document.getElementById('skipBtn');
+      const cancelBtn = document.getElementById('cancelSubBtn');
+      const locked = requestInFlight || isCanceled || sessionInvalid;
+
+      skipBtn.disabled = locked;
+      cancelBtn.disabled = locked;
+
+      if (isCanceled || sessionInvalid) {
+        skipBtn.classList.add('btn-disabled');
+      } else {
+        skipBtn.classList.remove('btn-disabled');
+      }
+
+      if (isCanceled) {
+        cancelBtn.classList.add('btn-disabled');
+      } else {
+        cancelBtn.classList.remove('btn-disabled');
+      }
+    }
+
     // Fetch User Data from KV via Worker
     async function loadUserData() {
       if (!authToken) {
@@ -353,22 +490,25 @@
 
       try {
         const response = await fetch(`${WORKER_URL}/api/user?auth_token=${authToken}`);
-        if (response.ok) {
-          const data = await response.json();
-          document.getElementById('userEmailDisplay').textContent = data.email || "Authenticated Client";
-          document.getElementById('tokenBalance').textContent = data.tokens ?? 0;
 
-          if (data.status === "Canceled") {
-            applyCanceledState();
-          } else if (data.skipped || data.status === "Paused (Offline)") {
-            setOfflineState(true);
-          } else {
-            setOfflineState(false);
-          }
-        } else {
+        if (response.status === 401 || response.status === 404) {
+          // Session genuinely invalid/expired — a pending override for it is meaningless
+          clearOverrides();
           document.getElementById('userEmailDisplay').textContent = "Session Expired or Invalid Token";
           document.getElementById('dropStatusBadge').textContent = "Unauthorized";
           document.getElementById('dropStatusBadge').classList.add('offline');
+          setSessionExpired(true);
+          return;
+        }
+
+        if (response.ok) {
+          setSessionExpired(false);
+          const data = await response.json();
+          renderUserData(reconcileWithOverrides(data));
+        } else {
+          // Transient failure (5xx etc) — don't wipe a legitimate pending override over this,
+          // and don't declare the session dead over a temporary backend hiccup.
+          document.getElementById('userEmailDisplay').textContent = "Connection Error — Retry Later";
         }
       } catch (e) {
         console.error("Worker sync failed:", e);
@@ -378,21 +518,45 @@
 
     // Toggle Skip Status in KV
     async function toggleSkipCollection() {
-      currentSkipState = !currentSkipState;
-      setOfflineState(currentSkipState);
+      if (requestInFlight || isCanceled || sessionInvalid) return;
 
-      showToast(currentSkipState ? "Allocation status set to Paused (Offline)." : "Allocation reactivated.");
+      const previousSkipState = currentSkipState;
+      const newSkipState = !currentSkipState;
 
-      if (authToken) {
-        try {
-          await fetch(`${WORKER_URL}/api/user/skip`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ authToken, skipped: currentSkipState })
-          });
-        } catch (e) {
-          console.error("Skip update error:", e);
-        }
+      requestInFlight = true;
+      updateButtonAvailability();
+
+      setOfflineState(newSkipState);
+      const skipBtn = document.getElementById('skipBtn');
+      const settledLabel = skipBtn.textContent;
+      skipBtn.textContent = "Updating...";
+
+      setOverrides({ status: newSkipState ? "Paused (Offline)" : "Active", skipped: newSkipState });
+      showToast(newSkipState ? "Allocation status set to Paused (Offline)." : "Allocation reactivated.");
+
+      if (!authToken) {
+        requestInFlight = false;
+        updateButtonAvailability();
+        return;
+      }
+
+      try {
+        const res = await fetch(`${WORKER_URL}/api/user/skip`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ authToken, skipped: newSkipState })
+        });
+        if (!res.ok) throw new Error(`Skip update failed: ${res.status}`);
+        skipBtn.textContent = settledLabel;
+      } catch (e) {
+        console.error("Skip update error:", e);
+        // Write never confirmed — don't leave the UI or localStorage claiming it did
+        clearOverrides();
+        setOfflineState(previousSkipState);
+        showToast("Couldn't update — please try again.");
+      } finally {
+        requestInFlight = false;
+        updateButtonAvailability();
       }
     }
 
@@ -412,61 +576,64 @@
       }
     }
 
-    // Cancel Subscription in KV
+    // Cancel Subscription — triggers real Stripe cancellation on the backend
     async function cancelSubscription() {
-      if (confirm("Are you sure you want to cancel your subscription? Your monthly billing will stop, and remaining tokens will burn immediately.")) {
-        applyCanceledState();
-        showToast("Subscription canceled. Billing stopped.");
+      if (requestInFlight || isCanceled || sessionInvalid) return;
 
-        if (authToken) {
-          try {
-            await fetch(`${WORKER_URL}/api/user/cancel`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ authToken })
-            });
-          } catch (e) {
-            console.error("Cancel error:", e);
-          }
-        }
+      if (!confirm("Are you sure you want to cancel your subscription? Your monthly billing will stop, and remaining tokens will burn immediately.")) {
+        return;
       }
+
+      requestInFlight = true;
+      updateButtonAvailability();
+
+      applyCanceledState(); // optimistic: instantly zeroes tokens, locks skip, updates badge
+      setOverrides({ status: "Canceled", tokens: 0 });
+      showToast("Subscription canceled. Billing stopped.");
+
+      if (!authToken) {
+        requestInFlight = false;
+        updateButtonAvailability();
+        return;
+      }
+
+      try {
+        const res = await fetch(`${WORKER_URL}/api/user/cancel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ authToken })
+        });
+        if (!res.ok) throw new Error(`Cancel failed: ${res.status}`);
+        // Confirmed by the backend (Stripe canceled first, then KV updated) — leave
+        // the canceled UI in place permanently.
+      } catch (e) {
+        console.error("Cancel error:", e);
+        // Write never confirmed — roll back rather than let the UI claim a cancellation
+        // that may not have happened server-side.
+        clearOverrides();
+        isCanceled = false;
+        showToast("Cancellation failed to confirm — please try again.");
+        requestInFlight = false;
+        updateButtonAvailability();
+        loadUserData(); // re-sync fully from server truth rather than guess
+        return;
+      }
+
+      requestInFlight = false;
+      updateButtonAvailability();
     }
 
     function applyCanceledState() {
+      isCanceled = true;
       document.getElementById('tokenBalance').textContent = "0";
       const badge = document.getElementById('dropStatusBadge');
       badge.textContent = "Canceled";
       badge.classList.add('offline');
-      
+
       const cancelBtn = document.getElementById('cancelSubBtn');
       cancelBtn.textContent = "Subscription Canceled";
-      cancelBtn.classList.add('btn-disabled');
-      
-      document.getElementById('skipBtn').classList.add('btn-disabled');
-    }
 
-    // Check Quarterly Refund Window
-    function checkQuarterlyRefundWindow() {
-      const now = new Date();
-      const month = now.getMonth();
-      const date = now.getDate();
-      const daysInMonth = new Date(now.getFullYear(), month + 1, 0).getDate();
-      
-      const isQuarterEndMonth = [2, 5, 8, 11].includes(month);
-      const isLastSevenDays = (daysInMonth - date) <= 7;
-
-      if (isQuarterEndMonth && isLastSevenDays) {
-        const refundBtn = document.getElementById('refundBtn');
-        const refundBadge = document.getElementById('refundBadge');
-        refundBtn.classList.remove('btn-disabled');
-        refundBadge.textContent = "Window Active";
-        refundBadge.style.background = "#EBF3EC";
-        refundBadge.style.color = "#4A6B51";
-      }
-    }
-
-    function requestRefund() {
-      showToast("100% Refund claim submitted to Concierge.");
+      updateButtonAvailability();
     }
 
     function showToast(msg) {
@@ -477,7 +644,6 @@
     }
 
     loadUserData();
-    checkQuarterlyRefundWindow();
   </script>
 </body>
 </html>
