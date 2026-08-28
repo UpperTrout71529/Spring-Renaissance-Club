@@ -60,7 +60,8 @@
       transform: translateY(-100%);
     }
 
-    .wallet-badge {
+    /* Subscription status pill — replaces the old token wallet badge */
+    .sub-status-badge {
       display: inline-flex;
       align-items: center;
       gap: 8px;
@@ -71,14 +72,19 @@
       box-shadow: 0 2px 6px rgba(0,0,0,0.02);
     }
 
-    .token-dot {
+    .status-dot {
       width: 6px;
       height: 6px;
       border-radius: 50%;
       background-color: var(--accent);
+      transition: background-color 0.2s ease;
     }
 
-    .wallet-label {
+    .status-dot.offline {
+      background-color: var(--danger);
+    }
+
+    .sub-status-label {
       font-size: 11px;
       font-weight: 500;
       letter-spacing: 0.5px;
@@ -222,13 +228,6 @@
       border-color: var(--border-dark);
     }
 
-    .btn-danger {
-      background-color: transparent;
-      color: var(--danger);
-      border-color: #E8D4D4;
-      margin-top: 10px;
-    }
-
     .btn-disabled {
       opacity: 0.4;
       cursor: not-allowed;
@@ -278,9 +277,9 @@
 <body>
 
   <header id="siteHeader">
-    <div class="wallet-badge">
-      <div class="token-dot"></div>
-      <span class="wallet-label">Tokens: <strong id="tokenBalance">—</strong></span>
+    <div class="sub-status-badge">
+      <div class="status-dot" id="statusDot"></div>
+      <span class="sub-status-label">Subscription: <strong id="subStatusText">—</strong></span>
     </div>
   </header>
 
@@ -313,17 +312,17 @@
       <div class="card">
         <div class="card-tag">Upcoming Collection</div>
         <h3 class="card-title">Skip Next Release</h3>
-        <p class="card-desc">Temporarily pause your allocation status for the upcoming drop. Your token balance will be preserved.</p>
+        <p class="card-desc">Temporarily pause your allocation status for the upcoming drop. You can reactivate anytime before the next release opens.</p>
         <button class="btn btn-secondary" id="skipBtn" onclick="toggleSkipCollection()">Skip Drop</button>
       </div>
 
-      <!-- Subscription Cancellation -->
+      <!-- Subscription Management -->
       <div class="card">
         <div class="card-tag">Membership</div>
         <h3 class="card-title">Subscription</h3>
-        <p class="card-desc">Cancel at any time. Your monthly billing stops immediately, and any remaining tokens are forfeited upon cancellation.</p>
+        <p class="card-desc">Your $20/month membership ensures your physical allocation for upcoming releases. Manage or cancel your plan anytime via Stripe.</p>
 
-        <button class="btn btn-danger" id="cancelSubBtn" onclick="cancelSubscription()">Cancel Subscription</button>
+        <button class="btn btn-secondary" id="cancelSubBtn" onclick="openBillingPortal()">Manage Subscription</button>
       </div>
 
       <div style="text-align: center; padding: 12px 0;">
@@ -361,28 +360,26 @@
     }
 
     function getOverrides() {
-      if (!authToken) return { status: null, tokens: null, skipped: null, timestamp: 0 };
+      if (!authToken) return { status: null, skipped: null, timestamp: 0 };
       try {
         const raw = localStorage.getItem(overrideKey());
-        if (!raw) return { status: null, tokens: null, skipped: null, timestamp: 0 };
+        if (!raw) return { status: null, skipped: null, timestamp: 0 };
         const parsed = JSON.parse(raw);
         return {
           status: parsed.status ?? null,
-          tokens: parsed.tokens ?? null,
           skipped: parsed.skipped ?? null,
           timestamp: parsed.timestamp || 0
         };
       } catch (e) {
-        return { status: null, tokens: null, skipped: null, timestamp: 0 };
+        return { status: null, skipped: null, timestamp: 0 };
       }
     }
 
-    function setOverrides({ status, tokens, skipped }) {
+    function setOverrides({ status, skipped }) {
       if (!authToken) return;
       const current = getOverrides();
       const merged = {
         status: status !== undefined ? status : current.status,
-        tokens: tokens !== undefined ? tokens : current.tokens,
         skipped: skipped !== undefined ? skipped : current.skipped,
         timestamp: Date.now()
       };
@@ -399,7 +396,7 @@
     // has caught up (or once it's been pending too long to trust).
     function reconcileWithOverrides(serverData) {
       const ov = getOverrides();
-      const hasOverride = ov.status !== null || ov.tokens !== null || ov.skipped !== null;
+      const hasOverride = ov.status !== null || ov.skipped !== null;
       if (!hasOverride) return serverData;
 
       const overrideExpired = !ov.timestamp || (Date.now() - ov.timestamp) > OVERRIDE_TTL_MS;
@@ -416,7 +413,6 @@
       return {
         ...serverData,
         status: ov.status !== null ? ov.status : serverData.status,
-        tokens: ov.tokens !== null ? Number(ov.tokens) : serverData.tokens,
         skipped: ov.skipped !== null ? (ov.skipped === true || ov.skipped === 'true') : serverData.skipped
       };
     }
@@ -434,13 +430,28 @@
       lastScrollY = window.scrollY;
     });
 
+    // Single place that keeps the allocation-card badge and the header
+    // subscription pill in sync with the current membership state.
+    function setSubscriptionBadge(label, isOffline = false) {
+      const dropBadge = document.getElementById('dropStatusBadge');
+      const headerText = document.getElementById('subStatusText');
+      const headerDot = document.getElementById('statusDot');
+
+      dropBadge.textContent = label;
+      headerText.textContent = label;
+
+      dropBadge.classList.toggle('offline', isOffline);
+      headerDot.classList.toggle('offline', isOffline);
+    }
+
     function renderUserData(data) {
       document.getElementById('userEmailDisplay').textContent = data.email || "Authenticated Client";
-      document.getElementById('tokenBalance').textContent = data.tokens ?? 0;
 
-      if (data.status === "Canceled") {
+      const status = data.status || "Active";
+
+      if (status === "Canceled") {
         applyCanceledState();
-      } else if (data.skipped || data.status === "Paused (Offline)") {
+      } else if (data.skipped || status === "Paused (Offline)") {
         setOfflineState(true);
       } else {
         setOfflineState(false);
@@ -455,7 +466,7 @@
       updateButtonAvailability();
     }
 
-    // Single source of truth for whether the Skip/Cancel buttons should be
+    // Single source of truth for whether the Skip/Manage buttons should be
     // interactive right now: never during an in-flight request, never once
     // the subscription is canceled, and never with an invalid session.
     function updateButtonAvailability() {
@@ -483,8 +494,7 @@
     async function loadUserData() {
       if (!authToken) {
         document.getElementById('userEmailDisplay').textContent = "Demo Session (No auth token provided)";
-        document.getElementById('tokenBalance').textContent = "20";
-        document.getElementById('dropStatusBadge').textContent = "Active";
+        setSubscriptionBadge("Active", false);
         return;
       }
 
@@ -495,8 +505,7 @@
           // Session genuinely invalid/expired — a pending override for it is meaningless
           clearOverrides();
           document.getElementById('userEmailDisplay').textContent = "Session Expired or Invalid Token";
-          document.getElementById('dropStatusBadge').textContent = "Unauthorized";
-          document.getElementById('dropStatusBadge').classList.add('offline');
+          setSubscriptionBadge("Unauthorized", true);
           setSessionExpired(true);
           return;
         }
@@ -563,72 +572,67 @@
     function setOfflineState(isOffline) {
       currentSkipState = isOffline;
       const skipBtn = document.getElementById('skipBtn');
-      const badge = document.getElementById('dropStatusBadge');
 
       if (isOffline) {
         skipBtn.textContent = "Reactivate Drop";
-        badge.textContent = "Paused (Offline)";
-        badge.classList.add('offline');
+        setSubscriptionBadge("Paused (Offline)", true);
       } else {
         skipBtn.textContent = "Skip Drop";
-        badge.textContent = "Active";
-        badge.classList.remove('offline');
+        setSubscriptionBadge("Active", false);
       }
     }
 
-    // Cancel Subscription — triggers real Stripe cancellation on the backend
-    async function cancelSubscription() {
+    // Manage Subscription — hands off to the native Stripe Customer Portal.
+    // The frontend never cancels anything itself; it only requests a portal
+    // session and redirects the client there.
+    async function openBillingPortal() {
       if (requestInFlight || isCanceled || sessionInvalid) return;
 
-      if (!confirm("Are you sure you want to cancel your subscription? Your monthly billing will stop, and remaining tokens will burn immediately.")) {
-        return;
-      }
+      const cancelBtn = document.getElementById('cancelSubBtn');
+      const originalLabel = cancelBtn.textContent;
 
       requestInFlight = true;
       updateButtonAvailability();
-
-      applyCanceledState(); // optimistic: instantly zeroes tokens, locks skip, updates badge
-      setOverrides({ status: "Canceled", tokens: 0 });
-      showToast("Subscription canceled. Billing stopped.");
+      cancelBtn.textContent = "Redirecting to Stripe...";
 
       if (!authToken) {
+        // No session to open a portal for — nothing to redirect to.
         requestInFlight = false;
+        cancelBtn.textContent = originalLabel;
         updateButtonAvailability();
+        showToast("Unable to open billing portal. Please try again.");
         return;
       }
 
       try {
-        const res = await fetch(`${WORKER_URL}/api/user/cancel`, {
+        const res = await fetch(`${WORKER_URL}/api/create-portal-session`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ authToken })
         });
-        if (!res.ok) throw new Error(`Cancel failed: ${res.status}`);
-        // Confirmed by the backend (Stripe canceled first, then KV updated) — leave
-        // the canceled UI in place permanently.
-      } catch (e) {
-        console.error("Cancel error:", e);
-        // Write never confirmed — roll back rather than let the UI claim a cancellation
-        // that may not have happened server-side.
-        clearOverrides();
-        isCanceled = false;
-        showToast("Cancellation failed to confirm — please try again.");
-        requestInFlight = false;
-        updateButtonAvailability();
-        loadUserData(); // re-sync fully from server truth rather than guess
-        return;
-      }
 
-      requestInFlight = false;
-      updateButtonAvailability();
+        if (!res.ok) throw new Error(`Portal session failed: ${res.status}`);
+
+        const data = await res.json();
+        if (!data || !data.url) throw new Error("No portal URL returned");
+
+        // Success: leave the button disabled and hand off to Stripe. The page
+        // is navigating away, so there's nothing left to reset here.
+        window.location.href = data.url;
+      } catch (e) {
+        console.error("Billing portal error:", e);
+        requestInFlight = false;
+        cancelBtn.textContent = originalLabel;
+        updateButtonAvailability();
+        showToast("Unable to open billing portal. Please try again.");
+      }
     }
 
+    // Applied once the backend reports the membership as Canceled (via Stripe
+    // webhook → KV). This is a render of server truth, not a local action.
     function applyCanceledState() {
       isCanceled = true;
-      document.getElementById('tokenBalance').textContent = "0";
-      const badge = document.getElementById('dropStatusBadge');
-      badge.textContent = "Canceled";
-      badge.classList.add('offline');
+      setSubscriptionBadge("Canceled", true);
 
       const cancelBtn = document.getElementById('cancelSubBtn');
       cancelBtn.textContent = "Subscription Canceled";
