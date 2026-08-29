@@ -3,9 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <!-- The magic-link token arrives in the query string. Without this, every
-       cross-origin subresource (Google Fonts, any CDN) can receive the full
-       URL in a Referer header depending on browser/policy defaults. -->
+  <!-- M-11: the magic-link token arrives in the query string. Without this,
+       every cross-origin subresource (Google Fonts, any CDN) can receive the
+       full URL in a Referer header depending on browser/policy defaults —
+       handing a bearer token to a third party. The tag must sit above every
+       <link> so it applies to the font requests below. -->
   <meta name="referrer" content="no-referrer">
   <title>Private Client Portal — Spring Renaissance</title>
 
@@ -45,6 +47,11 @@
     }
 
     @keyframes pageFadeIn { to { opacity: 1; } }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+      body { opacity: 1; }
+    }
 
     /* ---------- Header ---------- */
     header {
@@ -252,6 +259,7 @@
       font-weight: 300;
       text-align: center;
       margin-bottom: 20px;
+      word-break: break-word;
     }
 
     .session-banner {
@@ -322,6 +330,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 10px;
     }
 
     .status-badge {
@@ -333,6 +342,7 @@
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
+      white-space: nowrap;
     }
 
     .status-badge.offline { background: #F5EBEB; color: var(--danger); }
@@ -408,6 +418,7 @@
     }
 
     .text-input:focus { border-color: var(--accent); }
+    .text-input:disabled { background: var(--wash); color: var(--text-muted); cursor: not-allowed; }
 
     .btn {
       appearance: none;
@@ -463,6 +474,7 @@
 
     .chat-bubble { max-width: 80%; padding: 12px 16px; border-radius: 14px; font-size: 12.5px; line-height: 1.5; }
     .chat-bubble .bubble-author { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 4px; font-weight: 600; }
+    .chat-bubble .bubble-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 
     .chat-bubble.curator, .chat-bubble.ai {
       align-self: flex-start;
@@ -500,8 +512,10 @@
     }
 
     .icon-btn:hover { color: var(--text-main); border-color: var(--text-main); }
+    .icon-btn.disabled { opacity: 0.4; pointer-events: none; }
 
-    .composer-attachments { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .composer-attachments { display: flex; gap: 8px; flex-wrap: wrap; }
+    .composer-attachments:not(:empty) { margin-bottom: 8px; }
 
     .attachment-chip {
       display: inline-flex;
@@ -512,6 +526,8 @@
       padding: 4px 10px 4px 12px;
       font-size: 10px;
       color: var(--text-main);
+      max-width: 100%;
+      overflow-wrap: anywhere;
     }
 
     .attachment-chip button { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 12px; line-height: 1; }
@@ -541,22 +557,34 @@
       display: none;
       z-index: 100;
       text-align: center;
+      max-width: 520px;
+      margin: 0 auto;
+    }
+
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      clip-path: inset(50%);
+      white-space: nowrap;
     }
   </style>
 </head>
 <body>
 
-  <div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+  <div class="drawer-overlay" id="drawerOverlay"></div>
 
-  <nav class="drawer" id="drawer" aria-hidden="true">
+  <nav class="drawer" id="drawer" aria-hidden="true" aria-label="Portal sections">
     <div class="drawer-top">
       <span class="drawer-eyebrow">Navigate</span>
-      <button class="drawer-close" onclick="closeDrawer()" aria-label="Close menu">&times;</button>
+      <button class="drawer-close" id="drawerClose" type="button" aria-label="Close menu">&times;</button>
     </div>
     <ul class="drawer-links">
-      <li><button class="drawer-link active" data-view="capsules" onclick="switchView('capsules')">Seasonal Capsules</button></li>
-      <li><button class="drawer-link" data-view="subscriptions" onclick="switchView('subscriptions')">Subscriptions</button></li>
-      <li><button class="drawer-link" data-view="curator" onclick="switchView('curator')">Curator Space</button></li>
+      <li><button class="drawer-link active" type="button" data-view="capsules">Seasonal Capsules</button></li>
+      <li><button class="drawer-link" type="button" data-view="subscriptions">Subscriptions</button></li>
+      <li><button class="drawer-link" type="button" data-view="curator">Curator Space</button></li>
     </ul>
   </nav>
 
@@ -567,7 +595,7 @@
         <div class="status-dot" id="statusDot"></div>
         <span class="sub-status-label">Subscription: <strong id="subStatusText">—</strong></span>
       </div>
-      <button class="menu-trigger" id="menuTrigger" onclick="toggleDrawer()" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
+      <button class="menu-trigger" id="menuTrigger" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
         <span class="menu-text">Menu</span>
         <span class="burger-icon"><span></span><span></span><span></span></span>
       </button>
@@ -576,7 +604,7 @@
 
   <main>
     <p class="client-line" id="userEmailDisplay">Authenticating secure allocation...</p>
-    <div class="session-banner" id="sessionBanner">Session Expired — request a new secure link to continue</div>
+    <div class="session-banner" id="sessionBanner" role="alert">Session Expired — request a new secure link to continue</div>
 
     <!-- View 1: SEASONAL CAPSULES -->
     <section class="view view-enter" data-view="capsules" id="view-capsules">
@@ -597,7 +625,7 @@
           <span>Included: <strong>3 pieces</strong></span>
           <span>Release: <strong>October 14</strong></span>
         </div>
-        <button class="btn btn-secondary" id="skipBtn" onclick="toggleSkipSeason()">Skip Season</button>
+        <button class="btn btn-secondary" id="skipBtn" type="button">Skip Season</button>
       </div>
 
       <div class="rule-banner">
@@ -606,7 +634,7 @@
       </div>
     </section>
 
-    <!-- View 3: SUBSCRIPTIONS -->
+    <!-- View 2: SUBSCRIPTIONS -->
     <section class="view" data-view="subscriptions" id="view-subscriptions" hidden>
       <div class="view-header">
         <div class="view-eyebrow">Membership</div>
@@ -628,11 +656,11 @@
           <div class="billing-row"><span>Digital Tokens</span><strong id="tokenBalance">—</strong></div>
         </div>
 
-        <button class="btn btn-secondary" id="cancelSubBtn" onclick="cancelSubscription()">Cancel Subscription</button>
+        <button class="btn btn-secondary" id="cancelSubBtn" type="button">Cancel Subscription</button>
       </div>
     </section>
 
-    <!-- View 4: CURATOR SPACE -->
+    <!-- View 3: CURATOR SPACE -->
     <section class="view" data-view="curator" id="view-curator" hidden>
       <div class="view-header">
         <div class="view-eyebrow">Concierge</div>
@@ -640,15 +668,16 @@
       </div>
 
       <div class="chat-card">
-        <div class="chat-messages" id="curatorMessages"></div>
-        <form class="chat-composer" id="curatorForm" onsubmit="return handleCuratorSend(event)">
+        <div class="chat-messages" id="curatorMessages" role="log" aria-live="polite" aria-label="Conversation with your curator"></div>
+        <form class="chat-composer" id="curatorForm">
           <div class="composer-attachments" id="curatorAttachments"></div>
           <div class="composer-row">
-            <label class="icon-btn" title="Attach a photo (max 4 MB)">
-              <input type="file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif" id="curatorMedia" onchange="handleCuratorMedia(event)" hidden>
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.5l-8.5 8.5a4 4 0 0 1-5.7-5.7l9-9a2.5 2.5 0 0 1 3.5 3.5l-8.6 8.6a1 1 0 0 1-1.4-1.4l7.9-7.9"/></svg>
+            <label class="icon-btn" id="curatorMediaLabel" title="Attach a photo (max 4 MB)">
+              <span class="visually-hidden">Attach a photo</span>
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif" id="curatorMedia" hidden>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.5l-8.5 8.5a4 4 0 0 1-5.7-5.7l9-9a2.5 2.5 0 0 1 3.5 3.5l-8.6 8.6a1 1 0 0 1-1.4-1.4l7.9-7.9"/></svg>
             </label>
-            <input type="text" id="curatorInput" class="text-input" placeholder="Message your curator..." autocomplete="off">
+            <input type="text" id="curatorInput" class="text-input" placeholder="Message your curator..." autocomplete="off" maxlength="4000">
             <button type="submit" class="btn btn-auto" id="curatorSendBtn">Send</button>
           </div>
         </form>
@@ -662,69 +691,134 @@
     <div class="footer-sub">Architectural Design Studio &bull; springrenaissance.store</div>
   </footer>
 
-  <div class="toast" id="toast"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
   <script>
+  (function () {
+    "use strict";
+
     const WORKER_URL = "https://stripe-magiclink.sagradyanfelix.workers.dev";
-    const OVERRIDE_TTL_MS = 120000; // 2 minutes — matches KV's worst-case propagation window
+    const OVERRIDE_TTL_MS = 120000;   // 2 minutes — matches KV's worst-case propagation window
     const POLL_INTERVAL_MS = 7000;
     const REQUEST_TIMEOUT_MS = 25000;
-    const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+    const CHAT_POLL_TIMEOUT_MS = 12000;
+    const CHAT_SEND_TIMEOUT_MS = 30000;
+    const USER_RETRY_MS = 15000;
+    const MAX_MESSAGE_CHARS = 4000;
+    const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;              // M-10
     const ALLOWED_ATTACHMENT_MIMES = ["image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"];
 
-    // ---------- Session token handling ----------
-    // The token arrives as ?auth_token=... . Leaving it in the address bar means
-    // it lands in browser history, gets copy-pasted into support tickets, and
-    // (absent the no-referrer meta tag) can leak via Referer. Move it into
-    // sessionStorage and scrub the URL immediately — before any subresource
-    // request can carry it — while keeping it available across in-tab reloads.
-    const urlParams = new URLSearchParams(window.location.search);
-    const tokenFromUrl = urlParams.get('auth_token');
+    // ---------- Element handles ----------
+    // Resolved once, up front, so no handler can reference a binding that is
+    // still in its temporal dead zone.
+    const el = {
+      header: document.getElementById('siteHeader'),
+      drawer: document.getElementById('drawer'),
+      drawerOverlay: document.getElementById('drawerOverlay'),
+      drawerClose: document.getElementById('drawerClose'),
+      menuTrigger: document.getElementById('menuTrigger'),
+      userEmailDisplay: document.getElementById('userEmailDisplay'),
+      sessionBanner: document.getElementById('sessionBanner'),
+      statusDot: document.getElementById('statusDot'),
+      subStatusText: document.getElementById('subStatusText'),
+      capsuleStatusBadge: document.getElementById('capsuleStatusBadge'),
+      subViewStatusBadge: document.getElementById('subViewStatusBadge'),
+      skipBtn: document.getElementById('skipBtn'),
+      cancelSubBtn: document.getElementById('cancelSubBtn'),
+      renewalStatus: document.getElementById('renewalStatus'),
+      nextBillingDate: document.getElementById('nextBillingDate'),
+      cardOnFile: document.getElementById('cardOnFile'),
+      tokenBalance: document.getElementById('tokenBalance'),
+      curatorMessages: document.getElementById('curatorMessages'),
+      curatorForm: document.getElementById('curatorForm'),
+      curatorInput: document.getElementById('curatorInput'),
+      curatorSendBtn: document.getElementById('curatorSendBtn'),
+      curatorMedia: document.getElementById('curatorMedia'),
+      curatorMediaLabel: document.getElementById('curatorMediaLabel'),
+      curatorAttachments: document.getElementById('curatorAttachments'),
+      toast: document.getElementById('toast')
+    };
+
+    // ---------- Session token handling (M-11) ----------
+    // The token arrives as ?auth_token=... . Leaving it in the address bar
+    // means it lands in browser history, gets copy-pasted into support
+    // tickets, and (absent the no-referrer meta tag) can leak via Referer.
+    // Move it into sessionStorage and scrub the URL immediately — before any
+    // navigation or share action can carry it — while keeping it available
+    // across in-tab reloads. sessionStorage, not localStorage: the token dies
+    // with the tab rather than persisting on a shared machine.
     let authToken = null;
 
-    try {
-      if (tokenFromUrl) {
-        sessionStorage.setItem('sr_auth_token', tokenFromUrl);
-        authToken = tokenFromUrl;
-        urlParams.delete('auth_token');
-        const qs = urlParams.toString();
-        window.history.replaceState({}, document.title,
-          window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
-      } else {
-        authToken = sessionStorage.getItem('sr_auth_token');
-      }
-    } catch (e) {
-      // Private-mode / storage-blocked browsers: fall back to the in-memory token.
-      authToken = tokenFromUrl;
-    }
+    (function adoptToken() {
+      let tokenFromUrl = null;
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        tokenFromUrl = urlParams.get('auth_token');
 
+        if (tokenFromUrl) {
+          try {
+            sessionStorage.setItem('sr_auth_token', tokenFromUrl);
+          } catch (e) { /* private mode: keep it in memory only */ }
+          authToken = tokenFromUrl;
+
+          urlParams.delete('auth_token');
+          const qs = urlParams.toString();
+          window.history.replaceState({}, document.title,
+            window.location.pathname + (qs ? '?' + qs : '') + window.location.hash);
+        } else {
+          try {
+            authToken = sessionStorage.getItem('sr_auth_token');
+          } catch (e) {
+            authToken = null;
+          }
+        }
+      } catch (e) {
+        // Storage-blocked or replaceState-blocked browsers: fall back to the
+        // in-memory token so the session still works for this page view.
+        authToken = tokenFromUrl;
+      }
+    })();
+
+    // ---------- State ----------
     let currentSkipState = false;
     let isCanceled = false;
     let sessionInvalid = false;
+    // M-9: the two in-flight flags are deliberately separate. Sharing one flag
+    // meant a slow AI reply locked the billing controls, and a slow cancel
+    // silently swallowed chat messages.
     let requestInFlight = false;      // guards the account mutations (skip / cancel)
-    let chatInFlight = false;         // chat is independent — a slow AI reply must not lock billing controls
-    let currentView = 'capsules';
+    let chatInFlight = false;         // guards the chat composer only
     let curatorPendingFile = null;
-    let curatorSignature = null;      // cheap change-detector so polling doesn't re-render needlessly
+    let curatorSignature = null;      // M-7: cheap change-detector for the poll
     let curatorWelcomeShown = false;
     let curatorPollTimer = null;
+    let userRetryTimer = null;
+    let toastTimer = null;
 
-    // ---------- Fetch with timeout ----------
+    // ---------- Fetch with timeout (M-9) ----------
     // Without an abort, a hung Worker or ProxyAPI leaves the UI stuck on
-    // "Updating..." / "Canceling..." forever with the buttons disabled.
-    async function fetchWithTimeout(url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+    // "Updating..." / "Canceling..." forever with the buttons disabled and no
+    // way back short of a reload.
+    async function fetchWithTimeout(url, options, timeoutMs) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const timer = setTimeout(() => controller.abort(), timeoutMs || REQUEST_TIMEOUT_MS);
       try {
-        return await fetch(url, { ...options, signal: controller.signal, cache: 'no-store' });
+        return await fetch(url, Object.assign({}, options || {}, {
+          signal: controller.signal,
+          cache: 'no-store'
+        }));
       } finally {
         clearTimeout(timer);
       }
     }
 
+    function isAbort(err) {
+      return !!err && (err.name === 'AbortError' || err.code === 20);
+    }
+
     // ---------- localStorage override helpers (scoped per auth_token) ----------
     function overrideKey() {
-      return `sr_override_${authToken}`;
+      return 'sr_override_' + authToken;
     }
 
     function getOverrides() {
@@ -734,22 +828,22 @@
         if (!raw) return { status: null, skipped: null, timestamp: 0 };
         const parsed = JSON.parse(raw);
         return {
-          status: parsed.status ?? null,
-          skipped: parsed.skipped ?? null,
-          timestamp: parsed.timestamp || 0
+          status: parsed && parsed.status !== undefined ? parsed.status : null,
+          skipped: parsed && parsed.skipped !== undefined ? parsed.skipped : null,
+          timestamp: (parsed && parsed.timestamp) || 0
         };
       } catch (e) {
         return { status: null, skipped: null, timestamp: 0 };
       }
     }
 
-    function setOverrides({ status, skipped }) {
+    function setOverrides(next) {
       if (!authToken) return;
       try {
         const current = getOverrides();
         localStorage.setItem(overrideKey(), JSON.stringify({
-          status: status !== undefined ? status : current.status,
-          skipped: skipped !== undefined ? skipped : current.skipped,
+          status: next.status !== undefined ? next.status : current.status,
+          skipped: next.skipped !== undefined ? next.skipped : current.skipped,
           timestamp: Date.now()
         }));
       } catch (e) { /* storage full or blocked — optimistic UI still works in-memory */ }
@@ -760,11 +854,12 @@
       try { localStorage.removeItem(overrideKey()); } catch (e) {}
     }
 
-    // Reconcile a fresh server read against any pending optimistic override.
+    // M-12: reconcile a fresh server read against any pending optimistic override.
     function reconcileWithOverrides(serverData) {
       // "Canceled" is terminal and always server-authoritative. A stale local
-      // override must never paint a cancelled membership as Active again.
-      if (serverData.status === "Canceled") {
+      // override must never paint a cancelled membership as Active again —
+      // that was how a cancelled client kept seeing a working Skip button.
+      if (serverData && serverData.status === "Canceled") {
         clearOverrides();
         return serverData;
       }
@@ -773,69 +868,75 @@
       const hasOverride = ov.status !== null || ov.skipped !== null;
       if (!hasOverride) return serverData;
 
+      // An override that names Canceled is likewise never replayed onto the UI.
+      if (ov.status === "Canceled") {
+        clearOverrides();
+        return serverData;
+      }
+
       const overrideExpired = !ov.timestamp || (Date.now() - ov.timestamp) > OVERRIDE_TTL_MS;
       const serverMatches =
         (ov.status === null || serverData.status === ov.status) &&
-        (ov.skipped === null || String(!!serverData.skipped) === String(ov.skipped));
+        (ov.skipped === null || String(!!serverData.skipped) === String(!!ov.skipped));
 
       if (serverMatches || overrideExpired) {
         clearOverrides();
         return serverData;
       }
 
-      return {
-        ...serverData,
+      return Object.assign({}, serverData, {
         status: ov.status !== null ? ov.status : serverData.status,
         skipped: ov.skipped !== null ? (ov.skipped === true || ov.skipped === 'true') : serverData.skipped
-      };
+      });
     }
 
     // ---------- Header scroll behavior ----------
     let lastScrollY = window.scrollY;
-    const header = document.getElementById('siteHeader');
 
-    window.addEventListener('scroll', () => {
-      if (drawerEl.classList.contains('open')) return;
+    window.addEventListener('scroll', function () {
+      if (el.drawer.classList.contains('open')) return;
       if (window.scrollY > lastScrollY && window.scrollY > 40) {
-        header.classList.add('header-hidden');
+        el.header.classList.add('header-hidden');
       } else {
-        header.classList.remove('header-hidden');
+        el.header.classList.remove('header-hidden');
       }
       lastScrollY = window.scrollY;
-    });
+    }, { passive: true });
 
     // ---------- Drawer ----------
-    const drawerEl = document.getElementById('drawer');
-    const drawerOverlay = document.getElementById('drawerOverlay');
-    const menuTrigger = document.getElementById('menuTrigger');
-
     function openDrawer() {
-      drawerEl.classList.add('open');
-      drawerOverlay.classList.add('open');
-      menuTrigger.classList.add('active');
-      menuTrigger.setAttribute('aria-expanded', 'true');
-      drawerEl.setAttribute('aria-hidden', 'false');
+      el.drawer.classList.add('open');
+      el.drawerOverlay.classList.add('open');
+      el.menuTrigger.classList.add('active');
+      el.menuTrigger.setAttribute('aria-expanded', 'true');
+      el.drawer.setAttribute('aria-hidden', 'false');
     }
 
     function closeDrawer() {
-      drawerEl.classList.remove('open');
-      drawerOverlay.classList.remove('open');
-      menuTrigger.classList.remove('active');
-      menuTrigger.setAttribute('aria-expanded', 'false');
-      drawerEl.setAttribute('aria-hidden', 'true');
+      el.drawer.classList.remove('open');
+      el.drawerOverlay.classList.remove('open');
+      el.menuTrigger.classList.remove('active');
+      el.menuTrigger.setAttribute('aria-expanded', 'false');
+      el.drawer.setAttribute('aria-hidden', 'true');
     }
 
     function toggleDrawer() {
-      if (drawerEl.classList.contains('open')) closeDrawer(); else openDrawer();
+      if (el.drawer.classList.contains('open')) closeDrawer(); else openDrawer();
     }
 
-    document.addEventListener('keydown', (e) => {
+    el.menuTrigger.addEventListener('click', toggleDrawer);
+    el.drawerClose.addEventListener('click', closeDrawer);
+    el.drawerOverlay.addEventListener('click', closeDrawer);
+
+    document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') closeDrawer();
     });
 
     // ---------- View switching ----------
     function switchView(view) {
-      document.querySelectorAll('.view').forEach((sec) => {
+      const sections = document.querySelectorAll('.view');
+      for (let i = 0; i < sections.length; i++) {
+        const sec = sections[i];
         if (sec.dataset.view === view) {
           sec.hidden = false;
           sec.classList.remove('view-enter');
@@ -845,97 +946,105 @@
           sec.hidden = true;
           sec.classList.remove('view-enter');
         }
-      });
+      }
 
-      document.querySelectorAll('.drawer-link').forEach((btn) => {
-        btn.classList.toggle('active', btn.dataset.view === view);
-      });
+      const links = document.querySelectorAll('.drawer-link');
+      for (let i = 0; i < links.length; i++) {
+        links[i].classList.toggle('active', links[i].dataset.view === view);
+      }
 
-      currentView = view;
       closeDrawer();
       window.scrollTo({ top: 0, behavior: 'smooth' });
 
       // Entering the chat should show current state straight away rather than
-      // waiting up to a full poll interval.
+      // waiting out a full poll interval.
       if (view === 'curator') syncCuratorMessages();
     }
 
+    const drawerLinks = document.querySelectorAll('.drawer-link');
+    for (let i = 0; i < drawerLinks.length; i++) {
+      drawerLinks[i].addEventListener('click', function () {
+        switchView(this.dataset.view);
+      });
+    }
+
     // ---------- Subscription status sync ----------
-    function setSubscriptionBadge(label, isOffline = false) {
-      document.getElementById('subStatusText').textContent = label;
-      document.getElementById('statusDot').classList.toggle('offline', isOffline);
+    function setSubscriptionBadge(label, isOffline) {
+      el.subStatusText.textContent = label;
+      el.statusDot.classList.toggle('offline', !!isOffline);
 
-      const capsuleBadge = document.getElementById('capsuleStatusBadge');
-      capsuleBadge.textContent = label;
-      capsuleBadge.classList.toggle('offline', isOffline);
+      el.capsuleStatusBadge.textContent = label;
+      el.capsuleStatusBadge.classList.toggle('offline', !!isOffline);
 
-      const subBadge = document.getElementById('subViewStatusBadge');
-      subBadge.textContent = label;
-      subBadge.classList.toggle('offline', isOffline);
+      el.subViewStatusBadge.textContent = label;
+      el.subViewStatusBadge.classList.toggle('offline', !!isOffline);
     }
 
     function renderUserData(data) {
-      document.getElementById('userEmailDisplay').textContent = data.email || "Authenticated Client";
+      el.userEmailDisplay.textContent = data.email || "Authenticated Client";
 
       const status = data.status || "Active";
 
       if (status === "Canceled") {
         applyCanceledState();
       } else {
-        // Recover from a previously-cancelled render if the server now says otherwise
-        // (e.g. the client re-subscribed in another tab).
+        // Recover from a previously-cancelled render if the server now says
+        // otherwise (e.g. the client re-subscribed through Stripe checkout).
         isCanceled = false;
+        el.cancelSubBtn.textContent = "Cancel Subscription";
         setOfflineState(!!data.skipped || status === "Paused (Offline)");
       }
 
-      document.getElementById('renewalStatus').textContent =
-        status === "Canceled" ? "Canceled" : "Active — renews monthly";
-      document.getElementById('nextBillingDate').textContent =
-        data.nextBillingDate || "Managed in Stripe";
-      document.getElementById('cardOnFile').textContent =
-        data.cardLast4 ? `•••• ${data.cardLast4}` : "Managed in Stripe";
-      document.getElementById('tokenBalance').textContent =
-        (typeof data.tokens === 'number') ? String(data.tokens) : "—";
+      el.renewalStatus.textContent = status === "Canceled" ? "Canceled" : "Active — renews monthly";
+      el.nextBillingDate.textContent = data.nextBillingDate || "Managed in Stripe";
+      el.cardOnFile.textContent = data.cardLast4 ? ('•••• ' + data.cardLast4) : "Managed in Stripe";
+      el.tokenBalance.textContent = (typeof data.tokens === 'number') ? String(data.tokens) : "—";
 
       updateButtonAvailability();
     }
 
+    // M-8: an expired session is terminal for this token. Everything that
+    // would keep hitting the Worker is torn down here, in one place.
     function setSessionExpired(expired) {
-      sessionInvalid = expired;
-      document.getElementById('sessionBanner').style.display = expired ? 'block' : 'none';
+      sessionInvalid = !!expired;
+      el.sessionBanner.style.display = expired ? 'block' : 'none';
       if (expired) {
-        // Nothing this token can do will succeed — stop hammering the Worker.
         stopCuratorPolling();
         setChatEnabled(false);
+        if (userRetryTimer) {
+          clearTimeout(userRetryTimer);
+          userRetryTimer = null;
+        }
+        clearOverrides();
         try { sessionStorage.removeItem('sr_auth_token'); } catch (e) {}
       }
       updateButtonAvailability();
     }
 
     function updateButtonAvailability() {
-      const skipBtn = document.getElementById('skipBtn');
-      const cancelBtn = document.getElementById('cancelSubBtn');
       const locked = requestInFlight || isCanceled || sessionInvalid;
 
-      skipBtn.disabled = locked;
-      cancelBtn.disabled = locked;
+      el.skipBtn.disabled = locked;
+      el.cancelSubBtn.disabled = locked;
 
-      skipBtn.classList.toggle('btn-disabled', isCanceled || sessionInvalid);
-      cancelBtn.classList.toggle('btn-disabled', isCanceled || sessionInvalid);
+      el.skipBtn.classList.toggle('btn-disabled', isCanceled || sessionInvalid);
+      el.cancelSubBtn.classList.toggle('btn-disabled', isCanceled || sessionInvalid);
     }
 
     function setChatEnabled(enabled) {
-      document.getElementById('curatorInput').disabled = !enabled;
-      document.getElementById('curatorSendBtn').disabled = !enabled;
+      el.curatorInput.disabled = !enabled;
+      el.curatorSendBtn.disabled = !enabled;
+      el.curatorMedia.disabled = !enabled;
+      el.curatorMediaLabel.classList.toggle('disabled', !enabled);
     }
 
     function showDemoState() {
-      document.getElementById('userEmailDisplay').textContent = "Demo Session (no access link)";
+      el.userEmailDisplay.textContent = "Demo Session (no access link)";
       setSubscriptionBadge("Active", false);
-      document.getElementById('renewalStatus').textContent = "Active — renews monthly";
-      document.getElementById('nextBillingDate').textContent = "Managed in Stripe";
-      document.getElementById('cardOnFile').textContent = "Managed in Stripe";
-      document.getElementById('tokenBalance').textContent = "—";
+      el.renewalStatus.textContent = "Active — renews monthly";
+      el.nextBillingDate.textContent = "Managed in Stripe";
+      el.cardOnFile.textContent = "Managed in Stripe";
+      el.tokenBalance.textContent = "—";
       setChatEnabled(false);
     }
 
@@ -946,38 +1055,39 @@
       }
 
       try {
-        const response = await fetchWithTimeout(`${WORKER_URL}/api/user?auth_token=${encodeURIComponent(authToken)}`);
+        const response = await fetchWithTimeout(
+          WORKER_URL + '/api/user?auth_token=' + encodeURIComponent(authToken)
+        );
 
         if (response.status === 401 || response.status === 404) {
-          clearOverrides();
-          document.getElementById('userEmailDisplay').textContent = "Session expired — request a new access link";
+          el.userEmailDisplay.textContent = "Session expired — request a new access link";
           setSubscriptionBadge("Unauthorized", true);
           setSessionExpired(true);
           return;
         }
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) throw new Error('HTTP ' + response.status);
 
+        const payload = await response.json();
         setSessionExpired(false);
         setChatEnabled(true);
-        renderUserData(reconcileWithOverrides(await response.json()));
+        renderUserData(reconcileWithOverrides(payload));
       } catch (e) {
         console.error("Worker sync failed:", e);
         // A network blip is not an expired session — say so, and leave the
         // controls usable so the client can retry.
-        document.getElementById('userEmailDisplay').textContent = "Connection error — retrying shortly";
+        el.userEmailDisplay.textContent = "Connection error — retrying shortly";
         setSubscriptionBadge("Unknown", false);
         scheduleUserRetry();
       }
     }
 
-    let userRetryTimer = null;
     function scheduleUserRetry() {
       if (userRetryTimer || sessionInvalid) return;
-      userRetryTimer = setTimeout(() => {
+      userRetryTimer = setTimeout(function () {
         userRetryTimer = null;
         loadUserData();
-      }, 15000);
+      }, USER_RETRY_MS);
     }
 
     // ---------- Skip Season ----------
@@ -991,42 +1101,42 @@
       updateButtonAvailability();
 
       setOfflineState(newSkipState);
-      const skipBtn = document.getElementById('skipBtn');
-      const settledLabel = skipBtn.textContent;
-      skipBtn.textContent = "Updating...";
+      const settledLabel = el.skipBtn.textContent;
+      el.skipBtn.textContent = "Updating...";
 
       // Written before the request so a mid-flight reload still reflects intent.
       setOverrides({ status: newSkipState ? "Paused (Offline)" : "Active", skipped: newSkipState });
 
       if (!authToken) {
-        skipBtn.textContent = settledLabel;
+        el.skipBtn.textContent = settledLabel;
         requestInFlight = false;
         updateButtonAvailability();
         return;
       }
 
       try {
-        const res = await fetchWithTimeout(`${WORKER_URL}/api/user/skip`, {
+        const res = await fetchWithTimeout(WORKER_URL + '/api/user/skip', {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ authToken, skipped: newSkipState })
+          body: JSON.stringify({ authToken: authToken, skipped: newSkipState })
         });
 
         if (res.status === 401) {
-          clearOverrides();
           setOfflineState(previousSkipState);
           setSessionExpired(true);
           showToast("Your session expired — please use a fresh access link.");
           return;
         }
+
+        // M-12: the Worker refuses to reactivate a canceled membership.
         if (res.status === 409) {
-          // Server says the membership is canceled; local view was stale.
           clearOverrides();
           applyCanceledState();
-          showToast("This membership is canceled.");
+          showToast("This membership is canceled and can't be reactivated here.");
           return;
         }
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        if (!res.ok) throw new Error('HTTP ' + res.status);
 
         const data = await res.json();
         // Trust the server's echoed state rather than assuming ours stuck.
@@ -1036,7 +1146,7 @@
         console.error("Skip update error:", e);
         clearOverrides();
         setOfflineState(previousSkipState);
-        showToast(e.name === 'AbortError'
+        showToast(isAbort(e)
           ? "That took too long — please try again."
           : "Couldn't update — please try again.");
       } finally {
@@ -1045,23 +1155,26 @@
       }
     }
 
+    el.skipBtn.addEventListener('click', toggleSkipSeason);
+
     function setOfflineState(isOffline) {
-      currentSkipState = isOffline;
-      const skipBtn = document.getElementById('skipBtn');
+      currentSkipState = !!isOffline;
 
       if (isOffline) {
-        skipBtn.textContent = "Reactivate Season";
+        el.skipBtn.textContent = "Reactivate Season";
         setSubscriptionBadge("Paused (Offline)", true);
       } else {
-        skipBtn.textContent = "Skip Season";
+        el.skipBtn.textContent = "Skip Season";
         setSubscriptionBadge("Active", false);
       }
     }
 
-    // ---------- Cancel Subscription ----------
+    // ---------- Cancel Subscription (C-3) ----------
     // Cancellation is IMMEDIATE and burns the token balance, so it is confirmed
-    // explicitly and the result distinguishes "Stripe subscription cancelled"
-    // from "marked cancelled locally but nothing found in Stripe".
+    // explicitly, and the result distinguishes "Stripe subscription cancelled"
+    // from "marked cancelled locally but nothing found in Stripe". A 503 means
+    // Stripe was unreachable and NOTHING changed — the UI must not show the
+    // membership as canceled in that case.
     async function cancelSubscription() {
       if (requestInFlight || isCanceled || sessionInvalid) return;
 
@@ -1070,39 +1183,50 @@
       );
       if (!confirmed) return;
 
-      const cancelBtn = document.getElementById('cancelSubBtn');
-      const originalLabel = cancelBtn.textContent;
+      const originalLabel = el.cancelSubBtn.textContent;
 
       requestInFlight = true;
       updateButtonAvailability();
-      cancelBtn.textContent = "Canceling...";
+      el.cancelSubBtn.textContent = "Canceling...";
 
       if (!authToken) {
         requestInFlight = false;
-        cancelBtn.textContent = originalLabel;
+        el.cancelSubBtn.textContent = originalLabel;
         updateButtonAvailability();
         showToast("Unable to cancel — no active session found.");
         return;
       }
 
       try {
-        const res = await fetchWithTimeout(`${WORKER_URL}/api/user/cancel`, {
+        const res = await fetchWithTimeout(WORKER_URL + '/api/user/cancel', {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ authToken })
+          body: JSON.stringify({ authToken: authToken })
         });
 
-        const data = await res.json().catch(() => ({}));
+        let data = {};
+        try { data = await res.json(); } catch (e) { data = {}; }
 
         if (res.status === 401) {
           setSessionExpired(true);
           showToast("Your session expired — please use a fresh access link.");
           return;
         }
-        if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+
+        // 503: Stripe was unreachable, so the Worker left the membership
+        // untouched. Restore the button and say plainly that nothing changed.
+        if (res.status === 503) {
+          requestInFlight = false;
+          el.cancelSubBtn.textContent = originalLabel;
+          updateButtonAvailability();
+          showToast("We couldn't reach Stripe, so nothing was changed. Please try again in a moment.");
+          return;
+        }
+
+        if (!res.ok) throw new Error((data && data.error) || ('HTTP ' + res.status));
 
         clearOverrides();
-        document.getElementById('tokenBalance').textContent = String(data.tokens ?? 0);
+        el.tokenBalance.textContent = String(typeof data.tokens === 'number' ? data.tokens : 0);
         requestInFlight = false;
         applyCanceledState();
 
@@ -1116,58 +1240,74 @@
       } catch (e) {
         console.error("Cancel subscription error:", e);
         requestInFlight = false;
-        cancelBtn.textContent = originalLabel;
+        el.cancelSubBtn.textContent = originalLabel;
         updateButtonAvailability();
-        showToast(e.name === 'AbortError'
+        showToast(isAbort(e)
           ? "That took too long — your subscription was not changed. Please try again."
-          : (e.message || "Unable to cancel. Please try again."));
+          : (e && e.message ? e.message : "Unable to cancel. Please try again."));
       }
     }
+
+    el.cancelSubBtn.addEventListener('click', cancelSubscription);
 
     function applyCanceledState() {
       isCanceled = true;
       requestInFlight = false;
+      currentSkipState = false;
       setSubscriptionBadge("Canceled", true);
-      document.getElementById('cancelSubBtn').textContent = "Subscription Canceled";
-      document.getElementById('renewalStatus').textContent = "Canceled";
+      el.cancelSubBtn.textContent = "Subscription Canceled";
+      el.skipBtn.textContent = "Skip Season";
+      el.renewalStatus.textContent = "Canceled";
       updateButtonAvailability();
     }
 
     function showToast(msg) {
-      const toast = document.getElementById('toast');
-      toast.textContent = msg;
-      toast.style.display = 'block';
-      clearTimeout(showToast._t);
-      showToast._t = setTimeout(() => { toast.style.display = 'none'; }, 5000);
+      el.toast.textContent = msg;
+      el.toast.style.display = 'block';
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(function () { el.toast.style.display = 'none'; }, 5000);
     }
 
     // ---------- Shared chat helpers ----------
     function escapeHtml(str) {
       const div = document.createElement('div');
-      div.textContent = str;
+      div.textContent = str === null || str === undefined ? '' : String(str);
       return div.innerHTML;
     }
 
-    function appendChatBubble(containerId, author, text, cls) {
-      const container = document.getElementById(containerId);
+    function appendChatBubble(author, text, cls) {
       const bubble = document.createElement('div');
-      bubble.className = `chat-bubble ${cls}`;
-      bubble.innerHTML = `<div class="bubble-author">${escapeHtml(author)}</div><div class="bubble-text">${escapeHtml(text)}</div>`;
-      container.appendChild(bubble);
-      container.scrollTop = container.scrollHeight;
+      bubble.className = 'chat-bubble ' + cls;
+
+      const authorEl = document.createElement('div');
+      authorEl.className = 'bubble-author';
+      authorEl.textContent = author;
+
+      const textEl = document.createElement('div');
+      textEl.className = 'bubble-text';
+      // textContent, not innerHTML: the transcript carries client-authored and
+      // model-authored text, neither of which may inject markup.
+      textEl.textContent = text === null || text === undefined ? '' : String(text);
+
+      bubble.appendChild(authorEl);
+      bubble.appendChild(textEl);
+      el.curatorMessages.appendChild(bubble);
+      el.curatorMessages.scrollTop = el.curatorMessages.scrollHeight;
       return bubble;
     }
 
-    // ---------- Curator Space ----------
+    // ---------- Curator Space (M-7) ----------
     // The transcript is rendered from server state, not accumulated by counting
     // appended bubbles. Index arithmetic across "optimistic local bubble",
     // "AI reply in the POST response" and "human reply arriving via poll" is
-    // where duplicate and vanishing messages come from; a signature-gated full
-    // re-render has no such failure mode.
+    // where duplicate and vanishing messages came from; a signature-gated full
+    // re-render has no such failure mode. The signature is
+    // length|lastTs|humanActive — cheap to compute and sensitive to every
+    // change that should repaint the log.
 
     function conversationSignature(messages, humanActive) {
       const last = messages[messages.length - 1];
-      return `${messages.length}|${last ? last.ts : 0}|${humanActive ? 1 : 0}`;
+      return messages.length + '|' + (last ? last.ts : 0) + '|' + (humanActive ? 1 : 0);
     }
 
     function bubbleClsForRole(role) {
@@ -1177,17 +1317,19 @@
     }
 
     function renderConversation(messages) {
-      const container = document.getElementById('curatorMessages');
-      container.innerHTML = '';
-      messages.forEach((m) => {
-        appendChatBubble('curatorMessages', m.author || 'Curator Team', m.text || '', bubbleClsForRole(m.role));
-      });
-      container.scrollTop = container.scrollHeight;
+      el.curatorMessages.innerHTML = '';
+      for (let i = 0; i < messages.length; i++) {
+        const m = messages[i] || {};
+        appendChatBubble(m.author || 'Curator Team', m.text || '', bubbleClsForRole(m.role));
+      }
+      el.curatorMessages.scrollTop = el.curatorMessages.scrollHeight;
     }
 
+    // Guarded so the greeting can never be painted twice — the duplicate
+    // welcome was the most visible symptom of the old render path.
     function showWelcomeBubble() {
       if (curatorWelcomeShown) return;
-      appendChatBubble('curatorMessages', 'Curator Team',
+      appendChatBubble('Curator Team',
         "Welcome back — I'm here for styling questions, allocation requests, or anything about your Le Vase Livre piece. How can I help?",
         'curator');
       curatorWelcomeShown = true;
@@ -1197,10 +1339,12 @@
       if (!authToken || sessionInvalid) return;
       try {
         const res = await fetchWithTimeout(
-          `${WORKER_URL}/api/curator/messages?auth_token=${encodeURIComponent(authToken)}`,
-          {}, 12000
+          WORKER_URL + '/api/curator/messages?auth_token=' + encodeURIComponent(authToken),
+          {}, CHAT_POLL_TIMEOUT_MS
         );
 
+        // M-8: a 401 kills the poll loop outright instead of re-firing every
+        // 7 seconds against a token that will never work again.
         if (res.status === 401) {
           setSessionExpired(true);
           return;
@@ -1231,7 +1375,7 @@
 
     function startCuratorPolling() {
       if (curatorPollTimer || !authToken || sessionInvalid) return;
-      curatorPollTimer = setInterval(() => {
+      curatorPollTimer = setInterval(function () {
         if (document.hidden || chatInFlight) return;
         syncCuratorMessages();
       }, POLL_INTERVAL_MS);
@@ -1244,35 +1388,48 @@
       }
     }
 
-    // Resume immediately on tab focus instead of waiting out a full interval,
-    // and release the timer when the page is backgrounded for good.
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) return;
-      if (sessionInvalid) return;
+    // M-8: release the timer entirely when the tab is hidden, and resync
+    // immediately on focus instead of waiting out a full interval.
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) {
+        stopCuratorPolling();
+        return;
+      }
+      if (sessionInvalid || !authToken) return;
       syncCuratorMessages();
       startCuratorPolling();
     });
 
+    // pagehide covers bfcache suspension and real unloads alike; without it a
+    // restored page could end up with two live intervals.
     window.addEventListener('pagehide', stopCuratorPolling);
 
+    // ---------- Attachments (M-10) ----------
+    function clearAttachment() {
+      curatorPendingFile = null;
+      el.curatorMedia.value = '';
+      el.curatorAttachments.innerHTML = '';
+    }
+
     function handleCuratorMedia(e) {
-      const file = e.target.files[0];
-      const wrap = document.getElementById('curatorAttachments');
-      wrap.innerHTML = '';
+      const file = e.target.files && e.target.files[0];
+      el.curatorAttachments.innerHTML = '';
       curatorPendingFile = null;
       if (!file) return;
 
       // Validate before the file is ever read into memory: base64 inflates by
       // ~33%, so an unchecked 20 MB phone photo becomes a 27 MB JSON body that
-      // the Worker rejects after a long upload — or blows the tab's memory first.
-      if (!ALLOWED_ATTACHMENT_MIMES.includes(file.type)) {
-        e.target.value = '';
+      // the Worker rejects after a long upload — or blows the tab's memory
+      // first. Checking file.type and file.size costs nothing and happens
+      // before FileReader touches the bytes.
+      if (ALLOWED_ATTACHMENT_MIMES.indexOf(file.type) === -1) {
+        el.curatorMedia.value = '';
         showToast("Please attach a photo (PNG, JPEG, WebP or HEIC).");
         return;
       }
       if (file.size > MAX_ATTACHMENT_BYTES) {
-        e.target.value = '';
-        showToast(`That photo is ${(file.size / 1024 / 1024).toFixed(1)} MB — please attach one under 4 MB.`);
+        el.curatorMedia.value = '';
+        showToast("That photo is " + (file.size / 1024 / 1024).toFixed(1) + " MB — please attach one under 4 MB.");
         return;
       }
 
@@ -1280,58 +1437,81 @@
 
       const chip = document.createElement('span');
       chip.className = 'attachment-chip';
-      chip.innerHTML = `${escapeHtml(file.name)} <button type="button" aria-label="Remove attachment">&times;</button>`;
-      chip.querySelector('button').onclick = () => {
-        curatorPendingFile = null;
-        document.getElementById('curatorMedia').value = '';
-        wrap.innerHTML = '';
-      };
-      wrap.appendChild(chip);
+
+      const nameEl = document.createElement('span');
+      nameEl.textContent = file.name;
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.setAttribute('aria-label', 'Remove attachment');
+      removeBtn.innerHTML = '&times;';
+      removeBtn.addEventListener('click', clearAttachment);
+
+      chip.appendChild(nameEl);
+      chip.appendChild(removeBtn);
+      el.curatorAttachments.appendChild(chip);
     }
 
+    el.curatorMedia.addEventListener('change', handleCuratorMedia);
+
     function fileToBase64(file) {
-      return new Promise((resolve, reject) => {
+      return new Promise(function (resolve, reject) {
         const reader = new FileReader();
-        reader.onload = () => {
+        reader.onload = function () {
           const result = String(reader.result || '');
           const comma = result.indexOf(',');
-          comma === -1 ? reject(new Error('Could not read attachment')) : resolve(result.slice(comma + 1));
+          if (comma === -1) {
+            reject(new Error('Could not read attachment'));
+          } else {
+            resolve(result.slice(comma + 1));
+          }
         };
-        reader.onerror = () => reject(new Error('Could not read attachment'));
+        reader.onerror = function () { reject(new Error('Could not read attachment')); };
         reader.readAsDataURL(file);
       });
     }
 
+    // ---------- Send ----------
     async function handleCuratorSend(e) {
       e.preventDefault();
-      const input = document.getElementById('curatorInput');
-      const text = input.value.trim();
+
+      const text = el.curatorInput.value.trim();
       if ((!text && !curatorPendingFile) || chatInFlight) return false;
 
       if (!authToken || sessionInvalid) {
         showToast("Open the portal from your private access link to message your curator.");
         return false;
       }
+      if (text.length > MAX_MESSAGE_CHARS) {
+        showToast("That message is too long — please keep it under 4000 characters.");
+        return false;
+      }
 
       const pendingFile = curatorPendingFile;
       const displayText = pendingFile
-        ? (text ? `${text} 📎 ${pendingFile.name}` : `Sent ${pendingFile.name}`)
+        ? (text ? (text + ' 📎 ' + pendingFile.name) : ('Sent ' + pendingFile.name))
         : text;
 
       // Optimistic bubble; the next sync replaces the whole transcript with
       // server truth, so this can never desynchronise the history.
-      appendChatBubble('curatorMessages', 'You', displayText, 'user');
+      appendChatBubble('You', displayText, 'user');
       curatorWelcomeShown = false;
 
-      input.value = '';
-      curatorPendingFile = null;
-      document.getElementById('curatorMedia').value = '';
-      document.getElementById('curatorAttachments').innerHTML = '';
+      el.curatorInput.value = '';
+      clearAttachment();
 
+      // M-9: chatInFlight only — the billing buttons stay live while the
+      // concierge is thinking.
       chatInFlight = true;
-      const sendBtn = document.getElementById('curatorSendBtn');
-      sendBtn.disabled = true;
-      const typingBubble = appendChatBubble('curatorMessages', 'AI Concierge', 'Thinking...', 'ai typing');
+      el.curatorSendBtn.disabled = true;
+      const typingBubble = appendChatBubble('AI Concierge', 'Thinking...', 'ai typing');
+      let typingRemoved = false;
+      const removeTyping = function () {
+        if (!typingRemoved && typingBubble && typingBubble.parentNode) {
+          typingBubble.parentNode.removeChild(typingBubble);
+        }
+        typingRemoved = true;
+      };
 
       try {
         let imageBase64 = null;
@@ -1341,13 +1521,18 @@
           imageMime = pendingFile.type;
         }
 
-        const res = await fetchWithTimeout(`${WORKER_URL}/api/curator/chat`, {
+        const res = await fetchWithTimeout(WORKER_URL + '/api/curator/chat', {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ authToken, message: text, imageBase64, imageMime })
-        }, 30000);
+          body: JSON.stringify({
+            authToken: authToken,
+            message: text,
+            imageBase64: imageBase64,
+            imageMime: imageMime
+          })
+        }, CHAT_SEND_TIMEOUT_MS);
 
-        typingBubble.remove();
+        removeTyping();
 
         if (res.status === 401) {
           setSessionExpired(true);
@@ -1355,35 +1540,38 @@
           return false;
         }
 
-        const data = await res.json().catch(() => ({}));
+        let data = {};
+        try { data = await res.json(); } catch (err) { data = {}; }
 
         if (!res.ok) {
           // 413 / 415 carry an actionable message; anything else is generic.
-          showToast(data?.error || "Message could not be delivered. Please try again.");
+          showToast((data && data.error) || "Message could not be delivered. Please try again.");
         } else if (data.humanActive || data.degraded) {
-          appendChatBubble('curatorMessages', 'Curator Team',
+          appendChatBubble('Curator Team',
             "Received — a curator is with you and will reply here shortly.", 'curator');
         } else if (data.reply) {
-          appendChatBubble('curatorMessages', 'AI Concierge', data.reply, 'ai');
+          appendChatBubble('AI Concierge', data.reply, 'ai');
         }
 
         // Force the next sync to re-render from the server, whatever happened.
         curatorSignature = null;
       } catch (err) {
         console.error("Curator chat error:", err);
-        typingBubble.remove();
-        showToast(err.name === 'AbortError'
+        removeTyping();
+        showToast(isAbort(err)
           ? "The concierge is taking too long. Your message may still have been received — check back in a moment."
           : "The concierge is unavailable right now. Please try again.");
         curatorSignature = null;
       } finally {
         chatInFlight = false;
-        sendBtn.disabled = !!sessionInvalid;
+        el.curatorSendBtn.disabled = !!sessionInvalid;
         syncCuratorMessages();
       }
 
       return false;
     }
+
+    el.curatorForm.addEventListener('submit', handleCuratorSend);
 
     // ---------- Boot ----------
     loadUserData();
@@ -1393,6 +1581,7 @@
     } else {
       showWelcomeBubble();
     }
+  })();
   </script>
 </body>
 </html>
