@@ -21,8 +21,15 @@ const MAX_MESSAGE_CHARS = 4000;
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // M-10
 const MAX_IMAGE_B64_CHARS = Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 1024;
 const MAX_JSON_BODY_BYTES = 8 * 1024 * 1024;
+// A-4: Stripe events are small. Anything larger is not a real event, and the
+// cap is applied before request.text() so an oversized body is never buffered.
+const MAX_WEBHOOK_BODY_BYTES = 256 * 1024;
 const ALLOWED_IMAGE_MIMES = ["image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"];
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+// CORS: the portal is served from exactly one origin. A wildcard let any page
+// on the internet issue credentialed-by-token calls against this Worker.
+const DEFAULT_PORTAL_ORIGIN = "https://springrenaissance.store";
 
 // M-9: every outbound call is bounded. A hung upstream must never hold a
 // Worker invocation (and the client's UI) open indefinitely.
@@ -40,10 +47,12 @@ const RENEWAL_TOKEN_GRANT = 20;
 export default {
   async fetch(request, env) {
     const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Origin": env.PORTAL_ORIGIN || DEFAULT_PORTAL_ORIGIN,
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Admin-Secret",
       "Access-Control-Max-Age": "86400",
+      // The allowed origin is configurable, so caches must key on Origin.
+      "Vary": "Origin",
     };
 
     const json = (obj, status = 200, extraHeaders = {}) =>
@@ -55,6 +64,10 @@ export default {
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
+
+    // A-1: set once the event key is reserved, so the catch block below can
+    // hand the event back to Stripe instead of leaving a poison reservation.
+    let reservedEventId = null;
 
     try {
       const url = new URL(request.url);
@@ -109,7 +122,12 @@ export default {
         const userData = { ...resolved.userData };
         userData.email = userData.email || resolved.email;
         userData.skipped = skipped;
-        userData.status = skipped ? "Paused (Offline)" : "Active";
+        // A-3: "Past Due" is a billing state only Stripe may clear. The skip
+        // toggle may still be used, but it must never launder a failed payment
+        // back into "Active" — that would restore allocation without money.
+        userData.status = resolved.userData.status === "Past Due"
+          ? "Past Due"
+          : (skipped ? "Paused (Offline)" : "Active");
         userData.updatedAt = Date.now();
         await env.CLIENT_KV.put(userKey, JSON.stringify(userData));
 
@@ -223,7 +241,22 @@ export default {
         userData.skipped = false;
         userData.canceledAt = Date.now();
         userData.updatedAt = Date.now();
+        // A-6: a cancelled client must lose portal access. Every magic token
+        // issued up to now is revoked by timestamp (resolveUserByToken checks
+        // it), which covers links from earlier checkouts that are still inside
+        // their 35-day TTL and whose ids we no longer have.
+        userData.magicRevokedBefore = Date.now();
         await env.CLIENT_KV.put(userKey, JSON.stringify(userData));
+
+        // Drop the presented token outright so it stops resolving immediately,
+        // without waiting on KV read-after-write propagation of the record above.
+        if (typeof body.authToken === "string" && body.authToken) {
+          try {
+            await env.CLIENT_KV.delete(`magic_${body.authToken}`);
+          } catch (e) {
+            console.error("Failed to revoke magic token on cancel", e);
+          }
+        }
 
         return json({
           success: true,
@@ -274,23 +307,26 @@ export default {
         const convoKey = `curator_${resolved.email}`;
         const convo = await readConversation(convoKey, env);
 
-        convo.messages.push({
+        const userMessage = {
           author: "You",
           role: "user",
           text: message || "[photo]",
           ts: Date.now()
-        });
+        };
+
+        // A-5: persist the client's message immediately via merge-on-write, so
+        // it is visible to a curator polling during the Gemini round-trip and
+        // cannot be clobbered by a concurrent human-reply write.
+        await appendConversationMessages(convoKey, [userMessage], env);
 
         // A human curator has taken over: queue the message, never answer over them.
         if (convo.humanActiveUntil && convo.humanActiveUntil > Date.now()) {
-          await writeConversation(convoKey, convo, env);
           return json({ queued: true, humanActive: true });
         }
 
         if (!env.GEMINI_API_KEY) {
-          // Persist the client's message even when the AI is down, so a human
-          // curator still sees it. Losing the message is the worse failure.
-          await writeConversation(convoKey, convo, env);
+          // The client's message is already stored, so a human curator still
+          // sees it. Losing the message is the worse failure.
           console.error("GEMINI_API_KEY missing");
           return json({ queued: true, humanActive: false, degraded: true });
         }
@@ -303,8 +339,18 @@ export default {
           env
         });
 
-        convo.messages.push({ author: "AI Concierge", role: "assistant", text: replyText, ts: Date.now() });
-        await writeConversation(convoKey, convo, env);
+        // A-5: Gemini can take up to 25s. Re-read before writing — if a curator
+        // took over in the meantime, the AI must not talk over them.
+        const afterGeneration = await readConversation(convoKey, env);
+        if (afterGeneration.humanActiveUntil && afterGeneration.humanActiveUntil > Date.now()) {
+          return json({ queued: true, humanActive: true, aiReplySuppressed: true });
+        }
+
+        await appendConversationMessages(
+          convoKey,
+          [{ author: "AI Concierge", role: "assistant", text: replyText, ts: Date.now() }],
+          env
+        );
 
         return json({ reply: replyText, humanActive: false });
       }
@@ -356,13 +402,17 @@ export default {
         const minutes = clampTakeoverMinutes(takeoverMinutes);
 
         const convoKey = `curator_${email}`;
-        const convo = await readConversation(convoKey, env);
 
-        convo.messages.push({ author: "Curator", role: "curator", text: message, ts: Date.now() });
-        convo.humanActiveUntil = Date.now() + minutes * 60000;
-        await writeConversation(convoKey, convo, env);
+        // A-5: merge-on-write. A client message landing at the same instant is
+        // re-read and preserved instead of being overwritten by this reply.
+        const written = await appendConversationMessages(
+          convoKey,
+          [{ author: "Curator", role: "curator", text: message, ts: Date.now() }],
+          env,
+          { humanActiveUntil: Date.now() + minutes * 60000 }
+        );
 
-        return json({ success: true, takeoverMinutes: minutes, humanActiveUntil: convo.humanActiveUntil });
+        return json({ success: true, takeoverMinutes: minutes, humanActiveUntil: written.humanActiveUntil });
       }
 
       if (request.method !== "POST") {
@@ -378,6 +428,14 @@ export default {
       // magic link for an address they control, or forge
       // customer.subscription.deleted to wipe a paying client's account.
       // ================================================================
+      // A-4: bound the body on its declared length BEFORE reading it or
+      // spending an HMAC on it. A missing or malformed Content-Length is
+      // rejected outright rather than being read optimistically.
+      if (!contentLengthWithin(request, MAX_WEBHOOK_BODY_BYTES)) {
+        console.error("Webhook rejected on Content-Length:", request.headers.get("Content-Length"));
+        return json({ error: "Payload too large or length not declared" }, 413);
+      }
+
       const bodyText = await request.text();
 
       if (!env.STRIPE_WEBHOOK_SECRET) {
@@ -406,22 +464,32 @@ export default {
       const eventType = payload.type;
       const stripeObj = (payload.data && payload.data.object) || {};
 
-      // M-5: idempotency. Stripe retries on any non-2xx and can deliver the
-      // same event more than once even on success; without this, one renewal
-      // can credit +20 tokens several times.
+      // M-5 + A-1: idempotency by reservation. Stripe retries on any non-2xx
+      // and can deliver the same event more than once even on success.
+      //
+      // The reservation is written BEFORE any side effect. The old code marked
+      // the event only after the work was done, so two concurrent deliveries
+      // of one renewal both read "not seen" and both credited +20. Reserving
+      // first shrinks that window to the single get/put round-trip; KV has no
+      // compare-and-set, so this is a narrow race, not a closed one.
+      //
+      // Any branch that ends without applying the event releases the
+      // reservation, so a transient failure does not permanently swallow it.
       if (eventId) {
         const seen = await env.CLIENT_KV.get(`evt_${eventId}`);
         if (seen) {
           return json({ received: true, duplicate: true });
         }
+        await env.CLIENT_KV.put(`evt_${eventId}`, String(Date.now()), {
+          expirationTtl: WEBHOOK_EVENT_TTL_SECONDS
+        });
+        reservedEventId = eventId;
       }
 
-      const markProcessed = async () => {
-        if (eventId) {
-          await env.CLIENT_KV.put(`evt_${eventId}`, String(Date.now()), {
-            expirationTtl: WEBHOOK_EVENT_TTL_SECONDS
-          });
-        }
+      // Hand the event back to Stripe: used where nothing was applied.
+      const releaseEvent = async () => {
+        await releaseReservation(reservedEventId, env);
+        reservedEventId = null;
       };
 
       // ---- 1. Subscription canceled in Stripe (C-2) -------------------
@@ -446,22 +514,69 @@ export default {
           existingUser.updatedAt = Date.now();
           await env.CLIENT_KV.put(userKey, JSON.stringify(existingUser));
         } else {
-          // Do NOT mark processed: without an email nothing was applied, so
-          // let Stripe retry — the cust_ index may exist by then.
+          // Nothing was applied, so release the reservation and let Stripe
+          // retry — the cust_ index may exist by then.
           console.error("subscription canceled but no email resolved for customer", stripeObj.customer);
+          await releaseEvent();
           return json({ received: true, action: "subscription_canceled", applied: false });
         }
 
-        await markProcessed();
         return json({ received: true, action: "subscription_canceled", applied: true });
+      }
+
+      // ---- 1b. Payment failed: past_due / unpaid (A-3) -----------------
+      // Stripe keeps billing a past_due subscription for the whole dunning
+      // window. Leaving the portal on "Active" through that window let a
+      // client with a dead card keep their allocation and keep spending
+      // tokens as though the month had been paid.
+      if (
+        eventType === "invoice.payment_failed" ||
+        (eventType === "customer.subscription.updated" &&
+          (stripeObj.status === "past_due" || stripeObj.status === "unpaid"))
+      ) {
+        const email = await resolveEmailForCustomer(stripeObj, env);
+        if (!email) {
+          console.error("payment failure with no resolvable email", stripeObj.customer);
+          await releaseEvent();
+          return json({ received: true, action: "payment_past_due", applied: false });
+        }
+
+        const userKey = `user_${email}`;
+        const existingUser = (await env.CLIENT_KV.get(userKey, { type: "json" })) || {};
+
+        // Cancellation is terminal and outranks a dunning notice that was
+        // already in flight when the client cancelled.
+        if (existingUser.status === "Canceled") {
+          return json({ received: true, action: "payment_past_due", applied: false, reason: "Membership canceled" });
+        }
+
+        existingUser.email = existingUser.email || email;
+        existingUser.status = "Past Due";
+        existingUser.pastDueAt = Date.now();
+        existingUser.updatedAt = Date.now();
+        await env.CLIENT_KV.put(userKey, JSON.stringify(existingUser));
+
+        return json({ received: true, action: "payment_past_due", applied: true });
       }
 
       // ---- 2. Initial checkout ----------------------------------------
       if (eventType === "checkout.session.completed") {
+        // A-2: only a subscription checkout grants membership. The studio also
+        // sells the vase outright at $50; that session is a one-off purchase
+        // and previously minted a magic link, 20 tokens and an "Active"
+        // membership for a client who had never subscribed.
+        if (stripeObj.mode !== "subscription") {
+          await releaseEvent();
+          return json({
+            ignored: true,
+            reason: `Checkout session mode is "${String(stripeObj.mode || "unknown")}", not a subscription`
+          });
+        }
+
         // Only a genuinely paid session issues portal access and tokens. An
         // unpaid or async-pending session must not mint a magic link.
         if (stripeObj.payment_status !== "paid") {
-          await markProcessed();
+          await releaseEvent();
           return json({
             ignored: true,
             reason: `Checkout session payment_status is "${String(stripeObj.payment_status || "unknown")}"`
@@ -473,7 +588,7 @@ export default {
         );
         if (!customerEmail) {
           console.error("checkout.session.completed with no email", stripeObj.id);
-          await markProcessed();
+          await releaseEvent();
           return json({ ignored: true, reason: "No email on checkout session" });
         }
 
@@ -485,7 +600,6 @@ export default {
           env
         });
 
-        await markProcessed();
         return json(result);
       }
 
@@ -497,19 +611,18 @@ export default {
         // (a duplicate "your portal link" email the client could not match to
         // anything).
         if (stripeObj.billing_reason === "subscription_create") {
-          await markProcessed();
           return json({ ignored: true, reason: "Initial invoice handled by checkout.session.completed" });
         }
 
         if ((stripeObj.amount_paid || 0) < RENEWAL_MIN_AMOUNT_CENTS) {
-          await markProcessed();
           return json({ ignored: true, reason: "Payment amount less than $20" });
         }
 
         const customerEmail = await resolveEmailForCustomer(stripeObj, env);
         if (!customerEmail) {
-          // Unresolvable: let Stripe retry rather than dropping a real payment.
+          // Unresolvable: release so Stripe retries rather than dropping a real payment.
           console.error("renewal with no resolvable email", stripeObj.customer);
+          await releaseEvent();
           return json({ ignored: true, reason: "No email resolved" });
         }
 
@@ -520,7 +633,6 @@ export default {
         const existingUser = await env.CLIENT_KV.get(userKey, { type: "json" });
 
         if (existingUser && existingUser.status === "Canceled") {
-          await markProcessed();
           return json({ ignored: true, reason: "Subscription canceled. Recurring tokens blocked." });
         }
 
@@ -535,7 +647,10 @@ export default {
           stripeCustomerId,
           stripeSubscriptionId: extractSubscriptionId(stripeObj) || base.stripeSubscriptionId || null,
           tokens: (typeof base.tokens === "number" ? base.tokens : 0) + RENEWAL_TOKEN_GRANT,
-          status: base.skipped ? (base.status || "Active") : "Active",
+          // A-3: a successful renewal clears "Past Due". A skipped member stays
+          // paused; everyone else goes back to Active.
+          status: base.skipped ? "Paused (Offline)" : "Active",
+          pastDueAt: null,
           updatedAt: Date.now()
         }));
 
@@ -543,17 +658,24 @@ export default {
         // customer.subscription.deleted never needs the Stripe API round-trip.
         await indexCustomerEmail(stripeCustomerId, customerEmail, env);
 
-        await markProcessed();
         return json({ success: true, message: `Tokens credited (+${RENEWAL_TOKEN_GRANT})` });
       }
 
-      await markProcessed();
       return json({ received: true, ignored: true, reason: `Unhandled event type ${String(eventType)}` });
 
     } catch (err) {
       // M-13: never echo err.message to the caller — it leaks internals (KV
       // keys, upstream URLs, secret names) from an endpoint anyone can hit.
       console.error("Unhandled worker error:", err && err.stack ? err.stack : err);
+
+      // A-1: the reservation was taken before the side effects that just threw.
+      // Releasing it lets Stripe's retry actually re-run the handler instead of
+      // being turned away as a duplicate, which would drop the event for good.
+      if (reservedEventId) {
+        await releaseReservation(reservedEventId, env);
+        reservedEventId = null;
+      }
+
       return new Response(JSON.stringify({ error: "Internal error" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
@@ -570,15 +692,41 @@ function normalizeEmail(email) {
   return typeof email === "string" ? email.toLowerCase().trim() : "";
 }
 
+// A-4: a body is acceptable only when its length is declared, well-formed and
+// within budget. The previous check let a request with no Content-Length — or
+// a header of "1e9", "0x10", " " — through to be buffered in full, because
+// Number.isFinite(NaN) is false and the guard fell open.
+function contentLengthWithin(request, maxBytes) {
+  const raw = request.headers.get("Content-Length");
+  if (raw === null || raw.trim() === "") return false;
+  // Number("") is 0 and Number(" 12 ") is 12, so parse the trimmed digits only.
+  if (!/^\d+$/.test(raw.trim())) return false;
+  const declared = Number(raw.trim());
+  if (!Number.isInteger(declared) || declared < 0) return false;
+  return declared <= maxBytes;
+}
+
 async function readJson(request, maxBytes = MAX_JSON_BODY_BYTES) {
-  // Reject an oversized body on the declared length before buffering it.
-  const declared = Number(request.headers.get("Content-Length"));
-  if (Number.isFinite(declared) && declared > maxBytes) return null;
+  // Reject an oversized or undeclared body before buffering it.
+  if (!contentLengthWithin(request, maxBytes)) return null;
   try {
     const body = await request.json();
     return body && typeof body === "object" && !Array.isArray(body) ? body : null;
   } catch (e) {
     return null;
+  }
+}
+
+// A-1: hand a reserved event back to Stripe. Called from every branch that
+// ends without applying the event, and from the top-level catch.
+async function releaseReservation(eventId, env) {
+  if (!eventId || !env.CLIENT_KV) return;
+  try {
+    await env.CLIENT_KV.delete(`evt_${eventId}`);
+  } catch (e) {
+    // Worst case the event is treated as a duplicate on retry — log it so the
+    // dropped event is at least visible.
+    console.error("Failed to release webhook reservation", eventId, e);
   }
 }
 
@@ -624,6 +772,13 @@ async function resolveUserByToken(authToken, env) {
   const email = normalizeEmail(magicData.email);
   if (!email) return null;
   const userData = (await env.CLIENT_KV.get(`user_${email}`, { type: "json" })) || { email };
+
+  // A-6 / A-11: bulk revocation. Cancelling stamps magicRevokedBefore, which
+  // invalidates every link issued up to that moment — including ones whose
+  // token ids we never recorded and which are still inside their 35-day TTL.
+  const revokedBefore = Number(userData.magicRevokedBefore) || 0;
+  if (revokedBefore && (Number(magicData.createdAt) || 0) <= revokedBefore) return null;
+
   return { email, userData };
 }
 
@@ -721,14 +876,49 @@ async function readConversation(convoKey, env) {
   };
 }
 
-async function writeConversation(convoKey, convo, env) {
-  if (convo.messages.length > MAX_CURATOR_MESSAGES) {
-    convo.messages = convo.messages.slice(-MAX_CURATOR_MESSAGES);
+function messageFingerprint(m) {
+  return `${(m && m.ts) || 0}|${(m && m.role) || ""}|${(m && m.text) || ""}`;
+}
+
+// A-5: merge-on-write. The chat and human-reply handlers both read the
+// transcript, append to it and write the whole array back; a curator replying
+// while a client was mid-send simply lost one of the two messages. Re-reading
+// immediately before the put and merging on a (ts|role|text) fingerprint
+// shrinks that window to the put itself and makes a retried append a no-op.
+//
+// humanActiveUntil only ever moves forward, so a stale in-flight write cannot
+// shorten a takeover a curator has just extended.
+async function appendConversationMessages(convoKey, additions, env, opts = {}) {
+  const fresh = await readConversation(convoKey, env);
+
+  // Dedup across the whole merged result, not just the additions: a duplicate
+  // that a lost race wrote earlier is cleaned up on the next append instead of
+  // being carried forever.
+  const merged = [];
+  const seen = new Set();
+  for (const m of fresh.messages.concat(additions)) {
+    const fingerprint = messageFingerprint(m);
+    if (seen.has(fingerprint)) continue;
+    seen.add(fingerprint);
+    merged.push(m);
   }
+
+  // M-14: the cap still applies to the merged result.
+  const capped = merged.length > MAX_CURATOR_MESSAGES
+    ? merged.slice(-MAX_CURATOR_MESSAGES)
+    : merged;
+
+  const humanActiveUntil = Math.max(
+    Number(fresh.humanActiveUntil) || 0,
+    Number(opts.humanActiveUntil) || 0
+  );
+
   await env.CLIENT_KV.put(convoKey, JSON.stringify({
-    messages: convo.messages,
-    humanActiveUntil: convo.humanActiveUntil || 0
+    messages: capped,
+    humanActiveUntil
   }));
+
+  return { messages: capped, humanActiveUntil };
 }
 
 // ---- Stripe webhook signature (C-1) ---------------------------------------

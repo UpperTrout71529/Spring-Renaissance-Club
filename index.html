@@ -782,6 +782,7 @@
     // ---------- State ----------
     let currentSkipState = false;
     let isCanceled = false;
+    let isPastDue = false;            // A-10: a failed payment outranks the skip badge
     let sessionInvalid = false;
     // M-9: the two in-flight flags are deliberately separate. Sharing one flag
     // meant a slow AI reply locked the billing controls, and a slow cancel
@@ -816,16 +817,33 @@
       return !!err && (err.name === 'AbortError' || err.code === 20);
     }
 
-    // ---------- localStorage override helpers (scoped per auth_token) ----------
-    function overrideKey() {
-      return 'sr_override_' + authToken;
-    }
+    // ---------- Optimistic override storage (A-8) ----------
+    // These used to live in localStorage under 'sr_override_' + authToken. That
+    // wrote the bearer token into a key name that survives the tab, the browser
+    // restart and the client walking away from a shared machine — and it left a
+    // key behind for every link ever opened. The state now lives in
+    // sessionStorage under one constant key: same tab lifetime as the token
+    // itself, nothing token-derived on disk.
+    const OVERRIDE_KEY = 'sr_override_state';
+    const EMPTY_OVERRIDES = { status: null, skipped: null, timestamp: 0 };
+
+    // One-time sweep of the old token-named keys left by previous versions.
+    (function purgeLegacyOverrideKeys() {
+      try {
+        const stale = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.indexOf('sr_override_') === 0) stale.push(key);
+        }
+        for (let i = 0; i < stale.length; i++) localStorage.removeItem(stale[i]);
+      } catch (e) { /* storage blocked — nothing to purge */ }
+    })();
 
     function getOverrides() {
-      if (!authToken) return { status: null, skipped: null, timestamp: 0 };
+      if (!authToken) return EMPTY_OVERRIDES;
       try {
-        const raw = localStorage.getItem(overrideKey());
-        if (!raw) return { status: null, skipped: null, timestamp: 0 };
+        const raw = sessionStorage.getItem(OVERRIDE_KEY);
+        if (!raw) return EMPTY_OVERRIDES;
         const parsed = JSON.parse(raw);
         return {
           status: parsed && parsed.status !== undefined ? parsed.status : null,
@@ -833,7 +851,7 @@
           timestamp: (parsed && parsed.timestamp) || 0
         };
       } catch (e) {
-        return { status: null, skipped: null, timestamp: 0 };
+        return EMPTY_OVERRIDES;
       }
     }
 
@@ -841,7 +859,7 @@
       if (!authToken) return;
       try {
         const current = getOverrides();
-        localStorage.setItem(overrideKey(), JSON.stringify({
+        sessionStorage.setItem(OVERRIDE_KEY, JSON.stringify({
           status: next.status !== undefined ? next.status : current.status,
           skipped: next.skipped !== undefined ? next.skipped : current.skipped,
           timestamp: Date.now()
@@ -850,8 +868,7 @@
     }
 
     function clearOverrides() {
-      if (!authToken) return;
-      try { localStorage.removeItem(overrideKey()); } catch (e) {}
+      try { sessionStorage.removeItem(OVERRIDE_KEY); } catch (e) {}
     }
 
     // M-12: reconcile a fresh server read against any pending optimistic override.
@@ -991,11 +1008,18 @@
         // Recover from a previously-cancelled render if the server now says
         // otherwise (e.g. the client re-subscribed through Stripe checkout).
         isCanceled = false;
+        // A-10: Stripe keeps retrying a past_due subscription for the whole
+        // dunning window, so the client needs to see it rather than a badge
+        // that still reads "Active".
+        isPastDue = status === "Past Due";
         el.cancelSubBtn.textContent = "Cancel Subscription";
         setOfflineState(!!data.skipped || status === "Paused (Offline)");
       }
 
-      el.renewalStatus.textContent = status === "Canceled" ? "Canceled" : "Active — renews monthly";
+      el.renewalStatus.textContent =
+        status === "Canceled" ? "Canceled"
+          : status === "Past Due" ? "Payment due — please update your card"
+            : "Active — renews monthly";
       el.nextBillingDate.textContent = data.nextBillingDate || "Managed in Stripe";
       el.cardOnFile.textContent = data.cardLast4 ? ('•••• ' + data.cardLast4) : "Managed in Stripe";
       el.tokenBalance.textContent = (typeof data.tokens === 'number') ? String(data.tokens) : "—";
@@ -1017,6 +1041,11 @@
         }
         clearOverrides();
         try { sessionStorage.removeItem('sr_auth_token'); } catch (e) {}
+      } else if (authToken) {
+        // A-9: recovering from a 401 (or booting with a good token) must bring
+        // the poll loop back. Without this, one transient 401 killed the timer
+        // for the rest of the page's life and the chat silently went stale.
+        startCuratorPolling();
       }
       updateButtonAvailability();
     }
@@ -1160,11 +1189,15 @@
     function setOfflineState(isOffline) {
       currentSkipState = !!isOffline;
 
-      if (isOffline) {
-        el.skipBtn.textContent = "Reactivate Season";
+      el.skipBtn.textContent = isOffline ? "Reactivate Season" : "Skip Season";
+
+      // A-10: an unpaid invoice is the more urgent fact — it wins the badge
+      // over both "Active" and "Paused (Offline)".
+      if (isPastDue) {
+        setSubscriptionBadge("Payment Due", true);
+      } else if (isOffline) {
         setSubscriptionBadge("Paused (Offline)", true);
       } else {
-        el.skipBtn.textContent = "Skip Season";
         setSubscriptionBadge("Active", false);
       }
     }
@@ -1252,6 +1285,7 @@
 
     function applyCanceledState() {
       isCanceled = true;
+      isPastDue = false;              // cancellation supersedes a dunning badge
       requestInFlight = false;
       currentSkipState = false;
       setSubscriptionBadge("Canceled", true);
@@ -1269,12 +1303,9 @@
     }
 
     // ---------- Shared chat helpers ----------
-    function escapeHtml(str) {
-      const div = document.createElement('div');
-      div.textContent = str === null || str === undefined ? '' : String(str);
-      return div.innerHTML;
-    }
-
+    // A-10: there is no escapeHtml here any more. Every value that reaches the
+    // DOM goes through textContent, so an escaping helper is dead weight that
+    // invites someone to reintroduce an innerHTML path later.
     function appendChatBubble(author, text, cls) {
       const bubble = document.createElement('div');
       bubble.className = 'chat-bubble ' + cls;
@@ -1403,6 +1434,18 @@
     // pagehide covers bfcache suspension and real unloads alike; without it a
     // restored page could end up with two live intervals.
     window.addEventListener('pagehide', stopCuratorPolling);
+
+    // A-7: pagehide is half the pair. A page restored from the bfcache (mobile
+    // back-navigation, tab switching on iOS) fires pageshow but not
+    // visibilitychange, so the timer torn down on pagehide was never rebuilt
+    // and the client sat on a frozen transcript until a reload.
+    window.addEventListener('pageshow', function (e) {
+      if (sessionInvalid || !authToken) return;
+      if (e.persisted || !document.hidden) {
+        syncCuratorMessages();
+        startCuratorPolling();
+      }
+    });
 
     // ---------- Attachments (M-10) ----------
     function clearAttachment() {
