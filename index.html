@@ -871,12 +871,21 @@
       try { sessionStorage.removeItem(OVERRIDE_KEY); } catch (e) {}
     }
 
-    // M-12: reconcile a fresh server read against any pending optimistic override.
+    // M-12 / B-4: reconcile a fresh server read against any pending optimistic
+    // override.
+    //
+    // "Canceled" and "Past Due" are both billing states that only Stripe may
+    // set or clear, so they are always server-authoritative. A stale local
+    // override must never paint them back as Active — that was how a cancelled
+    // client kept seeing a working Skip button, and how a client whose card had
+    // just failed saw "Active" for the two-minute override window because their
+    // own skip toggle had written one.
+    function isServerAuthoritativeStatus(status) {
+      return status === "Canceled" || status === "Past Due";
+    }
+
     function reconcileWithOverrides(serverData) {
-      // "Canceled" is terminal and always server-authoritative. A stale local
-      // override must never paint a cancelled membership as Active again —
-      // that was how a cancelled client kept seeing a working Skip button.
-      if (serverData && serverData.status === "Canceled") {
+      if (serverData && isServerAuthoritativeStatus(serverData.status)) {
         clearOverrides();
         return serverData;
       }
@@ -885,8 +894,8 @@
       const hasOverride = ov.status !== null || ov.skipped !== null;
       if (!hasOverride) return serverData;
 
-      // An override that names Canceled is likewise never replayed onto the UI.
-      if (ov.status === "Canceled") {
+      // An override naming one of those states is likewise never replayed.
+      if (isServerAuthoritativeStatus(ov.status)) {
         clearOverrides();
         return serverData;
       }
