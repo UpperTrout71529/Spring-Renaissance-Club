@@ -19,6 +19,7 @@
       --border-color: #EAE5DF;
       --border-dark: #D4CDC5;
       --danger: #9E4A4A;
+      --wash: #F4EFEA;
     }
 
     * {
@@ -41,12 +42,15 @@
 
     @keyframes pageFadeIn { to { opacity: 1; } }
 
+    /* ---------- Header ---------- */
     header {
       width: 100%;
       padding: 16px 20px;
       display: flex;
-      justify-content: flex-end;
+      justify-content: space-between;
       align-items: center;
+      flex-wrap: wrap;
+      row-gap: 8px;
       background-color: rgba(251, 249, 244, 0.92);
       backdrop-filter: blur(10px);
       position: sticky;
@@ -60,7 +64,21 @@
       transform: translateY(-100%);
     }
 
-    /* Subscription status pill — replaces the old token wallet badge */
+    .brand-mark {
+      font-family: 'Cormorant Garamond', serif;
+      font-style: italic;
+      font-size: 15px;
+      letter-spacing: 0.5px;
+      color: var(--text-main);
+      white-space: nowrap;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
     .sub-status-badge {
       display: inline-flex;
       align-items: center;
@@ -70,6 +88,7 @@
       padding: 6px 14px;
       border-radius: 30px;
       box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+      white-space: nowrap;
     }
 
     .status-dot {
@@ -78,11 +97,10 @@
       border-radius: 50%;
       background-color: var(--accent);
       transition: background-color 0.2s ease;
+      flex-shrink: 0;
     }
 
-    .status-dot.offline {
-      background-color: var(--danger);
-    }
+    .status-dot.offline { background-color: var(--danger); }
 
     .sub-status-label {
       font-size: 11px;
@@ -91,6 +109,131 @@
       color: var(--text-main);
     }
 
+    .menu-trigger {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--text-main);
+      padding: 6px 2px;
+    }
+
+    .burger-icon {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      width: 18px;
+    }
+
+    .burger-icon span {
+      display: block;
+      height: 1.5px;
+      background: var(--text-main);
+      transition: transform 0.3s ease, opacity 0.3s ease;
+    }
+
+    .menu-trigger.active .burger-icon span:nth-child(1) { transform: translateY(5.5px) rotate(45deg); }
+    .menu-trigger.active .burger-icon span:nth-child(2) { opacity: 0; }
+    .menu-trigger.active .burger-icon span:nth-child(3) { transform: translateY(-5.5px) rotate(-45deg); }
+
+    @media (max-width: 420px) {
+      .menu-text { display: none; }
+      .brand-mark { font-size: 13px; }
+      .sub-status-badge { padding: 5px 10px; }
+    }
+
+    /* ---------- Drawer ---------- */
+    .drawer-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(44, 42, 41, 0.35);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+      z-index: 150;
+    }
+
+    .drawer-overlay.open { opacity: 1; pointer-events: auto; }
+
+    .drawer {
+      position: fixed;
+      top: 0;
+      right: 0;
+      height: 100dvh;
+      width: min(340px, 86vw);
+      background: var(--card-bg);
+      border-left: 1px solid var(--border-color);
+      box-shadow: -10px 0 30px rgba(0,0,0,0.06);
+      transform: translateX(100%);
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .drawer.open { transform: translateX(0); }
+
+    .drawer-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 22px 24px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .drawer-eyebrow {
+      font-size: 9px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .drawer-close {
+      background: none;
+      border: none;
+      font-size: 22px;
+      line-height: 1;
+      color: var(--text-main);
+      cursor: pointer;
+      padding: 4px;
+    }
+
+    .drawer-links { list-style: none; padding: 12px 0; overflow-y: auto; }
+    .drawer-links li { border-bottom: 1px solid var(--border-color); }
+
+    .drawer-link {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 20px;
+      font-weight: 400;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--text-main);
+      padding: 18px 26px;
+      transition: color 0.2s ease, padding-left 0.2s ease;
+    }
+
+    .drawer-link:hover, .drawer-link:focus-visible {
+      color: var(--accent);
+      padding-left: 32px;
+    }
+
+    .drawer-link.active { color: var(--accent); font-weight: 600; }
+
+    /* ---------- Layout ---------- */
     main {
       max-width: 640px;
       width: 100%;
@@ -99,32 +242,12 @@
       flex-grow: 1;
     }
 
-    .welcome-header {
-      text-align: center;
-      margin-bottom: 32px;
-    }
-
-    .welcome-sub {
-      font-size: 9px;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      color: var(--accent);
-      font-weight: 600;
-      margin-bottom: 6px;
-    }
-
-    .welcome-title {
-      font-family: 'Cormorant Garamond', serif;
-      font-size: 32px;
-      font-weight: 400;
-      letter-spacing: 0.5px;
-      margin-bottom: 6px;
-    }
-
-    .client-email {
-      font-size: 12px;
+    .client-line {
+      font-size: 11px;
       color: var(--text-muted);
       font-weight: 300;
+      text-align: center;
+      margin-bottom: 20px;
     }
 
     .session-banner {
@@ -142,12 +265,41 @@
       margin-bottom: 16px;
     }
 
-    .portal-grid {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
+    /* ---------- Views ---------- */
+    .view[hidden] { display: none; }
+    .view-enter { animation: viewFadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+    @keyframes viewFadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+    .view { display: flex; flex-direction: column; gap: 16px; }
+
+    .view-header { margin-bottom: 4px; }
+
+    .view-eyebrow {
+      font-size: 9px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 600;
+      margin-bottom: 6px;
     }
 
+    .view-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 28px;
+      font-weight: 400;
+      letter-spacing: 0.3px;
+      line-height: 1.2;
+    }
+
+    .view-intro {
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--text-muted);
+      font-weight: 300;
+      margin-top: -8px;
+    }
+
+    /* ---------- Cards ---------- */
     .card {
       background-color: var(--card-bg);
       border: 1px solid var(--border-color);
@@ -172,17 +324,14 @@
       font-size: 9px;
       padding: 3px 8px;
       border-radius: 12px;
-      background: #F4EFEA;
+      background: var(--wash);
       color: var(--accent);
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
 
-    .status-badge.offline {
-      background: #F5EBEB;
-      color: var(--danger);
-    }
+    .status-badge.offline { background: #F5EBEB; color: var(--danger); }
 
     .card-title {
       font-family: 'Cormorant Garamond', serif;
@@ -199,6 +348,64 @@
       margin-bottom: 20px;
       font-weight: 300;
     }
+
+    .capsule-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      font-size: 11px;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border-color);
+      padding-top: 12px;
+    }
+
+    .capsule-meta strong, .card-desc + div strong { color: var(--text-main); font-weight: 500; }
+
+    .capsule-meta + .btn { margin-top: 20px; }
+
+    .rule-banner {
+      background: var(--wash);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 18px 20px;
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--text-muted);
+    }
+
+    .rule-banner strong { color: var(--text-main); }
+    .rule-banner p + p { margin-top: 8px; }
+
+    .billing-meta {
+      margin: 16px 0 20px;
+      border-top: 1px solid var(--border-color);
+      padding-top: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .billing-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--text-muted); }
+    .billing-row strong { color: var(--text-main); font-weight: 500; text-align: right; }
+
+    /* ---------- Form controls ---------- */
+    .text-input {
+      flex: 1 1 160px;
+      min-width: 0;
+      padding: 12px 14px;
+      border: 1px solid var(--border-dark);
+      border-radius: 6px;
+      font-family: 'Inter', sans-serif;
+      font-size: 12px;
+      color: var(--text-main);
+      background: var(--card-bg);
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+
+    .text-input:focus { border-color: var(--accent); }
+
+    .track-form { display: flex; gap: 10px; flex-wrap: wrap; }
 
     .btn {
       appearance: none;
@@ -217,16 +424,11 @@
       transition: all 0.2s ease;
     }
 
-    .btn:disabled {
-      opacity: 0.6;
-      cursor: default;
-    }
+    .btn:disabled { opacity: 0.6; cursor: default; }
 
-    .btn-secondary {
-      background-color: transparent;
-      color: var(--text-main);
-      border-color: var(--border-dark);
-    }
+    .btn-secondary { background-color: transparent; color: var(--text-main); border-color: var(--border-dark); }
+
+    .btn-auto { width: auto; flex: 0 0 auto; }
 
     .btn-disabled {
       opacity: 0.4;
@@ -237,6 +439,138 @@
       color: #8C827A;
     }
 
+    /* ---------- Timeline ---------- */
+    .timeline {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      position: relative;
+      margin-top: 28px;
+      padding-top: 4px;
+    }
+
+    .timeline::before {
+      content: "";
+      position: absolute;
+      top: 9px;
+      left: 6%;
+      right: 6%;
+      height: 1px;
+      background: var(--border-dark);
+      z-index: 0;
+    }
+
+    .timeline-step {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex: 1;
+      gap: 10px;
+    }
+
+    .timeline-dot {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--card-bg);
+      border: 1.5px solid var(--border-dark);
+      transition: all 0.3s ease;
+    }
+
+    .timeline-step.completed .timeline-dot { background: var(--accent); border-color: var(--accent); }
+    .timeline-step.current .timeline-dot { background: var(--text-main); border-color: var(--text-main); box-shadow: 0 0 0 4px rgba(200,155,131,0.25); }
+
+    .timeline-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    .timeline-step.completed .timeline-label,
+    .timeline-step.current .timeline-label { color: var(--text-main); font-weight: 600; }
+
+    .timeline-note { margin-top: 16px; font-size: 11px; color: var(--text-muted); text-align: center; }
+
+    /* ---------- Chat ---------- */
+    .chat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.015);
+    }
+
+    .chat-messages {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      height: min(50vh, 420px);
+      overflow-y: auto;
+    }
+
+    .chat-bubble { max-width: 80%; padding: 12px 16px; border-radius: 14px; font-size: 12.5px; line-height: 1.5; }
+    .chat-bubble .bubble-author { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 4px; font-weight: 600; }
+
+    .chat-bubble.curator, .chat-bubble.ai {
+      align-self: flex-start;
+      background: var(--wash);
+      color: var(--text-main);
+      border-bottom-left-radius: 4px;
+    }
+
+    .chat-bubble.user {
+      align-self: flex-end;
+      background: var(--text-main);
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+
+    .chat-bubble.user .bubble-author { color: rgba(255,255,255,0.65); }
+
+    .chat-bubble.typing { font-style: italic; color: var(--text-muted); background: transparent; border: 1px dashed var(--border-dark); }
+
+    .chat-composer { border-top: 1px solid var(--border-color); padding: 14px 16px; background: var(--bg-color); }
+    .composer-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+    .icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 1px solid var(--border-dark);
+      color: var(--text-muted);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.2s ease;
+    }
+
+    .icon-btn:hover { color: var(--text-main); border-color: var(--text-main); }
+
+    .composer-attachments { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+
+    .attachment-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--wash);
+      border-radius: 20px;
+      padding: 4px 10px 4px 12px;
+      font-size: 10px;
+      color: var(--text-main);
+    }
+
+    .attachment-chip button { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 12px; line-height: 1; }
+
+    /* ---------- Footer / toast ---------- */
     footer {
       padding: 24px 0;
       text-align: center;
@@ -244,18 +578,8 @@
       margin-top: auto;
     }
 
-    .footer-title {
-      font-size: 9px;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      margin-bottom: 4px;
-    }
-
-    .footer-sub {
-      font-size: 9px;
-      color: #B0A8A0;
-    }
+    .footer-title { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; }
+    .footer-sub { font-size: 9px; color: #B0A8A0; }
 
     .toast {
       position: fixed;
@@ -276,60 +600,177 @@
 </head>
 <body>
 
+  <div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+
+  <nav class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-top">
+      <span class="drawer-eyebrow">Navigate</span>
+      <button class="drawer-close" onclick="closeDrawer()" aria-label="Close menu">&times;</button>
+    </div>
+    <ul class="drawer-links">
+      <li><button class="drawer-link active" data-view="main" onclick="switchView('main')">Main</button></li>
+      <li><button class="drawer-link" data-view="capsules" onclick="switchView('capsules')">Seasonal Capsules</button></li>
+      <li><button class="drawer-link" data-view="subscriptions" onclick="switchView('subscriptions')">Subscriptions</button></li>
+      <li><button class="drawer-link" data-view="curator" onclick="switchView('curator')">Curator Space</button></li>
+      <li><button class="drawer-link" data-view="ai" onclick="switchView('ai')">AI Support</button></li>
+    </ul>
+  </nav>
+
   <header id="siteHeader">
-    <div class="sub-status-badge">
-      <div class="status-dot" id="statusDot"></div>
-      <span class="sub-status-label">Subscription: <strong id="subStatusText">—</strong></span>
+    <div class="brand-mark">Spring Renaissance</div>
+    <div class="header-right">
+      <div class="sub-status-badge">
+        <div class="status-dot" id="statusDot"></div>
+        <span class="sub-status-label">Subscription: <strong id="subStatusText">—</strong></span>
+      </div>
+      <button class="menu-trigger" id="menuTrigger" onclick="toggleDrawer()" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
+        <span class="menu-text">Menu</span>
+        <span class="burger-icon"><span></span><span></span><span></span></span>
+      </button>
     </div>
   </header>
 
   <main>
-    <div class="welcome-header">
-      <div class="welcome-sub">Private Treasury Access</div>
-      <h1 class="welcome-title">Client Private Portal</h1>
-      <p class="client-email" id="userEmailDisplay">Authenticating secure allocation...</p>
-    </div>
-
+    <p class="client-line" id="userEmailDisplay">Authenticating secure allocation...</p>
     <div class="session-banner" id="sessionBanner">Session Expired — request a new secure link to continue</div>
 
-    <div class="portal-grid">
+    <!-- View 1: MAIN — Order Tracking -->
+    <section class="view view-enter" data-view="main" id="view-main">
+      <div class="view-header">
+        <div class="view-eyebrow">Private Treasury</div>
+        <h1 class="view-title">Private Treasury &amp; Track Order</h1>
+      </div>
 
-      <!-- Current Allocation Status -->
+      <div class="card">
+        <div class="card-tag">Order Lookup</div>
+        <p class="card-desc">Enter your tracking number to view live delivery status for your confirmed allocation.</p>
+        <form class="track-form" id="trackForm" onsubmit="return handleTrackSubmit(event)">
+          <input type="text" id="trackingInput" class="text-input" placeholder="Enter tracking number" required>
+          <button type="submit" class="btn btn-auto" id="trackBtn">Track Package</button>
+        </form>
+
+        <div class="timeline" id="orderTimeline" hidden>
+          <div class="timeline-step" data-step="1">
+            <div class="timeline-dot"></div>
+            <div class="timeline-label">Order Confirmed</div>
+          </div>
+          <div class="timeline-step" data-step="2">
+            <div class="timeline-dot"></div>
+            <div class="timeline-label">In Transit</div>
+          </div>
+          <div class="timeline-step" data-step="3">
+            <div class="timeline-dot"></div>
+            <div class="timeline-label">Delivered</div>
+          </div>
+        </div>
+        <p class="timeline-note" id="timelineNote" hidden></p>
+      </div>
+    </section>
+
+    <!-- View 2: SEASONAL CAPSULES -->
+    <section class="view" data-view="capsules" id="view-capsules" hidden>
+      <div class="view-header">
+        <div class="view-eyebrow">Upcoming Collection</div>
+        <h1 class="view-title">Seasonal Capsule Release</h1>
+      </div>
+
       <div class="card">
         <div class="card-tag">
           <span>Allocation Status</span>
-          <span class="status-badge" id="dropStatusBadge">Syncing...</span>
+          <span class="status-badge" id="capsuleStatusBadge">Syncing...</span>
         </div>
-        <h2 class="card-title">Le Vase Livre — First Edition</h2>
-        <p class="card-desc">Your physical allocation is reserved. Optical acrylic object hydro-cast with collector packaging.</p>
-        <div style="font-size: 10px; color: var(--text-muted); border-top: 1px solid var(--border-color); padding-top: 12px; display: flex; justify-content: space-between;">
-          <span>Batch: <strong>300 Units</strong></span>
-          <span>Status: <strong>Dispatched to 3PL</strong></span>
+        <h2 class="card-title">Le Vase Livre — Vol. II, "Terre Cuite"</h2>
+        <p class="card-desc">A study in warm clay and quiet form. This capsule includes the Terre Cuite vase, a linen dust sleeve, and a numbered provenance card.</p>
+        <div class="capsule-meta">
+          <span>Theme: <strong>Terre Cuite</strong></span>
+          <span>Included: <strong>3 pieces</strong></span>
+          <span>Release: <strong>October 14</strong></span>
         </div>
+        <button class="btn btn-secondary" id="skipBtn" onclick="toggleSkipSeason()">Skip Season</button>
       </div>
 
-      <!-- Skip Collection -->
-      <div class="card">
-        <div class="card-tag">Upcoming Collection</div>
-        <h3 class="card-title">Skip Next Release</h3>
-        <p class="card-desc">Temporarily pause your allocation status for the upcoming drop. You can reactivate anytime before the next release opens.</p>
-        <button class="btn btn-secondary" id="skipBtn" onclick="toggleSkipCollection()">Skip Drop</button>
+      <div class="rule-banner">
+        <p><strong>Allocation rule:</strong> Capsule drops are reserved for club members with 2+ consecutive active months.</p>
+        <p>Skipping a drop pauses delivery for the upcoming capsule only — your continuous membership and subscription status stay active.</p>
+      </div>
+    </section>
+
+    <!-- View 3: SUBSCRIPTIONS -->
+    <section class="view" data-view="subscriptions" id="view-subscriptions" hidden>
+      <div class="view-header">
+        <div class="view-eyebrow">Membership</div>
+        <h1 class="view-title">Membership &amp; Allocation</h1>
       </div>
 
-      <!-- Subscription Management -->
       <div class="card">
-        <div class="card-tag">Membership</div>
-        <h3 class="card-title">Subscription</h3>
-        <p class="card-desc">Your $20/month membership ensures your physical allocation for upcoming releases. Manage or cancel your plan anytime via Stripe.</p>
+        <div class="card-tag">
+          <span>Membership</span>
+          <span class="status-badge" id="subViewStatusBadge">Syncing...</span>
+        </div>
+        <h2 class="card-title">$20/month — Founding Tier</h2>
+        <p class="card-desc">Your membership ensures your physical allocation for upcoming releases. Manage or cancel your plan anytime via Stripe.</p>
+
+        <div class="billing-meta">
+          <div class="billing-row"><span>Renewal</span><strong id="renewalStatus">—</strong></div>
+          <div class="billing-row"><span>Next billing date</span><strong id="nextBillingDate">—</strong></div>
+          <div class="billing-row"><span>Card on file</span><strong id="cardOnFile">—</strong></div>
+        </div>
 
         <button class="btn btn-secondary" id="cancelSubBtn" onclick="openBillingPortal()">Manage Subscription</button>
       </div>
+    </section>
 
-      <div style="text-align: center; padding: 12px 0;">
-        <a href="mailto:concierge@springrenaissance.store" style="font-size: 10px; font-weight: 600; color: var(--accent); text-decoration: none; letter-spacing: 1.5px; text-transform: uppercase;">Contact Private Concierge &rarr;</a>
+    <!-- View 4: CURATOR SPACE -->
+    <section class="view" data-view="curator" id="view-curator" hidden>
+      <div class="view-header">
+        <div class="view-eyebrow">Concierge</div>
+        <h1 class="view-title">Curator Space</h1>
       </div>
 
-    </div>
+      <div class="chat-card">
+        <div class="chat-messages" id="curatorMessages">
+          <div class="chat-bubble curator">
+            <div class="bubble-author">Curator Team</div>
+            <div class="bubble-text">Welcome back — I'm here for styling questions, allocation requests, or anything about your Le Vase Livre piece. How can I help?</div>
+          </div>
+        </div>
+        <form class="chat-composer" id="curatorForm" onsubmit="return handleCuratorSend(event)">
+          <div class="composer-attachments" id="curatorAttachments"></div>
+          <div class="composer-row">
+            <label class="icon-btn" title="Attach a photo or video">
+              <input type="file" accept="image/*,video/*" id="curatorMedia" onchange="handleCuratorMedia(event)" hidden>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.5l-8.5 8.5a4 4 0 0 1-5.7-5.7l9-9a2.5 2.5 0 0 1 3.5 3.5l-8.6 8.6a1 1 0 0 1-1.4-1.4l7.9-7.9"/></svg>
+            </label>
+            <input type="text" id="curatorInput" class="text-input" placeholder="Message your curator..." autocomplete="off">
+            <button type="submit" class="btn btn-auto" id="curatorSendBtn">Send</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- View 5: AI SUPPORT -->
+    <section class="view" data-view="ai" id="view-ai" hidden>
+      <div class="view-header">
+        <div class="view-eyebrow">Portal Guide</div>
+        <h1 class="view-title">AI Concierge &amp; Navigation</h1>
+      </div>
+
+      <div class="chat-card">
+        <div class="chat-messages" id="aiMessages">
+          <div class="chat-bubble ai">
+            <div class="bubble-author">AI Concierge</div>
+            <div class="bubble-text">Ask me about your allocation, billing, or how to use the portal.</div>
+          </div>
+        </div>
+        <form class="chat-composer" id="aiForm" onsubmit="return handleAiSend(event)">
+          <div class="composer-row">
+            <input type="text" id="aiInput" class="text-input" placeholder="Ask the AI concierge..." autocomplete="off">
+            <button type="submit" class="btn btn-auto" id="aiSendBtn">Send</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
   </main>
 
   <footer>
@@ -350,6 +791,9 @@
     let isCanceled = false;
     let sessionInvalid = false;
     let requestInFlight = false;
+    let currentView = 'main';
+    let curatorPendingFile = null;
+    let aiHistory = [];
 
     // ---------- localStorage override helpers (scoped per auth_token) ----------
     // Each client's optimistic override lives under its own key, so one client's
@@ -392,8 +836,6 @@
     }
 
     // Reconcile a fresh server read against any pending optimistic override.
-    // Returns the data to render, and clears the override once the server
-    // has caught up (or once it's been pending too long to trust).
     function reconcileWithOverrides(serverData) {
       const ov = getOverrides();
       const hasOverride = ov.status !== null || ov.skipped !== null;
@@ -409,7 +851,6 @@
         return serverData;
       }
 
-      // KV still hasn't caught up — keep showing what we optimistically set
       return {
         ...serverData,
         status: ov.status !== null ? ov.status : serverData.status,
@@ -417,11 +858,12 @@
       };
     }
 
-    // Header scroll behavior
+    // ---------- Header scroll behavior ----------
     let lastScrollY = window.scrollY;
     const header = document.getElementById('siteHeader');
 
     window.addEventListener('scroll', () => {
+      if (drawerEl.classList.contains('open')) return; // don't hide header while the drawer is open
       if (window.scrollY > lastScrollY && window.scrollY > 40) {
         header.classList.add('header-hidden');
       } else {
@@ -430,18 +872,70 @@
       lastScrollY = window.scrollY;
     });
 
-    // Single place that keeps the allocation-card badge and the header
-    // subscription pill in sync with the current membership state.
+    // ---------- Drawer ----------
+    const drawerEl = document.getElementById('drawer');
+    const drawerOverlay = document.getElementById('drawerOverlay');
+    const menuTrigger = document.getElementById('menuTrigger');
+
+    function openDrawer() {
+      drawerEl.classList.add('open');
+      drawerOverlay.classList.add('open');
+      menuTrigger.classList.add('active');
+      menuTrigger.setAttribute('aria-expanded', 'true');
+      drawerEl.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeDrawer() {
+      drawerEl.classList.remove('open');
+      drawerOverlay.classList.remove('open');
+      menuTrigger.classList.remove('active');
+      menuTrigger.setAttribute('aria-expanded', 'false');
+      drawerEl.setAttribute('aria-hidden', 'true');
+    }
+
+    function toggleDrawer() {
+      if (drawerEl.classList.contains('open')) closeDrawer(); else openDrawer();
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeDrawer();
+    });
+
+    // ---------- View switching ----------
+    function switchView(view) {
+      document.querySelectorAll('.view').forEach((sec) => {
+        if (sec.dataset.view === view) {
+          sec.hidden = false;
+          sec.classList.remove('view-enter');
+          void sec.offsetWidth; // restart the fade-in animation
+          sec.classList.add('view-enter');
+        } else {
+          sec.hidden = true;
+          sec.classList.remove('view-enter');
+        }
+      });
+
+      document.querySelectorAll('.drawer-link').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.view === view);
+      });
+
+      currentView = view;
+      closeDrawer();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // ---------- Subscription status sync (header pill + capsule badge + subscriptions view badge) ----------
     function setSubscriptionBadge(label, isOffline = false) {
-      const dropBadge = document.getElementById('dropStatusBadge');
-      const headerText = document.getElementById('subStatusText');
-      const headerDot = document.getElementById('statusDot');
+      document.getElementById('subStatusText').textContent = label;
+      document.getElementById('statusDot').classList.toggle('offline', isOffline);
 
-      dropBadge.textContent = label;
-      headerText.textContent = label;
+      const capsuleBadge = document.getElementById('capsuleStatusBadge');
+      capsuleBadge.textContent = label;
+      capsuleBadge.classList.toggle('offline', isOffline);
 
-      dropBadge.classList.toggle('offline', isOffline);
-      headerDot.classList.toggle('offline', isOffline);
+      const subBadge = document.getElementById('subViewStatusBadge');
+      subBadge.textContent = label;
+      subBadge.classList.toggle('offline', isOffline);
     }
 
     function renderUserData(data) {
@@ -456,9 +950,15 @@
       } else {
         setOfflineState(false);
       }
+
+      document.getElementById('renewalStatus').textContent =
+        status === "Canceled" ? "Canceled" : "Active — renews monthly";
+      document.getElementById('nextBillingDate').textContent =
+        data.nextBillingDate || "Managed in Stripe portal";
+      document.getElementById('cardOnFile').textContent =
+        data.cardLast4 ? `•••• ${data.cardLast4}` : "View in Stripe portal";
     }
 
-    // Show/hide the prominent session-expired banner and lock down actions.
     function setSessionExpired(expired) {
       sessionInvalid = expired;
       const banner = document.getElementById('sessionBanner');
@@ -466,9 +966,6 @@
       updateButtonAvailability();
     }
 
-    // Single source of truth for whether the Skip/Manage buttons should be
-    // interactive right now: never during an in-flight request, never once
-    // the subscription is canceled, and never with an invalid session.
     function updateButtonAvailability() {
       const skipBtn = document.getElementById('skipBtn');
       const cancelBtn = document.getElementById('cancelSubBtn');
@@ -477,24 +974,17 @@
       skipBtn.disabled = locked;
       cancelBtn.disabled = locked;
 
-      if (isCanceled || sessionInvalid) {
-        skipBtn.classList.add('btn-disabled');
-      } else {
-        skipBtn.classList.remove('btn-disabled');
-      }
-
-      if (isCanceled) {
-        cancelBtn.classList.add('btn-disabled');
-      } else {
-        cancelBtn.classList.remove('btn-disabled');
-      }
+      skipBtn.classList.toggle('btn-disabled', isCanceled || sessionInvalid);
+      cancelBtn.classList.toggle('btn-disabled', isCanceled);
     }
 
-    // Fetch User Data from KV via Worker
     async function loadUserData() {
       if (!authToken) {
         document.getElementById('userEmailDisplay').textContent = "Demo Session (No auth token provided)";
         setSubscriptionBadge("Active", false);
+        document.getElementById('renewalStatus').textContent = "Active — renews monthly";
+        document.getElementById('nextBillingDate').textContent = "Managed in Stripe portal";
+        document.getElementById('cardOnFile').textContent = "View in Stripe portal";
         return;
       }
 
@@ -502,7 +992,6 @@
         const response = await fetch(`${WORKER_URL}/api/user?auth_token=${authToken}`);
 
         if (response.status === 401 || response.status === 404) {
-          // Session genuinely invalid/expired — a pending override for it is meaningless
           clearOverrides();
           document.getElementById('userEmailDisplay').textContent = "Session Expired or Invalid Token";
           setSubscriptionBadge("Unauthorized", true);
@@ -515,8 +1004,6 @@
           const data = await response.json();
           renderUserData(reconcileWithOverrides(data));
         } else {
-          // Transient failure (5xx etc) — don't wipe a legitimate pending override over this,
-          // and don't declare the session dead over a temporary backend hiccup.
           document.getElementById('userEmailDisplay').textContent = "Connection Error — Retry Later";
         }
       } catch (e) {
@@ -525,8 +1012,8 @@
       }
     }
 
-    // Toggle Skip Status in KV
-    async function toggleSkipCollection() {
+    // ---------- Skip Season (View 2) ----------
+    async function toggleSkipSeason() {
       if (requestInFlight || isCanceled || sessionInvalid) return;
 
       const previousSkipState = currentSkipState;
@@ -559,7 +1046,6 @@
         skipBtn.textContent = settledLabel;
       } catch (e) {
         console.error("Skip update error:", e);
-        // Write never confirmed — don't leave the UI or localStorage claiming it did
         clearOverrides();
         setOfflineState(previousSkipState);
         showToast("Couldn't update — please try again.");
@@ -574,17 +1060,15 @@
       const skipBtn = document.getElementById('skipBtn');
 
       if (isOffline) {
-        skipBtn.textContent = "Reactivate Drop";
+        skipBtn.textContent = "Reactivate Season";
         setSubscriptionBadge("Paused (Offline)", true);
       } else {
-        skipBtn.textContent = "Skip Drop";
+        skipBtn.textContent = "Skip Season";
         setSubscriptionBadge("Active", false);
       }
     }
 
-    // Manage Subscription — hands off to the native Stripe Customer Portal.
-    // The frontend never cancels anything itself; it only requests a portal
-    // session and redirects the client there.
+    // ---------- Manage Subscription (View 3) — Stripe Customer Portal redirect ----------
     async function openBillingPortal() {
       if (requestInFlight || isCanceled || sessionInvalid) return;
 
@@ -596,7 +1080,6 @@
       cancelBtn.textContent = "Redirecting to Stripe...";
 
       if (!authToken) {
-        // No session to open a portal for — nothing to redirect to.
         requestInFlight = false;
         cancelBtn.textContent = originalLabel;
         updateButtonAvailability();
@@ -616,8 +1099,6 @@
         const data = await res.json();
         if (!data || !data.url) throw new Error("No portal URL returned");
 
-        // Success: leave the button disabled and hand off to Stripe. The page
-        // is navigating away, so there's nothing left to reset here.
         window.location.href = data.url;
       } catch (e) {
         console.error("Billing portal error:", e);
@@ -628,8 +1109,6 @@
       }
     }
 
-    // Applied once the backend reports the membership as Canceled (via Stripe
-    // webhook → KV). This is a render of server truth, not a local action.
     function applyCanceledState() {
       isCanceled = true;
       setSubscriptionBadge("Canceled", true);
@@ -645,6 +1124,139 @@
       toast.textContent = msg;
       toast.style.display = 'block';
       setTimeout(() => { toast.style.display = 'none'; }, 4000);
+    }
+
+    // ---------- View 1: Order Tracking (mock) ----------
+    function handleTrackSubmit(e) {
+      e.preventDefault();
+      const input = document.getElementById('trackingInput');
+      const value = input.value.trim();
+      if (!value) return false;
+
+      // Mock status resolution — a real integration would look this up via the 3PL/carrier API.
+      const hash = Array.from(value).reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+      const activeIndex = hash % 3; // 0 = confirmed, 1 = in transit, 2 = delivered
+
+      const timeline = document.getElementById('orderTimeline');
+      const note = document.getElementById('timelineNote');
+      const stepEls = timeline.querySelectorAll('.timeline-step');
+
+      stepEls.forEach((el, i) => {
+        el.classList.remove('completed', 'current');
+        if (i < activeIndex) el.classList.add('completed');
+        else if (i === activeIndex) el.classList.add('current');
+      });
+
+      timeline.hidden = false;
+      note.hidden = false;
+      note.textContent =
+        activeIndex === 2 ? `Tracking ${value} — delivered. We hope you're enjoying Le Vase Livre.` :
+        activeIndex === 1 ? `Tracking ${value} — in transit. Estimated delivery in 3–5 business days.` :
+        `Tracking ${value} — order confirmed. Preparing for dispatch.`;
+
+      return false;
+    }
+
+    // ---------- Shared chat helpers ----------
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function appendChatBubble(containerId, author, text, cls) {
+      const container = document.getElementById(containerId);
+      const bubble = document.createElement('div');
+      bubble.className = `chat-bubble ${cls}`;
+      bubble.innerHTML = `<div class="bubble-author">${escapeHtml(author)}</div><div class="bubble-text">${escapeHtml(text)}</div>`;
+      container.appendChild(bubble);
+      container.scrollTop = container.scrollHeight;
+      return bubble;
+    }
+
+    // ---------- View 4: Curator Space (mock — replace with a real concierge inbox integration) ----------
+    function handleCuratorMedia(e) {
+      const file = e.target.files[0];
+      const wrap = document.getElementById('curatorAttachments');
+      wrap.innerHTML = '';
+      if (!file) { curatorPendingFile = null; return; }
+      curatorPendingFile = file;
+
+      const chip = document.createElement('span');
+      chip.className = 'attachment-chip';
+      chip.innerHTML = `${escapeHtml(file.name)} <button type="button" aria-label="Remove attachment">&times;</button>`;
+      chip.querySelector('button').onclick = () => {
+        curatorPendingFile = null;
+        document.getElementById('curatorMedia').value = '';
+        wrap.innerHTML = '';
+      };
+      wrap.appendChild(chip);
+    }
+
+    function handleCuratorSend(e) {
+      e.preventDefault();
+      const input = document.getElementById('curatorInput');
+      const text = input.value.trim();
+      if (!text && !curatorPendingFile) return false;
+
+      const messageText = curatorPendingFile
+        ? (text ? `${text} 📎 ${curatorPendingFile.name}` : `Sent ${curatorPendingFile.name}`)
+        : text;
+
+      appendChatBubble('curatorMessages', 'You', messageText, 'user');
+
+      input.value = '';
+      curatorPendingFile = null;
+      document.getElementById('curatorMedia').value = '';
+      document.getElementById('curatorAttachments').innerHTML = '';
+
+      // Mock acknowledgement — a real backend would route this to the concierge team's inbox.
+      setTimeout(() => {
+        appendChatBubble('curatorMessages', 'Curator Team', "Thank you — a curator will follow up shortly.", 'curator');
+      }, 700);
+
+      return false;
+    }
+
+    // ---------- View 5: AI Support ----------
+    async function handleAiSend(e) {
+      e.preventDefault();
+      const input = document.getElementById('aiInput');
+      const text = input.value.trim();
+      if (!text) return false;
+
+      appendChatBubble('aiMessages', 'You', text, 'user');
+      aiHistory.push({ role: 'user', content: text });
+      input.value = '';
+
+      const sendBtn = document.getElementById('aiSendBtn');
+      sendBtn.disabled = true;
+      const typingBubble = appendChatBubble('aiMessages', 'AI Concierge', 'Thinking...', 'ai typing');
+
+      try {
+        const res = await fetch(`${WORKER_URL}/api/ai-assistant`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text, history: aiHistory })
+        });
+
+        if (!res.ok) throw new Error(`AI request failed: ${res.status}`);
+
+        const data = await res.json();
+        const replyText = (data && data.text) ? data.text : "I couldn't find an answer to that — try the Curator Space for direct help.";
+
+        typingBubble.remove();
+        appendChatBubble('aiMessages', 'AI Concierge', replyText, 'ai');
+        aiHistory.push({ role: 'assistant', content: replyText });
+      } catch (err) {
+        console.error("AI assistant error:", err);
+        typingBubble.remove();
+        showToast("The AI concierge is unavailable right now. Please try again.");
+      } finally {
+        sendBtn.disabled = false;
+      }
+
+      return false;
     }
 
     loadUserData();
