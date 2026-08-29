@@ -44,6 +44,12 @@ const DEFAULT_TAKEOVER_MINUTES = 30;
 const RENEWAL_MIN_AMOUNT_CENTS = 2000;
 const RENEWAL_TOKEN_GRANT = 20;
 
+// Concierge rate limit, per client per minute. Sized well above real use (a
+// person types a handful of messages a minute) and far below what it takes to
+// burn through the ProxyAPI quota.
+const CHAT_RATE_LIMIT_PER_MINUTE = 10;
+const CHAT_RATE_LIMIT_TTL_SECONDS = 180;
+
 export default {
   async fetch(request, env) {
     const corsHeaders = {
@@ -304,23 +310,32 @@ export default {
         const resolved = await resolveUserByToken(authToken, env);
         if (!resolved) return json({ error: "Session expired" }, 401);
 
-        const convoKey = `curator_${resolved.email}`;
-        const convo = await readConversation(convoKey, env);
+        // Rate limit: one magic token could otherwise drain the whole ProxyAPI
+        // quota — every client's concierge goes down with it, and the bill is
+        // ours. Checked after auth so an unauthenticated flood costs no KV
+        // writes, and before anything is persisted or forwarded upstream.
+        if (!(await withinChatRateLimit(resolved.email, env))) {
+          return json(
+            { error: "Too many messages — please wait a moment." },
+            429,
+            { "Retry-After": "60" }
+          );
+        }
 
-        const userMessage = {
-          author: "You",
-          role: "user",
-          text: message || "[photo]",
-          ts: Date.now()
-        };
+        const convoKey = `curator_${resolved.email}`;
+        const userMessage = newMessage("You", "user", message || "[photo]");
 
         // A-5: persist the client's message immediately via merge-on-write, so
         // it is visible to a curator polling during the Gemini round-trip and
         // cannot be clobbered by a concurrent human-reply write.
-        await appendConversationMessages(convoKey, [userMessage], env);
+        //
+        // B-2: the takeover check reads the state this write actually produced.
+        // It used to test a snapshot taken before the append, so a takeover
+        // landing in between was missed and the AI answered over the curator.
+        const afterUserMessage = await appendConversationMessages(convoKey, [userMessage], env);
 
         // A human curator has taken over: queue the message, never answer over them.
-        if (convo.humanActiveUntil && convo.humanActiveUntil > Date.now()) {
+        if (afterUserMessage.humanActiveUntil && afterUserMessage.humanActiveUntil > Date.now()) {
           return json({ queued: true, humanActive: true });
         }
 
@@ -348,7 +363,7 @@ export default {
 
         await appendConversationMessages(
           convoKey,
-          [{ author: "AI Concierge", role: "assistant", text: replyText, ts: Date.now() }],
+          [newMessage("AI Concierge", "assistant", replyText)],
           env
         );
 
@@ -407,7 +422,7 @@ export default {
         // re-read and preserved instead of being overwritten by this reply.
         const written = await appendConversationMessages(
           convoKey,
-          [{ author: "Curator", role: "curator", text: message, ts: Date.now() }],
+          [newMessage("Curator", "curator", message)],
           env,
           { humanActiveUntil: Date.now() + minutes * 60000 }
         );
@@ -514,11 +529,14 @@ export default {
           existingUser.updatedAt = Date.now();
           await env.CLIENT_KV.put(userKey, JSON.stringify(existingUser));
         } else {
-          // Nothing was applied, so release the reservation and let Stripe
-          // retry — the cust_ index may exist by then.
+          // B-1: nothing was applied, so release the reservation AND answer
+          // non-2xx. Releasing alone was not enough — Stripe only retries on a
+          // non-2xx, so the old 200 told it the cancellation had been handled
+          // and it was never redelivered. The account stayed "Active" in the
+          // portal forever while Stripe had already stopped billing.
           console.error("subscription canceled but no email resolved for customer", stripeObj.customer);
           await releaseEvent();
-          return json({ received: true, action: "subscription_canceled", applied: false });
+          return json({ received: false, reason: "No email resolved" }, 500);
         }
 
         return json({ received: true, action: "subscription_canceled", applied: true });
@@ -538,7 +556,8 @@ export default {
         if (!email) {
           console.error("payment failure with no resolvable email", stripeObj.customer);
           await releaseEvent();
-          return json({ received: true, action: "payment_past_due", applied: false });
+          // B-1: non-2xx so Stripe redelivers once the cust_ index exists.
+          return json({ received: false, reason: "No email resolved" }, 500);
         }
 
         const userKey = `user_${email}`;
@@ -589,7 +608,10 @@ export default {
         if (!customerEmail) {
           console.error("checkout.session.completed with no email", stripeObj.id);
           await releaseEvent();
-          return json({ ignored: true, reason: "No email on checkout session" });
+          // B-1: a paid subscription with no email is a failure, not an ignore.
+          // Answering 200 dropped a paying client on the floor with no portal
+          // access and no retry.
+          return json({ received: false, reason: "No email resolved" }, 500);
         }
 
         const result = await issuePortalAccess({
@@ -620,10 +642,11 @@ export default {
 
         const customerEmail = await resolveEmailForCustomer(stripeObj, env);
         if (!customerEmail) {
-          // Unresolvable: release so Stripe retries rather than dropping a real payment.
+          // B-1: unresolvable. Release and answer non-2xx so Stripe actually
+          // retries, rather than dropping a real payment on the floor.
           console.error("renewal with no resolvable email", stripeObj.customer);
           await releaseEvent();
-          return json({ ignored: true, reason: "No email resolved" });
+          return json({ received: false, reason: "No email resolved" }, 500);
         }
 
         const userKey = `user_${customerEmail}`;
@@ -714,6 +737,33 @@ async function readJson(request, maxBytes = MAX_JSON_BODY_BYTES) {
     return body && typeof body === "object" && !Array.isArray(body) ? body : null;
   } catch (e) {
     return null;
+  }
+}
+
+// Per-client concierge rate limit, bucketed by wall-clock minute in KV under
+// rl_<email>_<minute>. KV has no atomic increment, so two requests racing on
+// the same bucket can both read the same count and a client can slip slightly
+// over the limit; that is acceptable here, because the job is to stop one
+// token from draining the ProxyAPI quota, not to meter billing exactly.
+//
+// Fixed window, not sliding: a client can spend the tail of one minute and the
+// head of the next back to back, so the real worst case is 2x the limit across
+// a boundary. Still two orders of magnitude below what an unthrottled loop does.
+async function withinChatRateLimit(email, env) {
+  const bucket = Math.floor(Date.now() / 60000);
+  const key = `rl_${email}_${bucket}`;
+  try {
+    const used = Number(await env.CLIENT_KV.get(key)) || 0;
+    if (used >= CHAT_RATE_LIMIT_PER_MINUTE) {
+      console.error("Chat rate limit hit for", email);
+      return false;
+    }
+    await env.CLIENT_KV.put(key, String(used + 1), { expirationTtl: CHAT_RATE_LIMIT_TTL_SECONDS });
+    return true;
+  } catch (e) {
+    // Fail open: a KV blip must not take the concierge offline for everyone.
+    console.error("Rate limit check failed, allowing request", e);
+    return true;
   }
 }
 
@@ -876,8 +926,19 @@ async function readConversation(convoKey, env) {
   };
 }
 
+// B-3: prefer an explicit id. Date.now() is frozen inside a single Worker
+// invocation and is coarsened across them, so two genuine messages with the
+// same role and text — a client sending "?" twice, a curator sending the same
+// nudge to two clients — collided on (ts|role|text) and the second was
+// silently swallowed by the dedup. Messages written before ids existed still
+// fall back to the composite key.
 function messageFingerprint(m) {
+  if (m && m.id) return `id:${m.id}`;
   return `${(m && m.ts) || 0}|${(m && m.role) || ""}|${(m && m.text) || ""}`;
+}
+
+function newMessage(author, role, text) {
+  return { author, role, text, ts: Date.now(), id: crypto.randomUUID() };
 }
 
 // A-5: merge-on-write. The chat and human-reply handlers both read the
