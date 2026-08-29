@@ -405,8 +405,6 @@
 
     .text-input:focus { border-color: var(--accent); }
 
-    .track-form { display: flex; gap: 10px; flex-wrap: wrap; }
-
     .btn {
       appearance: none;
       background-color: var(--text-main);
@@ -438,62 +436,6 @@
       border-color: #EAE5DF;
       color: #8C827A;
     }
-
-    /* ---------- Timeline ---------- */
-    .timeline {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      position: relative;
-      margin-top: 28px;
-      padding-top: 4px;
-    }
-
-    .timeline::before {
-      content: "";
-      position: absolute;
-      top: 9px;
-      left: 6%;
-      right: 6%;
-      height: 1px;
-      background: var(--border-dark);
-      z-index: 0;
-    }
-
-    .timeline-step {
-      position: relative;
-      z-index: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      flex: 1;
-      gap: 10px;
-    }
-
-    .timeline-dot {
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
-      background: var(--card-bg);
-      border: 1.5px solid var(--border-dark);
-      transition: all 0.3s ease;
-    }
-
-    .timeline-step.completed .timeline-dot { background: var(--accent); border-color: var(--accent); }
-    .timeline-step.current .timeline-dot { background: var(--text-main); border-color: var(--text-main); box-shadow: 0 0 0 4px rgba(200,155,131,0.25); }
-
-    .timeline-label {
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-      color: var(--text-muted);
-      text-align: center;
-    }
-
-    .timeline-step.completed .timeline-label,
-    .timeline-step.current .timeline-label { color: var(--text-main); font-weight: 600; }
-
-    .timeline-note { margin-top: 16px; font-size: 11px; color: var(--text-muted); text-align: center; }
 
     /* ---------- Chat ---------- */
     .chat-card {
@@ -608,11 +550,9 @@
       <button class="drawer-close" onclick="closeDrawer()" aria-label="Close menu">&times;</button>
     </div>
     <ul class="drawer-links">
-      <li><button class="drawer-link active" data-view="main" onclick="switchView('main')">Main</button></li>
-      <li><button class="drawer-link" data-view="capsules" onclick="switchView('capsules')">Seasonal Capsules</button></li>
+      <li><button class="drawer-link active" data-view="capsules" onclick="switchView('capsules')">Seasonal Capsules</button></li>
       <li><button class="drawer-link" data-view="subscriptions" onclick="switchView('subscriptions')">Subscriptions</button></li>
       <li><button class="drawer-link" data-view="curator" onclick="switchView('curator')">Curator Space</button></li>
-      <li><button class="drawer-link" data-view="ai" onclick="switchView('ai')">AI Support</button></li>
     </ul>
   </nav>
 
@@ -634,41 +574,8 @@
     <p class="client-line" id="userEmailDisplay">Authenticating secure allocation...</p>
     <div class="session-banner" id="sessionBanner">Session Expired — request a new secure link to continue</div>
 
-    <!-- View 1: MAIN — Order Tracking -->
-    <section class="view view-enter" data-view="main" id="view-main">
-      <div class="view-header">
-        <div class="view-eyebrow">Private Treasury</div>
-        <h1 class="view-title">Private Treasury &amp; Track Order</h1>
-      </div>
-
-      <div class="card">
-        <div class="card-tag">Order Lookup</div>
-        <p class="card-desc">Enter your tracking number to view live delivery status for your confirmed allocation.</p>
-        <form class="track-form" id="trackForm" onsubmit="return handleTrackSubmit(event)">
-          <input type="text" id="trackingInput" class="text-input" placeholder="Enter tracking number" required>
-          <button type="submit" class="btn btn-auto" id="trackBtn">Track Package</button>
-        </form>
-
-        <div class="timeline" id="orderTimeline" hidden>
-          <div class="timeline-step" data-step="1">
-            <div class="timeline-dot"></div>
-            <div class="timeline-label">Order Confirmed</div>
-          </div>
-          <div class="timeline-step" data-step="2">
-            <div class="timeline-dot"></div>
-            <div class="timeline-label">In Transit</div>
-          </div>
-          <div class="timeline-step" data-step="3">
-            <div class="timeline-dot"></div>
-            <div class="timeline-label">Delivered</div>
-          </div>
-        </div>
-        <p class="timeline-note" id="timelineNote" hidden></p>
-      </div>
-    </section>
-
-    <!-- View 2: SEASONAL CAPSULES -->
-    <section class="view" data-view="capsules" id="view-capsules" hidden>
+    <!-- View 1: SEASONAL CAPSULES -->
+    <section class="view view-enter" data-view="capsules" id="view-capsules">
       <div class="view-header">
         <div class="view-eyebrow">Upcoming Collection</div>
         <h1 class="view-title">Seasonal Capsule Release</h1>
@@ -708,15 +615,16 @@
           <span class="status-badge" id="subViewStatusBadge">Syncing...</span>
         </div>
         <h2 class="card-title">$20/month — Founding Tier</h2>
-        <p class="card-desc">Your membership ensures your physical allocation for upcoming releases. Manage or cancel your plan anytime via Stripe.</p>
+        <p class="card-desc">Your membership ensures your physical allocation for upcoming releases. Canceling ends your membership immediately.</p>
 
         <div class="billing-meta">
           <div class="billing-row"><span>Renewal</span><strong id="renewalStatus">—</strong></div>
           <div class="billing-row"><span>Next billing date</span><strong id="nextBillingDate">—</strong></div>
           <div class="billing-row"><span>Card on file</span><strong id="cardOnFile">—</strong></div>
+          <div class="billing-row"><span>Digital Tokens</span><strong id="tokenBalance">—</strong></div>
         </div>
 
-        <button class="btn btn-secondary" id="cancelSubBtn" onclick="openBillingPortal()">Manage Subscription</button>
+        <button class="btn btn-secondary" id="cancelSubBtn" onclick="cancelSubscription()">Cancel Subscription</button>
       </div>
     </section>
 
@@ -728,12 +636,7 @@
       </div>
 
       <div class="chat-card">
-        <div class="chat-messages" id="curatorMessages">
-          <div class="chat-bubble curator">
-            <div class="bubble-author">Curator Team</div>
-            <div class="bubble-text">Welcome back — I'm here for styling questions, allocation requests, or anything about your Le Vase Livre piece. How can I help?</div>
-          </div>
-        </div>
+        <div class="chat-messages" id="curatorMessages"></div>
         <form class="chat-composer" id="curatorForm" onsubmit="return handleCuratorSend(event)">
           <div class="composer-attachments" id="curatorAttachments"></div>
           <div class="composer-row">
@@ -743,29 +646,6 @@
             </label>
             <input type="text" id="curatorInput" class="text-input" placeholder="Message your curator..." autocomplete="off">
             <button type="submit" class="btn btn-auto" id="curatorSendBtn">Send</button>
-          </div>
-        </form>
-      </div>
-    </section>
-
-    <!-- View 5: AI SUPPORT -->
-    <section class="view" data-view="ai" id="view-ai" hidden>
-      <div class="view-header">
-        <div class="view-eyebrow">Portal Guide</div>
-        <h1 class="view-title">AI Concierge &amp; Navigation</h1>
-      </div>
-
-      <div class="chat-card">
-        <div class="chat-messages" id="aiMessages">
-          <div class="chat-bubble ai">
-            <div class="bubble-author">AI Concierge</div>
-            <div class="bubble-text">Ask me about your allocation, billing, or how to use the portal.</div>
-          </div>
-        </div>
-        <form class="chat-composer" id="aiForm" onsubmit="return handleAiSend(event)">
-          <div class="composer-row">
-            <input type="text" id="aiInput" class="text-input" placeholder="Ask the AI concierge..." autocomplete="off">
-            <button type="submit" class="btn btn-auto" id="aiSendBtn">Send</button>
           </div>
         </form>
       </div>
@@ -791,9 +671,10 @@
     let isCanceled = false;
     let sessionInvalid = false;
     let requestInFlight = false;
-    let currentView = 'main';
+    let currentView = 'capsules';
     let curatorPendingFile = null;
-    let aiHistory = [];
+    let curatorRenderedCount = 0;
+    let curatorPollTimer = null;
 
     // ---------- localStorage override helpers (scoped per auth_token) ----------
     // Each client's optimistic override lives under its own key, so one client's
@@ -957,6 +838,8 @@
         data.nextBillingDate || "Managed in Stripe portal";
       document.getElementById('cardOnFile').textContent =
         data.cardLast4 ? `•••• ${data.cardLast4}` : "View in Stripe portal";
+      document.getElementById('tokenBalance').textContent =
+        (typeof data.tokens === 'number') ? `${data.tokens}` : "—";
     }
 
     function setSessionExpired(expired) {
@@ -985,6 +868,7 @@
         document.getElementById('renewalStatus').textContent = "Active — renews monthly";
         document.getElementById('nextBillingDate').textContent = "Managed in Stripe portal";
         document.getElementById('cardOnFile').textContent = "View in Stripe portal";
+        document.getElementById('tokenBalance').textContent = "—";
         return;
       }
 
@@ -1068,44 +952,54 @@
       }
     }
 
-    // ---------- Manage Subscription (View 3) — Stripe Customer Portal redirect ----------
-    async function openBillingPortal() {
+    // ---------- Cancel Subscription (View 3) ----------
+    // Business rule: cancellation is IMMEDIATE (not cancel_at_period_end) — tokens
+    // are zeroed the moment the client confirms, so this asks for confirmation
+    // before calling the backend, which cancels with Stripe directly.
+    async function cancelSubscription() {
       if (requestInFlight || isCanceled || sessionInvalid) return;
+
+      const confirmed = window.confirm(
+        "Cancel your Spring Renaissance membership? This takes effect immediately, ends your allocation for upcoming capsules, and resets your Digital Tokens to 0. This cannot be undone."
+      );
+      if (!confirmed) return;
 
       const cancelBtn = document.getElementById('cancelSubBtn');
       const originalLabel = cancelBtn.textContent;
 
       requestInFlight = true;
       updateButtonAvailability();
-      cancelBtn.textContent = "Redirecting to Stripe...";
+      cancelBtn.textContent = "Canceling...";
 
       if (!authToken) {
         requestInFlight = false;
         cancelBtn.textContent = originalLabel;
         updateButtonAvailability();
-        showToast("Unable to open billing portal. Please try again.");
+        showToast("Unable to cancel — no active session found.");
         return;
       }
 
       try {
-        const res = await fetch(`${WORKER_URL}/api/create-portal-session`, {
+        const res = await fetch(`${WORKER_URL}/api/user/cancel`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ authToken })
         });
 
-        if (!res.ok) throw new Error(`Portal session failed: ${res.status}`);
+        const data = await res.json().catch(() => ({}));
 
-        const data = await res.json();
-        if (!data || !data.url) throw new Error("No portal URL returned");
+        if (!res.ok) throw new Error(data?.error || `Cancellation failed: ${res.status}`);
 
-        window.location.href = data.url;
+        document.getElementById('tokenBalance').textContent = String(data.tokens ?? 0);
+        requestInFlight = false;
+        applyCanceledState();
+        showToast("Your subscription has been canceled.");
       } catch (e) {
-        console.error("Billing portal error:", e);
+        console.error("Cancel subscription error:", e);
         requestInFlight = false;
         cancelBtn.textContent = originalLabel;
         updateButtonAvailability();
-        showToast("Unable to open billing portal. Please try again.");
+        showToast(e.message || "Unable to cancel. Please try again.");
       }
     }
 
@@ -1126,37 +1020,6 @@
       setTimeout(() => { toast.style.display = 'none'; }, 4000);
     }
 
-    // ---------- View 1: Order Tracking (mock) ----------
-    function handleTrackSubmit(e) {
-      e.preventDefault();
-      const input = document.getElementById('trackingInput');
-      const value = input.value.trim();
-      if (!value) return false;
-
-      // Mock status resolution — a real integration would look this up via the 3PL/carrier API.
-      const hash = Array.from(value).reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
-      const activeIndex = hash % 3; // 0 = confirmed, 1 = in transit, 2 = delivered
-
-      const timeline = document.getElementById('orderTimeline');
-      const note = document.getElementById('timelineNote');
-      const stepEls = timeline.querySelectorAll('.timeline-step');
-
-      stepEls.forEach((el, i) => {
-        el.classList.remove('completed', 'current');
-        if (i < activeIndex) el.classList.add('completed');
-        else if (i === activeIndex) el.classList.add('current');
-      });
-
-      timeline.hidden = false;
-      note.hidden = false;
-      note.textContent =
-        activeIndex === 2 ? `Tracking ${value} — delivered. We hope you're enjoying Le Vase Livre.` :
-        activeIndex === 1 ? `Tracking ${value} — in transit. Estimated delivery in 3–5 business days.` :
-        `Tracking ${value} — order confirmed. Preparing for dispatch.`;
-
-      return false;
-    }
-
     // ---------- Shared chat helpers ----------
     function escapeHtml(str) {
       const div = document.createElement('div');
@@ -1174,7 +1037,12 @@
       return bubble;
     }
 
-    // ---------- View 4: Curator Space (mock — replace with a real concierge inbox integration) ----------
+    // ---------- View 4: Curator Space ----------
+    // Gemini auto-replies as "AI Concierge" unless a human curator has taken the
+    // conversation over (server-side, via /api/curator/human-reply). Short-polling
+    // /api/curator/messages is how we pick up a human curator's reply, since that
+    // arrives out-of-band from the admin panel rather than as a fetch() response.
+
     function handleCuratorMedia(e) {
       const file = e.target.files[0];
       const wrap = document.getElementById('curatorAttachments');
@@ -1193,66 +1061,120 @@
       wrap.appendChild(chip);
     }
 
-    function handleCuratorSend(e) {
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(',')[1] || '');
+        reader.onerror = () => reject(new Error('Could not read attachment'));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function bubbleClsForRole(role) {
+      if (role === 'user') return 'user';
+      if (role === 'curator') return 'curator';
+      return 'ai'; // assistant (Gemini)
+    }
+
+    function renderCuratorMessage(msg) {
+      appendChatBubble('curatorMessages', msg.author || 'Curator Team', msg.text, bubbleClsForRole(msg.role));
+    }
+
+    // Fetches the full conversation and appends only messages we haven't rendered
+    // yet, so repeated polling doesn't duplicate bubbles.
+    async function syncCuratorMessages() {
+      if (!authToken) return;
+      try {
+        const res = await fetch(`${WORKER_URL}/api/curator/messages?auth_token=${authToken}`);
+        if (!res.ok) return; // stay quiet on transient poll failures
+        const data = await res.json();
+        const messages = data.messages || [];
+
+        if (messages.length === 0 && curatorRenderedCount === 0) {
+          appendChatBubble('curatorMessages', 'Curator Team', "Welcome back — I'm here for styling questions, allocation requests, or anything about your Le Vase Livre piece. How can I help?", 'curator');
+          curatorRenderedCount = -1; // marks the local-only welcome bubble as shown, without matching server indices
+          return;
+        }
+
+        const startIndex = curatorRenderedCount < 0 ? 0 : curatorRenderedCount;
+        for (let i = startIndex; i < messages.length; i++) {
+          renderCuratorMessage(messages[i]);
+        }
+        curatorRenderedCount = messages.length;
+      } catch (e) {
+        console.error("Curator sync failed:", e);
+      }
+    }
+
+    function startCuratorPolling() {
+      if (curatorPollTimer || !authToken) return;
+      curatorPollTimer = setInterval(() => {
+        if (document.hidden) return;
+        syncCuratorMessages();
+      }, 7000);
+    }
+
+    async function handleCuratorSend(e) {
       e.preventDefault();
       const input = document.getElementById('curatorInput');
       const text = input.value.trim();
-      if (!text && !curatorPendingFile) return false;
+      if ((!text && !curatorPendingFile) || requestInFlight) return false;
 
-      const messageText = curatorPendingFile
-        ? (text ? `${text} 📎 ${curatorPendingFile.name}` : `Sent ${curatorPendingFile.name}`)
+      if (!authToken) {
+        showToast("Sign in via your private client-portal link to message your curator.");
+        return false;
+      }
+
+      const pendingFile = curatorPendingFile;
+      const displayText = pendingFile
+        ? (text ? `${text} 📎 ${pendingFile.name}` : `Sent ${pendingFile.name}`)
         : text;
 
-      appendChatBubble('curatorMessages', 'You', messageText, 'user');
+      appendChatBubble('curatorMessages', 'You', displayText, 'user');
+      curatorRenderedCount = Math.max(curatorRenderedCount, 0) + 1;
 
       input.value = '';
       curatorPendingFile = null;
       document.getElementById('curatorMedia').value = '';
       document.getElementById('curatorAttachments').innerHTML = '';
 
-      // Mock acknowledgement — a real backend would route this to the concierge team's inbox.
-      setTimeout(() => {
-        appendChatBubble('curatorMessages', 'Curator Team', "Thank you — a curator will follow up shortly.", 'curator');
-      }, 700);
-
-      return false;
-    }
-
-    // ---------- View 5: AI Support ----------
-    async function handleAiSend(e) {
-      e.preventDefault();
-      const input = document.getElementById('aiInput');
-      const text = input.value.trim();
-      if (!text) return false;
-
-      appendChatBubble('aiMessages', 'You', text, 'user');
-      aiHistory.push({ role: 'user', content: text });
-      input.value = '';
-
-      const sendBtn = document.getElementById('aiSendBtn');
+      requestInFlight = true;
+      const sendBtn = document.getElementById('curatorSendBtn');
       sendBtn.disabled = true;
-      const typingBubble = appendChatBubble('aiMessages', 'AI Concierge', 'Thinking...', 'ai typing');
+      const typingBubble = appendChatBubble('curatorMessages', 'AI Concierge', 'Thinking...', 'ai typing');
 
       try {
-        const res = await fetch(`${WORKER_URL}/api/ai-assistant`, {
+        let imageBase64 = null;
+        let imageMime = null;
+        if (pendingFile) {
+          imageBase64 = await fileToBase64(pendingFile);
+          imageMime = pendingFile.type;
+        }
+
+        const res = await fetch(`${WORKER_URL}/api/curator/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: text, history: aiHistory })
+          body: JSON.stringify({ authToken, message: text, imageBase64, imageMime })
         });
 
-        if (!res.ok) throw new Error(`AI request failed: ${res.status}`);
-
+        if (!res.ok) throw new Error(`Curator chat failed: ${res.status}`);
         const data = await res.json();
-        const replyText = (data && data.text) ? data.text : "I couldn't find an answer to that — try the Curator Space for direct help.";
 
         typingBubble.remove();
-        appendChatBubble('aiMessages', 'AI Concierge', replyText, 'ai');
-        aiHistory.push({ role: 'assistant', content: replyText });
+
+        if (data.humanActive) {
+          // Message is queued for a human curator — no immediate AI reply.
+          curatorRenderedCount += 0; // the user message we already rendered is the only new one
+        } else if (data.reply) {
+          appendChatBubble('curatorMessages', 'AI Concierge', data.reply, 'ai');
+          curatorRenderedCount += 1; // account for the assistant reply the backend also stored
+        }
       } catch (err) {
-        console.error("AI assistant error:", err);
+        console.error("Curator chat error:", err);
         typingBubble.remove();
-        showToast("The AI concierge is unavailable right now. Please try again.");
+        showToast("The concierge is unavailable right now. Please try again.");
       } finally {
+        requestInFlight = false;
         sendBtn.disabled = false;
       }
 
@@ -1260,6 +1182,8 @@
     }
 
     loadUserData();
+    syncCuratorMessages();
+    startCuratorPolling();
   </script>
 </body>
 </html>
