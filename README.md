@@ -35,7 +35,13 @@ never a read-modify-write in JS.
 wrangler d1 create spring-renaissance      # put the id into wrangler.toml
 wrangler d1 execute spring-renaissance --local  --file=./schema.sql
 wrangler d1 execute spring-renaissance --remote --file=./schema.sql
+wrangler deploy                            # schema FIRST, then the worker
 ```
+
+**Order matters on every deploy that changes `schema.sql`.** The rate limiter's
+cleanups depend on `idx_rate_events_created` and `idx_processed_events_at`; ship
+the worker before the indexes and the first request full-scans live data, on the
+one code path an unauthenticated caller can reach.
 
 `wrangler.toml` carries the bindings. Secrets are set only with
 `wrangler secret put`: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
@@ -80,7 +86,15 @@ for a week.
   means a client firing 15 requests in the same instant may have all 15 refused
   rather than 10 admitted. That is the safe direction and it is why the insert
   comes first: count-then-insert lets concurrent callers all observe `limit - 1`
-  and all proceed. Sequential traffic admits exactly the limit.
+  and all proceed. Sequential traffic admits exactly the limit. A refused
+  request withdraws its own row, so a burst no longer extends its own penalty.
+- **`/api/auth/request-link` checks the IP budget before the email budget, in
+  sequence.** The endpoint takes no session, and insert-then-count writes before
+  it reads, so a parallel check billed every probe to *both* buckets. An
+  attacker cycling fresh addresses never tripped the per-email limit, and each
+  request bought two rows in a table only they were growing — enough to exhaust
+  the free-tier write budget, at which point the limiter's fail-open `catch`
+  disables every limit in the system. Sequential and IP-first bounds it.
 - **`/api/auth/request-link` does not equalise timing.** It always answers
   `202 {"ok":true}` — for a member, a stranger, a cancelled account, a malformed
   address, and a caller over the limit — so the response cannot be used to
