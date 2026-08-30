@@ -9,6 +9,16 @@
        handing a bearer token to a third party. The tag must sit above every
        <link> so it applies to the font requests below. -->
   <meta name="referrer" content="no-referrer">
+  <!-- 8.3: no 'unsafe-inline' for script. The page ships exactly one inline
+       script element, so its sha256 is the entire allowance — an injected tag
+       has no matching hash and does not run. The hash is recomputed and
+       enforced by test/acceptance.test.mjs (AC-20): editing the script without
+       updating this tag fails the suite instead of silently blanking the page
+       in production. (Deliberately no literal tag markup in this comment: the
+       hash extractor would match it instead of the real element.)
+       style-src still allows inline styles. The rule in 8.3 is about script;
+       the page's stylesheet block carries no injection surface. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-1DN+nUknyWyBLvzvBWVZkzUtEMAsEHyl/eUjlFKLrkU='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src https://stripe-magiclink.sagradyanfelix.workers.dev; base-uri 'none'; form-action 'none'">
   <title>Private Client Portal — Spring Renaissance</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -275,6 +285,33 @@
       padding: 12px 16px;
       border-radius: 8px;
       margin-bottom: 16px;
+    }
+
+    /* Step 7: re-authentication controls, inside the existing banner. */
+    .relink-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .relink-input {
+      flex: 1 1 200px;
+      max-width: 280px;
+      text-transform: none;
+      letter-spacing: normal;
+      font-weight: 400;
+    }
+
+    .relink-note {
+      margin-top: 10px;
+      font-size: 10px;
+      font-weight: 400;
+      letter-spacing: 0.3px;
+      text-transform: none;
+      color: var(--text-muted);
+      line-height: 1.5;
     }
 
     /* ---------- Views ---------- */
@@ -604,7 +641,17 @@
 
   <main>
     <p class="client-line" id="userEmailDisplay">Authenticating secure allocation...</p>
-    <div class="session-banner" id="sessionBanner" role="alert">Session Expired — request a new secure link to continue</div>
+    <div class="session-banner" id="sessionBanner" role="alert">
+      <div>Session Expired — request a new secure link to continue</div>
+      <!-- Step 7: the way back in. Before this, an expired link meant emailing
+           the concierge and waiting. -->
+      <div class="relink-row">
+        <input type="email" id="relinkEmail" class="text-input relink-input"
+               placeholder="Your email address" autocomplete="email" spellcheck="false">
+        <button type="button" class="btn btn-auto" id="relinkBtn">Request New Access Link</button>
+      </div>
+      <div class="relink-note" id="relinkNote" role="status" aria-live="polite" hidden></div>
+    </div>
 
     <!-- View 1: SEASONAL CAPSULES -->
     <section class="view view-enter" data-view="capsules" id="view-capsules">
@@ -719,6 +766,9 @@
       menuTrigger: document.getElementById('menuTrigger'),
       userEmailDisplay: document.getElementById('userEmailDisplay'),
       sessionBanner: document.getElementById('sessionBanner'),
+      relinkEmail: document.getElementById('relinkEmail'),
+      relinkBtn: document.getElementById('relinkBtn'),
+      relinkNote: document.getElementById('relinkNote'),
       statusDot: document.getElementById('statusDot'),
       subStatusText: document.getElementById('subStatusText'),
       capsuleStatusBadge: document.getElementById('capsuleStatusBadge'),
@@ -1624,6 +1674,64 @@
     }
 
     el.curatorForm.addEventListener('submit', handleCuratorSend);
+
+    // ---------- Re-authentication (Step 7) ----------
+    // The message is the same whatever the server did: sent, not sent because
+    // the address is unknown, not sent because the membership is cancelled, not
+    // sent because the limit was hit. The Worker deliberately answers 202 to all
+    // of those, and echoing anything more specific here would leak exactly what
+    // it is hiding — whether an address is a client.
+    const RELINK_COOLDOWN_MS = 120000;
+    const RELINK_MESSAGE =
+      "If that address belongs to an active membership, a link is on its way. " +
+      "Please check your inbox.";
+
+    function setRelinkNote(text) {
+      el.relinkNote.textContent = text;
+      el.relinkNote.hidden = !text;
+    }
+
+    async function requestAccessLink() {
+      const email = el.relinkEmail.value.trim();
+      if (!email) {
+        setRelinkNote("Please enter the email address on your membership.");
+        return;
+      }
+
+      // Locked for the full window regardless of outcome, matching the
+      // server-side limit of one link per address per two minutes.
+      el.relinkBtn.disabled = true;
+      el.relinkEmail.disabled = true;
+      const settledLabel = el.relinkBtn.textContent;
+      el.relinkBtn.textContent = "Sending...";
+
+      try {
+        await fetchWithTimeout(WORKER_URL + '/api/auth/request-link', {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: email })
+        });
+      } catch (e) {
+        // Even a transport failure gets the neutral message: the request may
+        // well have arrived, and saying otherwise invites a retry storm.
+        console.debug("Access link request failed:", e);
+      }
+
+      setRelinkNote(RELINK_MESSAGE);
+      el.relinkBtn.textContent = settledLabel;
+      setTimeout(function () {
+        el.relinkBtn.disabled = false;
+        el.relinkEmail.disabled = false;
+      }, RELINK_COOLDOWN_MS);
+    }
+
+    el.relinkBtn.addEventListener('click', requestAccessLink);
+    el.relinkEmail.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        requestAccessLink();
+      }
+    });
 
     // ---------- Boot ----------
     loadUserData();
