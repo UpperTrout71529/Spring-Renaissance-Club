@@ -480,11 +480,23 @@ export default {
         if (!email || !isPlausibleEmail(email)) return accepted;
 
         const ip = request.headers.get("CF-Connecting-IP") || "";
-        const [emailOk, ipOk] = await Promise.all([
-          withinRateLimit("link_email", email, LINK_RATE_LIMIT_PER_EMAIL, LINK_RATE_LIMIT_WINDOW_MS, env),
-          withinRateLimit("link_ip", ip, LINK_RATE_LIMIT_PER_IP, LINK_RATE_LIMIT_WINDOW_MS, env)
-        ]);
-        if (!emailOk || !ipOk) return accepted;
+
+        // E-1: the IP budget is consulted FIRST and short-circuits. These two
+        // checks used to run in Promise.all, which meant every probe inserted a
+        // row in BOTH buckets before either limit was consulted. An attacker
+        // cycling fresh addresses never tripped the per-email limit — each new
+        // address is its own subject with a clean budget — so each
+        // unauthenticated request bought a permanent 120s row in an
+        // unauthenticated table. Sequential, IP-first, costs one extra round
+        // trip on an endpoint that is low-volume by design, and bounds what a
+        // caller without a session can write.
+        if (!(await withinRateLimit(
+          "link_ip", ip, LINK_RATE_LIMIT_PER_IP, LINK_RATE_LIMIT_WINDOW_MS, env
+        ))) return accepted;
+
+        if (!(await withinRateLimit(
+          "link_email", email, LINK_RATE_LIMIT_PER_EMAIL, LINK_RATE_LIMIT_WINDOW_MS, env
+        ))) return accepted;
 
         const userData = await getUser(email, env);
         // No account, or a cancelled one: no link. Same answer either way.
@@ -842,26 +854,93 @@ async function withinRateLimit(bucket, subject, limit, windowMs, env) {
   const now = Date.now();
   const floor = now - windowMs;
   try {
-    await env.DB.batch([
-      env.DB.prepare("DELETE FROM rate_events WHERE created_at < ?").bind(floor),
+    // E-3: the sweep is scoped to this bucket+subject so it rides
+    // idx_rate_events_lookup. The unscoped `WHERE created_at < ?` it replaces
+    // was a full table scan on every chat message and every link request, and
+    // D1 meters rows READ — the cost of one message grew with the size of the
+    // whole table instead of staying constant.
+    const [, insert] = await env.DB.batch([
+      env.DB.prepare(
+        "DELETE FROM rate_events WHERE bucket = ? AND subject = ? AND created_at < ?"
+      ).bind(bucket, subject, floor),
       env.DB.prepare(
         "INSERT INTO rate_events (bucket, subject, created_at) VALUES (?, ?, ?)"
       ).bind(bucket, subject, now)
     ]);
+
     const row = await env.DB.prepare(
       "SELECT COUNT(*) AS count FROM rate_events WHERE bucket = ? AND subject = ? AND created_at >= ?"
     ).bind(bucket, subject, floor).first();
     const count = Number(row && row.count) || 0;
+
+    // ADR-005 keeps the insert ahead of the count: count-then-insert lets
+    // concurrent callers all observe `limit - 1` and all proceed.
     if (count > limit) {
+      // E-2: but a refused attempt must not be charged to the window. Leaving
+      // its row behind meant the refusals themselves held the limit closed —
+      // a client whose network retried, or who double-tapped send, turned
+      // "10 per minute" into "locked out for a minute after any burst".
+      // Withdrawing the row keeps enforcement exact for sequential traffic
+      // while a burst is refused without extending its own penalty.
+      //
+      // E-1: it also stops an unauthenticated caller from growing the table.
+      // /api/auth/request-link takes no session, so every probe used to buy
+      // two permanent D1 writes for the price of one HTTP request.
+      await withdrawRateEvent(insert, bucket, subject, env);
       console.error("Rate limit hit:", bucket, subject);
       return false;
     }
+    await sweepExpiredRateEvents(floor, env);
     return true;
   } catch (e) {
     // Fail open: a database blip must not take the concierge offline for
     // everyone. Same posture as the KV version it replaces.
     console.error("Rate limit check failed, allowing request", e);
     return true;
+  }
+}
+
+// E-2: remove the row this request just inserted, once it is refused.
+async function withdrawRateEvent(insertResult, bucket, subject, env) {
+  const id = insertResult && insertResult.meta && insertResult.meta.last_row_id;
+  try {
+    if (id) {
+      await env.DB.prepare("DELETE FROM rate_events WHERE id = ?").bind(id).run();
+      return;
+    }
+    // Fallback for a runtime whose batch() results carry no last_row_id.
+    // Without it this function would silently become a no-op and E-2 would
+    // regress in production while every local test stayed green — the worst
+    // possible failure mode for a fix, and one no test here could catch.
+    //
+    // Deleting this subject's newest row rather than "our" row is equivalent:
+    // every row for one subject inside one window is interchangeable, and only
+    // the count is ever read. id is the AUTOINCREMENT primary key, so MAX(id)
+    // is the latest insert.
+    await env.DB.prepare(
+      `DELETE FROM rate_events
+        WHERE id = (SELECT MAX(id) FROM rate_events WHERE bucket = ? AND subject = ?)`
+    ).bind(bucket, subject).run();
+  } catch (e) {
+    // Worst case the row expires with its window; log rather than fail the
+    // request, which is already being refused.
+    console.error("Failed to withdraw rate-limit row", id, e);
+  }
+}
+
+// E-1: the scoped sweep above only ever cleans subjects that come back. A
+// caller who probes once and never returns leaves rows until their window
+// lapses with nothing to trigger the delete. This catches those, cheaply:
+// indexed by created_at and run on a small fraction of admitted requests, so
+// the amortised cost is negligible but the table cannot grow without bound.
+const RATE_SWEEP_PROBABILITY = 1 / 64;
+
+async function sweepExpiredRateEvents(floor, env) {
+  if (Math.random() >= RATE_SWEEP_PROBABILITY) return;
+  try {
+    await env.DB.prepare("DELETE FROM rate_events WHERE created_at < ?").bind(floor).run();
+  } catch (e) {
+    console.error("rate_events sweep failed", e);
   }
 }
 

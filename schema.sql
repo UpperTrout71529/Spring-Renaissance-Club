@@ -56,6 +56,9 @@ CREATE TABLE IF NOT EXISTS processed_events (
   event_type   TEXT,
   processed_at INTEGER NOT NULL
 );
+-- E-3: the opportunistic cleanup runs on every reserved webhook. Without this
+-- index `WHERE processed_at < ?` is a full table scan, and D1 meters rows read.
+CREATE INDEX IF NOT EXISTS idx_processed_events_at ON processed_events (processed_at);
 
 -- ADR-005: sliding-window rate limit.
 CREATE TABLE IF NOT EXISTS rate_events (
@@ -65,3 +68,7 @@ CREATE TABLE IF NOT EXISTS rate_events (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_rate_events_lookup ON rate_events (bucket, subject, created_at);
+-- E-3: the per-subject sweep rides the composite index above. The occasional
+-- global sweep (subjects that probe once and never return) needs its own, or it
+-- degrades into a full scan of a table an unauthenticated caller can grow.
+CREATE INDEX IF NOT EXISTS idx_rate_events_created ON rate_events (created_at);
