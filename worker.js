@@ -44,11 +44,25 @@ const DEFAULT_TAKEOVER_MINUTES = 30;
 const RENEWAL_MIN_AMOUNT_CENTS = 2000;
 const RENEWAL_TOKEN_GRANT = 20;
 
-// Concierge rate limit, per client per minute. Sized well above real use (a
-// person types a handful of messages a minute) and far below what it takes to
-// burn through the ProxyAPI quota.
+// Concierge rate limit. Sized well above real use (a person types a handful of
+// messages a minute) and far below what it takes to burn through the ProxyAPI
+// quota. ADR-005 makes the window a true sliding one.
 const CHAT_RATE_LIMIT_PER_MINUTE = 10;
-const CHAT_RATE_LIMIT_TTL_SECONDS = 180;
+const CHAT_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+
+// Step 6: re-authentication. One link per address per two minutes, five per IP
+// over the same window, so the endpoint cannot be used to mailbomb a client or
+// to sweep the customer base.
+const LINK_RATE_LIMIT_PER_EMAIL = 1;
+const LINK_RATE_LIMIT_PER_IP = 5;
+const LINK_RATE_LIMIT_WINDOW_MS = 120 * 1000;
+
+// 8.2: applied to every response path — JSON, 405 and the catch-all 500 — so a
+// bug in one branch cannot ship a response without them.
+const securityHeaders = {
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "no-referrer",
+};
 
 export default {
   async fetch(request, env) {
@@ -64,11 +78,18 @@ export default {
     const json = (obj, status = 200, extraHeaders = {}) =>
       new Response(JSON.stringify(obj), {
         status,
-        headers: { ...corsHeaders, "Content-Type": "application/json", ...extraHeaders }
+        headers: {
+          ...corsHeaders,
+          ...securityHeaders,
+          // 8.2: a JSON API never needs to load anything, so say so.
+          "Content-Security-Policy": "default-src 'none'",
+          "Content-Type": "application/json",
+          ...extraHeaders
+        }
       });
 
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders });
+      return new Response(null, { status: 204, headers: { ...corsHeaders, ...securityHeaders } });
     }
 
     // A-1: set once the event key is reserved, so the catch block below can
@@ -80,6 +101,14 @@ export default {
 
       if (!env.CLIENT_KV) {
         console.error("CLIENT_KV binding missing");
+        return json({ error: "Service temporarily unavailable" }, 503);
+      }
+
+      // 8.6: no silent fallback to KV when D1 is down. Degrading would restore
+      // exactly the read-modify-write races this migration removes, and it
+      // would do it invisibly, under load, which is when it hurts most.
+      if (!env.DB) {
+        console.error("D1 binding DB missing");
         return json({ error: "Service temporarily unavailable" }, 503);
       }
 
@@ -116,28 +145,28 @@ export default {
         const resolved = await resolveUserByToken(authToken, env);
         if (!resolved) return json({ error: "Session expired" }, 401);
 
-        // M-12: a canceled membership must not be silently reactivated by the
-        // skip toggle — that would flip status back to "Active" with no
-        // payment behind it. Canceled is terminal; re-subscribing goes
-        // through Stripe checkout, not through this endpoint.
-        if (resolved.userData.status === "Canceled") {
+        // D-1: this handler used to read the record, mutate it in JS and write
+        // the whole thing back, so a renewal landing between the read and the
+        // write was erased. Both rules now live in the UPDATE itself:
+        //
+        //   M-12 — the WHERE refuses a canceled membership, so the toggle can
+        //          never reactivate one with no payment behind it. Canceled is
+        //          terminal; re-subscribing goes through Stripe checkout.
+        //   A-3  — the CASE preserves "Past Due", so a failed payment cannot be
+        //          laundered back into "Active" by flipping the skip switch.
+        //
+        // changes === 0 means the guard fired, and it says so without a second
+        // read that could observe yet another state.
+        const applied = await applySkip(resolved.email, skipped, env);
+        if (!applied.changed) {
           return json({ error: "Membership is canceled" }, 409);
         }
 
-        const userKey = `user_${resolved.email}`;
-        const userData = { ...resolved.userData };
-        userData.email = userData.email || resolved.email;
-        userData.skipped = skipped;
-        // A-3: "Past Due" is a billing state only Stripe may clear. The skip
-        // toggle may still be used, but it must never launder a failed payment
-        // back into "Active" — that would restore allocation without money.
-        userData.status = resolved.userData.status === "Past Due"
-          ? "Past Due"
-          : (skipped ? "Paused (Offline)" : "Active");
-        userData.updatedAt = Date.now();
-        await env.CLIENT_KV.put(userKey, JSON.stringify(userData));
-
-        return json({ success: true, skipped: userData.skipped, status: userData.status });
+        return json({
+          success: true,
+          skipped: !!applied.row.skipped,
+          status: applied.row.status
+        });
       }
 
       // ----------------------------------------------------------------
@@ -161,8 +190,7 @@ export default {
         const resolved = await resolveUserByToken(body.authToken, env);
         if (!resolved) return json({ error: "Session expired" }, 401);
 
-        const userKey = `user_${resolved.email}`;
-        const userData = { ...resolved.userData };
+        const userData = resolved.userData;
 
         if (userData.status === "Canceled") {
           // Idempotent: re-cancelling is a no-op, not an error.
@@ -180,10 +208,10 @@ export default {
           return json({ error: "Cancellation is temporarily unavailable" }, 503);
         }
 
-        let subscriptionId = typeof userData.stripeSubscriptionId === "string"
-          ? userData.stripeSubscriptionId
+        let subscriptionId = typeof userData.stripe_subscription_id === "string"
+          ? userData.stripe_subscription_id
           : null;
-        const customerId = typeof userData.stripeCustomerId === "string" ? userData.stripeCustomerId : "";
+        const customerId = typeof userData.stripe_customer_id === "string" ? userData.stripe_customer_id : "";
         const hasRealCustomer = !!customerId && customerId !== "cus_guest";
 
         // No subscription id on file: look it up. Stripe's default listing
@@ -241,18 +269,15 @@ export default {
           }
         }
 
-        userData.email = userData.email || resolved.email;
-        userData.status = "Canceled";
-        userData.tokens = 0;
-        userData.skipped = false;
-        userData.canceledAt = Date.now();
-        userData.updatedAt = Date.now();
+        // D-1: this was a read-modify-write of the whole record. It is now one
+        // guarded UPDATE that zeroes the balance and stamps the revocation in
+        // the same statement.
+        //
         // A-6: a cancelled client must lose portal access. Every magic token
         // issued up to now is revoked by timestamp (resolveUserByToken checks
         // it), which covers links from earlier checkouts that are still inside
         // their 35-day TTL and whose ids we no longer have.
-        userData.magicRevokedBefore = Date.now();
-        await env.CLIENT_KV.put(userKey, JSON.stringify(userData));
+        await applyCancel(resolved.email, env);
 
         // Drop the presented token outright so it stops resolving immediately,
         // without waiting on KV read-after-write propagation of the record above.
@@ -312,9 +337,11 @@ export default {
 
         // Rate limit: one magic token could otherwise drain the whole ProxyAPI
         // quota — every client's concierge goes down with it, and the bill is
-        // ours. Checked after auth so an unauthenticated flood costs no KV
-        // writes, and before anything is persisted or forwarded upstream.
-        if (!(await withinChatRateLimit(resolved.email, env))) {
+        // ours. Checked after auth so an unauthenticated flood costs no writes,
+        // and before anything is persisted or forwarded upstream.
+        if (!(await withinRateLimit(
+          "chat", resolved.email, CHAT_RATE_LIMIT_PER_MINUTE, CHAT_RATE_LIMIT_WINDOW_MS, env
+        ))) {
           return json(
             { error: "Too many messages — please wait a moment." },
             429,
@@ -322,17 +349,16 @@ export default {
           );
         }
 
-        const convoKey = `curator_${resolved.email}`;
         const userMessage = newMessage("You", "user", message || "[photo]");
 
-        // A-5: persist the client's message immediately via merge-on-write, so
-        // it is visible to a curator polling during the Gemini round-trip and
-        // cannot be clobbered by a concurrent human-reply write.
+        // A-5: the client's message is an INSERT, so a curator writing at the
+        // same instant cannot overwrite it — the two rows simply coexist. This
+        // is what the old merge-on-write was approximating.
         //
         // B-2: the takeover check reads the state this write actually produced.
         // It used to test a snapshot taken before the append, so a takeover
         // landing in between was missed and the AI answered over the curator.
-        const afterUserMessage = await appendConversationMessages(convoKey, [userMessage], env);
+        const afterUserMessage = await appendChatMessage(resolved.email, userMessage, env);
 
         // A human curator has taken over: queue the message, never answer over them.
         if (afterUserMessage.humanActiveUntil && afterUserMessage.humanActiveUntil > Date.now()) {
@@ -346,26 +372,28 @@ export default {
           return json({ queued: true, humanActive: false, degraded: true });
         }
 
+        // The upstream call happens with nothing held open: no read is
+        // outstanding, no state is staged. Gemini can take its full 25s.
         const replyText = await callGeminiConcierge({
           message,
           imageBase64,
           imageMime,
-          userContext: resolved.userData,
+          userContext: publicUserView(resolved.email, resolved.userData),
           env
         });
 
-        // A-5: Gemini can take up to 25s. Re-read before writing — if a curator
-        // took over in the meantime, the AI must not talk over them.
-        const afterGeneration = await readConversation(convoKey, env);
-        if (afterGeneration.humanActiveUntil && afterGeneration.humanActiveUntil > Date.now()) {
-          return json({ queued: true, humanActive: true, aiReplySuppressed: true });
-        }
-
-        await appendConversationMessages(
-          convoKey,
-          [newMessage("AI Concierge", "assistant", replyText)],
+        // A-5: Gemini can take up to 25s, and a curator may have taken over in
+        // that time. This used to be a re-read followed by a write, which left
+        // a window between the two. The guard is now inside the INSERT: if a
+        // takeover is active, no row is written and changes === 0 says so.
+        const committed = await commitAiReply(
+          resolved.email,
+          newMessage("AI Concierge", "assistant", replyText),
           env
         );
+        if (!committed.stored) {
+          return json({ queued: true, humanActive: true, aiReplySuppressed: true });
+        }
 
         return json({ reply: replyText, humanActive: false });
       }
@@ -377,7 +405,7 @@ export default {
         const resolved = await resolveUserByToken(url.searchParams.get("auth_token"), env);
         if (!resolved) return json({ error: "Session expired" }, 401);
 
-        const convo = await readConversation(`curator_${resolved.email}`, env);
+        const convo = await readConversation(resolved.email, env);
         return json({
           messages: convo.messages,
           humanActive: !!(convo.humanActiveUntil && convo.humanActiveUntil > Date.now())
@@ -392,8 +420,9 @@ export default {
       // never be called from a browser page that ships the secret to the client.
       // ----------------------------------------------------------------
       if (url.pathname === "/api/curator/human-reply" && request.method === "POST") {
-        const provided = request.headers.get("X-Admin-Secret") || "";
-        if (!env.ADMIN_SECRET || !timingSafeEqual(provided, env.ADMIN_SECRET)) {
+        // 8.1: all admin paths go through the seam, so replacing the mechanism
+        // later is one function, not a search for every header read.
+        if (!authorizeAdmin(request, env)) {
           return json({ error: "Unauthorized" }, 401);
         }
 
@@ -416,22 +445,66 @@ export default {
         // outright the instant it was set.
         const minutes = clampTakeoverMinutes(takeoverMinutes);
 
-        const convoKey = `curator_${email}`;
+        // A-5: the takeover window and the reply are two statements, but the
+        // reply is an INSERT and the window only moves forward via MAX(), so a
+        // client message landing at the same instant is preserved rather than
+        // overwritten. Merge-on-write is no longer needed to achieve that.
+        const takeover = await setTakeover(email, Date.now() + minutes * 60000, env);
+        await appendChatMessage(email, newMessage("Curator", "curator", message), env);
 
-        // A-5: merge-on-write. A client message landing at the same instant is
-        // re-read and preserved instead of being overwritten by this reply.
-        const written = await appendConversationMessages(
-          convoKey,
-          [newMessage("Curator", "curator", message)],
-          env,
-          { humanActiveUntil: Date.now() + minutes * 60000 }
-        );
+        return json({ success: true, takeoverMinutes: minutes, humanActiveUntil: takeover.humanActiveUntil });
+      }
 
-        return json({ success: true, takeoverMinutes: minutes, humanActiveUntil: written.humanActiveUntil });
+      // ----------------------------------------------------------------
+      // API 7 (Step 6): re-authentication — request a fresh portal link.
+      //
+      // A client whose link expired, or who cancelled and re-subscribed, had
+      // no way back into the portal short of emailing the concierge. This is
+      // the way back.
+      //
+      // The response is ALWAYS 202 { ok: true }: for a member, for a stranger,
+      // for a cancelled account, for a malformed address, and for a caller who
+      // has blown the rate limit. Any difference — status, body, or even a 429
+      // — turns this endpoint into an oracle for enumerating the client base.
+      //
+      // Honest limitation: timing is not equalised. The path that sends an
+      // email is measurably longer than the one that does not. Closing that
+      // would need a queue and is not worth the machinery here; the one-link-
+      // per-two-minutes limit already makes a timing oracle impractical.
+      // ----------------------------------------------------------------
+      if (url.pathname === "/api/auth/request-link" && request.method === "POST") {
+        const accepted = json({ ok: true }, 202);
+        const body = await readJson(request);
+        const email = normalizeEmail(body && body.email);
+
+        if (!email || !isPlausibleEmail(email)) return accepted;
+
+        const ip = request.headers.get("CF-Connecting-IP") || "";
+        const [emailOk, ipOk] = await Promise.all([
+          withinRateLimit("link_email", email, LINK_RATE_LIMIT_PER_EMAIL, LINK_RATE_LIMIT_WINDOW_MS, env),
+          withinRateLimit("link_ip", ip, LINK_RATE_LIMIT_PER_IP, LINK_RATE_LIMIT_WINDOW_MS, env)
+        ]);
+        if (!emailOk || !ipOk) return accepted;
+
+        const userData = await getUser(email, env);
+        // No account, or a cancelled one: no link. Same answer either way.
+        if (!userData || userData.status === "Canceled") return accepted;
+
+        const magicToken = crypto.randomUUID();
+        await env.CLIENT_KV.put(`magic_${magicToken}`, JSON.stringify({
+          email,
+          createdAt: Date.now()
+        }), { expirationTtl: MAGIC_TOKEN_TTL_SECONDS });
+
+        await sendPortalEmail({ customerEmail: email, customerName: "Valued Client", magicToken, env });
+        return accepted;
       }
 
       if (request.method !== "POST") {
-        return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: { ...corsHeaders, ...securityHeaders }
+        });
       }
 
       // ================================================================
@@ -479,25 +552,22 @@ export default {
       const eventType = payload.type;
       const stripeObj = (payload.data && payload.data.object) || {};
 
-      // M-5 + A-1: idempotency by reservation. Stripe retries on any non-2xx
-      // and can deliver the same event more than once even on success.
+      // M-5 + A-1 + ADR-004: idempotency by PRIMARY KEY. Stripe retries on any
+      // non-2xx and can deliver the same event more than once even on success.
       //
-      // The reservation is written BEFORE any side effect. The old code marked
-      // the event only after the work was done, so two concurrent deliveries
-      // of one renewal both read "not seen" and both credited +20. Reserving
-      // first shrinks that window to the single get/put round-trip; KV has no
-      // compare-and-set, so this is a narrow race, not a closed one.
+      // This was a KV get followed by a KV put. Even with the put moved ahead
+      // of the side effects, the gap between the two calls was real: two
+      // concurrent deliveries of one renewal could both read "not seen" and
+      // both credit +20. The insert now IS the check — a uniqueness conflict is
+      // the duplicate answer — so the window is not narrowed, it is gone.
       //
       // Any branch that ends without applying the event releases the
       // reservation, so a transient failure does not permanently swallow it.
       if (eventId) {
-        const seen = await env.CLIENT_KV.get(`evt_${eventId}`);
-        if (seen) {
+        const reserved = await reserveEvent(eventId, eventType, env);
+        if (!reserved) {
           return json({ received: true, duplicate: true });
         }
-        await env.CLIENT_KV.put(`evt_${eventId}`, String(Date.now()), {
-          expirationTtl: WEBHOOK_EVENT_TTL_SECONDS
-        });
         reservedEventId = eventId;
       }
 
@@ -519,15 +589,11 @@ export default {
         const email = await resolveEmailForCustomer(stripeObj, env);
 
         if (email) {
-          const userKey = `user_${email}`;
-          const existingUser = (await env.CLIENT_KV.get(userKey, { type: "json" })) || {};
-          existingUser.email = existingUser.email || email;
-          existingUser.status = "Canceled";
-          existingUser.tokens = 0;
-          existingUser.skipped = false;
-          existingUser.canceledAt = Date.now();
-          existingUser.updatedAt = Date.now();
-          await env.CLIENT_KV.put(userKey, JSON.stringify(existingUser));
+          // D-1: read-modify-write of the whole record, replaced by a guarded
+          // UPDATE. A renewal arriving in the same instant can no longer be
+          // resurrected by this write, nor erase it.
+          await getUser(email, env);   // ADR-003: materialise a legacy client first
+          await applyCancel(email, env);
         } else {
           // B-1: nothing was applied, so release the reservation AND answer
           // non-2xx. Releasing alone was not enough — Stripe only retries on a
@@ -560,20 +626,16 @@ export default {
           return json({ received: false, reason: "No email resolved" }, 500);
         }
 
-        const userKey = `user_${email}`;
-        const existingUser = (await env.CLIENT_KV.get(userKey, { type: "json" })) || {};
+        await getUser(email, env);   // ADR-003: materialise a legacy client first
 
-        // Cancellation is terminal and outranks a dunning notice that was
-        // already in flight when the client cancelled.
-        if (existingUser.status === "Canceled") {
+        // D-1: the "is it cancelled?" test used to be an if() in JS between a
+        // read and a write. It is now the WHERE clause of the UPDATE, so a
+        // cancellation landing mid-flight wins deterministically instead of
+        // depending on which request read first.
+        const pastDue = await markPastDue(email, env);
+        if (!pastDue.changed) {
           return json({ received: true, action: "payment_past_due", applied: false, reason: "Membership canceled" });
         }
-
-        existingUser.email = existingUser.email || email;
-        existingUser.status = "Past Due";
-        existingUser.pastDueAt = Date.now();
-        existingUser.updatedAt = Date.now();
-        await env.CLIENT_KV.put(userKey, JSON.stringify(existingUser));
 
         return json({ received: true, action: "payment_past_due", applied: true });
       }
@@ -649,33 +711,52 @@ export default {
           return json({ received: false, reason: "No email resolved" }, 500);
         }
 
-        const userKey = `user_${customerEmail}`;
-        // M-6 — no cacheTtl: a cancellation written seconds earlier must be
-        // visible, otherwise a canceled account can still be topped up on a
-        // renewal invoice that was already in flight.
-        const existingUser = await env.CLIENT_KV.get(userKey, { type: "json" });
+        // M-6: a cancellation written seconds earlier must be visible,
+        // otherwise a canceled account can still be topped up on a renewal
+        // invoice that was already in flight. The read is a SELECT of
+        // committed state, and the guard below is enforced by the UPDATE, not
+        // by this read.
+        const existingUser = await getUser(customerEmail, env);
+        const stripeCustomerId = typeof stripeObj.customer === "string"
+          ? stripeObj.customer
+          : ((existingUser && existingUser.stripe_customer_id) || "cus_guest");
 
-        if (existingUser && existingUser.status === "Canceled") {
+        // A first-ever renewal for a client with no record yet: create one so
+        // the credit has somewhere to land.
+        if (!existingUser) {
+          await upsertFromCheckout({
+            email: customerEmail,
+            grant: RENEWAL_TOKEN_GRANT,
+            stripeCustomerId,
+            stripeSubscriptionId: extractSubscriptionId(stripeObj),
+            env
+          });
+          await indexCustomerEmail(stripeCustomerId, customerEmail, env);
+          return json({ success: true, message: `Tokens credited (+${RENEWAL_TOKEN_GRANT})` });
+        }
+
+        // D-1 + M-4: the balance is incremented in SQL. Twenty renewals
+        // delivered at once now add up to exactly twenty grants; the old
+        // read-modify-write kept only the last writer's arithmetic.
+        //
+        // A-3: a successful renewal clears "Past Due" inside the same
+        // statement. A skipped member stays paused; everyone else goes Active.
+        const credited = await creditTokens(customerEmail, RENEWAL_TOKEN_GRANT, env);
+        if (!credited.changed) {
           return json({ ignored: true, reason: "Subscription canceled. Recurring tokens blocked." });
         }
 
-        const base = existingUser || { tokens: 0, skipped: false, status: "Active" };
-        const stripeCustomerId = typeof stripeObj.customer === "string"
-          ? stripeObj.customer
-          : (base.stripeCustomerId || "cus_guest");
-
-        await env.CLIENT_KV.put(userKey, JSON.stringify({
-          ...base,
-          email: customerEmail,
-          stripeCustomerId,
-          stripeSubscriptionId: extractSubscriptionId(stripeObj) || base.stripeSubscriptionId || null,
-          tokens: (typeof base.tokens === "number" ? base.tokens : 0) + RENEWAL_TOKEN_GRANT,
-          // A-3: a successful renewal clears "Past Due". A skipped member stays
-          // paused; everyone else goes back to Active.
-          status: base.skipped ? "Paused (Offline)" : "Active",
-          pastDueAt: null,
-          updatedAt: Date.now()
-        }));
+        // Keep the subscription id current without a second read-modify-write.
+        const subscriptionId = extractSubscriptionId(stripeObj);
+        if (subscriptionId || stripeCustomerId) {
+          await env.DB.prepare(
+            `UPDATE users
+                SET stripe_customer_id = COALESCE(?1, stripe_customer_id),
+                    stripe_subscription_id = COALESCE(?2, stripe_subscription_id)
+              WHERE email = ?3`
+          ).bind(stripeCustomerId || null, subscriptionId || null, customerEmail).run();
+          await mirrorUserToKv(customerEmail, env);
+        }
 
         // Keep the customer -> email index warm so a later
         // customer.subscription.deleted never needs the Stripe API round-trip.
@@ -701,7 +782,12 @@ export default {
 
       return new Response(JSON.stringify({ error: "Internal error" }), {
         status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
+        headers: {
+          ...corsHeaders,
+          ...securityHeaders,
+          "Content-Security-Policy": "default-src 'none'",
+          "Content-Type": "application/json"
+        }
       });
     }
   }
@@ -740,28 +826,40 @@ async function readJson(request, maxBytes = MAX_JSON_BODY_BYTES) {
   }
 }
 
-// Per-client concierge rate limit, bucketed by wall-clock minute in KV under
-// rl_<email>_<minute>. KV has no atomic increment, so two requests racing on
-// the same bucket can both read the same count and a client can slip slightly
-// over the limit; that is acceptable here, because the job is to stop one
-// token from draining the ProxyAPI quota, not to meter billing exactly.
+// ADR-005: sliding-window rate limit in D1, insert-then-count.
 //
-// Fixed window, not sliding: a client can spend the tail of one minute and the
-// head of the next back to back, so the real worst case is 2x the limit across
-// a boundary. Still two orders of magnitude below what an unthrottled loop does.
-async function withinChatRateLimit(email, env) {
-  const bucket = Math.floor(Date.now() / 60000);
-  const key = `rl_${email}_${bucket}`;
+// This used to be a KV counter under rl_<email>_<minute>. KV has no atomic
+// increment, so two racing requests both read the same count and both passed;
+// and the fixed minute bucket let a client spend the tail of one minute and
+// the head of the next back to back, for an effective 2x at the boundary.
+//
+// The insert goes BEFORE the count and the row counts itself. The reverse
+// order — count, then insert — lets two concurrent requests both observe
+// limit-1 and both proceed, which is the same lost-update shape we are here
+// to remove. Expiry is a DELETE in the same batch, so no cron is needed.
+async function withinRateLimit(bucket, subject, limit, windowMs, env) {
+  if (!subject) return true;
+  const now = Date.now();
+  const floor = now - windowMs;
   try {
-    const used = Number(await env.CLIENT_KV.get(key)) || 0;
-    if (used >= CHAT_RATE_LIMIT_PER_MINUTE) {
-      console.error("Chat rate limit hit for", email);
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM rate_events WHERE created_at < ?").bind(floor),
+      env.DB.prepare(
+        "INSERT INTO rate_events (bucket, subject, created_at) VALUES (?, ?, ?)"
+      ).bind(bucket, subject, now)
+    ]);
+    const row = await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM rate_events WHERE bucket = ? AND subject = ? AND created_at >= ?"
+    ).bind(bucket, subject, floor).first();
+    const count = Number(row && row.count) || 0;
+    if (count > limit) {
+      console.error("Rate limit hit:", bucket, subject);
       return false;
     }
-    await env.CLIENT_KV.put(key, String(used + 1), { expirationTtl: CHAT_RATE_LIMIT_TTL_SECONDS });
     return true;
   } catch (e) {
-    // Fail open: a KV blip must not take the concierge offline for everyone.
+    // Fail open: a database blip must not take the concierge offline for
+    // everyone. Same posture as the KV version it replaces.
     console.error("Rate limit check failed, allowing request", e);
     return true;
   }
@@ -769,15 +867,76 @@ async function withinChatRateLimit(email, env) {
 
 // A-1: hand a reserved event back to Stripe. Called from every branch that
 // ends without applying the event, and from the top-level catch.
+//
+// ADR-004: the reservation now lives in processed_events, where the PRIMARY
+// KEY does the check-and-reserve in one statement. The KV version had a real
+// window between its get and its put; this has none.
 async function releaseReservation(eventId, env) {
-  if (!eventId || !env.CLIENT_KV) return;
+  if (!eventId || !env.DB) return;
   try {
-    await env.CLIENT_KV.delete(`evt_${eventId}`);
+    await env.DB.prepare("DELETE FROM processed_events WHERE event_id = ?").bind(eventId).run();
   } catch (e) {
     // Worst case the event is treated as a duplicate on retry — log it so the
     // dropped event is at least visible.
     console.error("Failed to release webhook reservation", eventId, e);
   }
+}
+
+// ADR-004: reserve an event id. Returns false when the id is already present,
+// which is the "already processed" answer. No read-then-write, so there is no
+// window for two concurrent deliveries to both decide they are first (A-1).
+async function reserveEvent(eventId, eventType, env) {
+  try {
+    const res = await env.DB.prepare(
+      "INSERT INTO processed_events (event_id, event_type, processed_at) VALUES (?, ?, ?)"
+    ).bind(eventId, eventType || null, Date.now()).run();
+    if ((res.meta && res.meta.changes) === 0) return false;
+  } catch (e) {
+    // A PRIMARY KEY conflict is the expected duplicate signal, not a fault.
+    if (isUniqueViolation(e)) return false;
+    throw e;
+  }
+
+  // Opportunistic cleanup instead of a cron: drop reservations past the
+  // idempotency window on the way through.
+  try {
+    await env.DB.prepare("DELETE FROM processed_events WHERE processed_at < ?")
+      .bind(Date.now() - WEBHOOK_EVENT_TTL_SECONDS * 1000).run();
+  } catch (e) {
+    console.error("processed_events cleanup failed", e);
+  }
+  return true;
+}
+
+function isUniqueViolation(e) {
+  const msg = String((e && e.message) || "");
+  return /UNIQUE constraint failed|SQLITE_CONSTRAINT/i.test(msg);
+}
+
+// 8.1: the admin authorization seam. Behaviour is unchanged from the inline
+// check it replaces — a shared secret compared in constant time, so a
+// response-time oracle cannot be walked character by character.
+//
+// TARGET SCHEME, deliberately NOT implemented in this branch: put Cloudflare
+// Access in front of the admin paths, or issue short-lived signed tokens
+// scoped to a single conversation. A shared secret is unusable for a browser
+// admin console — the page would have to ship the secret to the client, where
+// it is one devtools tab away from every reader. Half-migrated authorization
+// is more dangerous than an honest MVP secret, so the swap happens in one
+// piece, behind this function, or not at all.
+function authorizeAdmin(request, env) {
+  const provided = request.headers.get("X-Admin-Secret") || "";
+  if (!env.ADMIN_SECRET) return false;
+  return timingSafeEqual(provided, env.ADMIN_SECRET);
+}
+
+// Step 6: shape check only. Deliverability is not our business here — an
+// address that parses gets the same 202 as one that does not, and a bounce is
+// between Resend and the mailbox.
+function isPlausibleEmail(email) {
+  return typeof email === "string" &&
+    email.length <= 254 &&
+    /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(email);
 }
 
 function clampTakeoverMinutes(value) {
@@ -801,14 +960,19 @@ function extractSubscriptionId(stripeObj) {
 }
 
 // M-13: whitelisted projection sent to the browser. Adding a field here is a
-// deliberate act; spreading the KV record is not.
+// deliberate act; spreading the record is not.
+//
+// This is also the single place where the D1 column names are mapped onto the
+// JSON contract — credits -> tokens, skipped 0/1 -> boolean. The wire shape is
+// byte-for-byte what it was before the migration (8.4), so index.html did not
+// have to change for it.
 function publicUserView(email, userData) {
   return {
     email,
     status: userData.status || "Active",
     skipped: !!userData.skipped,
-    tokens: typeof userData.tokens === "number" ? userData.tokens : 0,
-    updatedAt: userData.updatedAt || null
+    tokens: typeof userData.credits === "number" ? userData.credits : 0,
+    updatedAt: userData.updated_at || null
   };
 }
 
@@ -817,16 +981,26 @@ async function resolveUserByToken(authToken, env) {
   // M-6 — no cacheTtl on the session read: a 30s edge cache meant a
   // just-cancelled account still read as Active on the very next request,
   // and a revoked token stayed usable for the rest of the window.
+  // ADR-001: the session itself stays in KV. It is written once and read by
+  // key, it never races, and KV's TTL is a free expiry mechanism there is no
+  // reason to reimplement in SQL. Only the mutable state moved to D1.
   const magicData = await env.CLIENT_KV.get(`magic_${authToken}`, { type: "json" });
   if (!magicData || !magicData.email) return null;
   const email = normalizeEmail(magicData.email);
   if (!email) return null;
-  const userData = (await env.CLIENT_KV.get(`user_${email}`, { type: "json" })) || { email };
 
-  // A-6 / A-11: bulk revocation. Cancelling stamps magicRevokedBefore, which
+  // ADR-003: a client that has not been touched since the migration is
+  // materialised from their legacy KV record on this read.
+  const userData = await getUser(email, env);
+  // A token pointing at an account that exists nowhere is not a session. This
+  // used to fall back to an empty {email} record and answer 200 with a blank
+  // membership, which read as a real but empty account.
+  if (!userData) return null;
+
+  // A-6 / A-11: bulk revocation. Cancelling stamps magic_revoked_before, which
   // invalidates every link issued up to that moment — including ones whose
   // token ids we never recorded and which are still inside their 35-day TTL.
-  const revokedBefore = Number(userData.magicRevokedBefore) || 0;
+  const revokedBefore = Number(userData.magic_revoked_before) || 0;
   if (revokedBefore && (Number(magicData.createdAt) || 0) <= revokedBefore) return null;
 
   return { email, userData };
@@ -913,73 +1087,308 @@ async function stripeRequest(url, options, env) {
   }
 }
 
+// ============================================================================
+// D1 data access (ADR-001, ADR-002)
+//
+// Every mutation below is a single statement with its guard in the WHERE
+// clause, or a batch. There is deliberately no SELECT-modify-UPDATE anywhere
+// in this file: that pattern is what produced the lost updates this migration
+// exists to remove (D-1), and it cannot be made safe by re-reading faster.
+// `meta.changes` is the answer to "did it apply", and it is exact.
+// ============================================================================
+
+const USER_COLUMNS = `email, status, credits, skipped, stripe_customer_id,
+  stripe_subscription_id, magic_revoked_before, past_due_at, canceled_at, updated_at`;
+
+// D-1: previously each handler did KV.get(user_<email>) -> mutate the object in
+// JS -> KV.put the whole record. Two concurrent writers both read the old
+// value and the second silently erased the first: a renewal crediting +20
+// alongside a skip toggle lost one of the two. Reads are now plain SELECTs and
+// every write is a guarded UPDATE, so the interleaving cannot lose anything.
+async function getUser(email, env) {
+  const row = await env.DB.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE email = ?`)
+    .bind(email).first();
+  if (row) return row;
+  return migrateUserFromKv(email, env);
+}
+
+// ADR-003: lazy read-through migration. No backfill script and no downtime —
+// a client materialises in D1 the first time anything touches them. INSERT OR
+// IGNORE makes the race between two concurrent first-touches harmless: one
+// wins, the other simply re-reads the winner's row.
+async function migrateUserFromKv(email, env) {
+  let legacy = null;
+  try {
+    legacy = await env.CLIENT_KV.get(`user_${email}`, { type: "json" });
+  } catch (e) {
+    console.error("Legacy KV read failed for", email, e);
+    return null;
+  }
+  if (!legacy) return null;
+
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO users (${USER_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?)`
+  ).bind(
+    email,
+    typeof legacy.status === "string" ? legacy.status : "Active",
+    Number.isFinite(legacy.tokens) ? Math.trunc(legacy.tokens) : 0,
+    legacy.skipped ? 1 : 0,
+    legacy.stripeCustomerId || null,
+    legacy.stripeSubscriptionId || null,
+    Number(legacy.magicRevokedBefore) || 0,
+    Number(legacy.pastDueAt) || null,
+    Number(legacy.canceledAt) || null,
+    Number(legacy.updatedAt) || 0
+  ).run();
+
+  return env.DB.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE email = ?`).bind(email).first();
+}
+
+// §7 rollback mirror: every mutation is projected back into the KV record in
+// its pre-migration shape, so the deploy can be rolled back to the KV worker
+// without losing writes. Removing the mirror is a separate task, after D1 has
+// been the source of truth for a week.
+async function mirrorUserToKv(email, env) {
+  try {
+    const row = await env.DB.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE email = ?`)
+      .bind(email).first();
+    if (!row) return;
+    await env.CLIENT_KV.put(`user_${email}`, JSON.stringify({
+      email: row.email,
+      status: row.status,
+      tokens: row.credits,
+      skipped: !!row.skipped,
+      stripeCustomerId: row.stripe_customer_id,
+      stripeSubscriptionId: row.stripe_subscription_id,
+      magicRevokedBefore: row.magic_revoked_before,
+      pastDueAt: row.past_due_at,
+      canceledAt: row.canceled_at,
+      updatedAt: row.updated_at
+    }));
+  } catch (e) {
+    // The mirror is a rollback aid, not the source of truth. Losing it must
+    // not fail the request that already committed to D1.
+    console.error("KV mirror failed for", email, e);
+  }
+}
+
+// M-12 + A-3: one statement carries both rules. The WHERE keeps a cancelled
+// membership untouchable, and the CASE keeps "Past Due" from being laundered
+// back into "Active" by a skip toggle. changes === 0 means the guard fired.
+async function applySkip(email, skipped, env) {
+  const res = await env.DB.prepare(
+    `UPDATE users
+        SET skipped = ?1,
+            status  = CASE WHEN status = 'Past Due' THEN 'Past Due'
+                           WHEN ?1 = 1 THEN 'Paused (Offline)'
+                           ELSE 'Active' END,
+            updated_at = ?2
+      WHERE email = ?3
+        AND status != 'Canceled'`
+  ).bind(skipped ? 1 : 0, Date.now(), email).run();
+
+  const changes = (res.meta && res.meta.changes) || 0;
+  if (changes === 0) return { changed: false, row: null };
+  await mirrorUserToKv(email, env);
+  const row = await env.DB.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE email = ?`)
+    .bind(email).first();
+  return { changed: true, row };
+}
+
+// C-3 + A-6: terminal cancellation. magic_revoked_before is stamped in the same
+// statement that flips the status, so there is no instant where the account is
+// cancelled but old portal links still resolve.
+async function applyCancel(email, env) {
+  const now = Date.now();
+  const res = await env.DB.prepare(
+    `UPDATE users
+        SET status = 'Canceled',
+            credits = 0,
+            skipped = 0,
+            canceled_at = ?1,
+            magic_revoked_before = ?1,
+            updated_at = ?1
+      WHERE email = ?2
+        AND status != 'Canceled'`
+  ).bind(now, email).run();
+
+  const changed = ((res.meta && res.meta.changes) || 0) > 0;
+  if (changed) await mirrorUserToKv(email, env);
+  return { changed };
+}
+
+// M-4/M-6 + A-3: the increment happens in SQL, so two renewals that arrive at
+// the same moment add up instead of overwriting each other. A successful
+// payment also clears Past Due; a skipped member stays paused.
+async function creditTokens(email, amount, env) {
+  const res = await env.DB.prepare(
+    `UPDATE users
+        SET credits = credits + ?1,
+            status  = CASE WHEN skipped = 1 THEN 'Paused (Offline)' ELSE 'Active' END,
+            past_due_at = NULL,
+            updated_at = ?2
+      WHERE email = ?3
+        AND status != 'Canceled'`
+  ).bind(amount, Date.now(), email).run();
+
+  const changed = ((res.meta && res.meta.changes) || 0) > 0;
+  if (changed) await mirrorUserToKv(email, env);
+  return { changed };
+}
+
+// A-3: dunning. Cancellation outranks a payment failure that was already in
+// flight, which is exactly what the status guard expresses.
+async function markPastDue(email, env) {
+  const now = Date.now();
+  const res = await env.DB.prepare(
+    `UPDATE users
+        SET status = 'Past Due',
+            past_due_at = ?1,
+            updated_at = ?1
+      WHERE email = ?2
+        AND status != 'Canceled'`
+  ).bind(now, email).run();
+
+  const changed = ((res.meta && res.meta.changes) || 0) > 0;
+  if (changed) await mirrorUserToKv(email, env);
+  return { changed };
+}
+
+// Checkout grants access. A cancelled member re-subscribing starts a fresh
+// balance; anyone else is topped up. magic_revoked_before is deliberately NOT
+// reset — the freshly minted token is newer than the stamp, so it resolves,
+// while links from before the cancellation stay dead.
+async function upsertFromCheckout({ email, grant, stripeCustomerId, stripeSubscriptionId, env }) {
+  await env.DB.prepare(
+    `INSERT INTO users (${USER_COLUMNS})
+     VALUES (?1, 'Active', ?2, 0, ?3, ?4, 0, NULL, NULL, ?5)
+     ON CONFLICT(email) DO UPDATE SET
+       credits = CASE WHEN users.status = 'Canceled' THEN ?2 ELSE users.credits + ?2 END,
+       status = 'Active',
+       skipped = 0,
+       past_due_at = NULL,
+       canceled_at = NULL,
+       stripe_customer_id = COALESCE(?3, users.stripe_customer_id),
+       stripe_subscription_id = COALESCE(?4, users.stripe_subscription_id),
+       updated_at = ?5`
+  ).bind(email, grant, stripeCustomerId || null, stripeSubscriptionId || null, Date.now()).run();
+
+  await mirrorUserToKv(email, env);
+}
+
 // ---- Curator conversation storage -----------------------------------------
-// M-14: capping the history keeps the value well inside KV's per-value limit —
-// an unbounded transcript would eventually fail every write for that client,
-// silently losing every new message.
+// A-5: this was merge-on-write over a single KV value holding the whole
+// transcript — read it, merge, write it all back. Two writers still raced, and
+// the mitigation only narrowed the window to the put itself. Messages are now
+// rows, so an append is an INSERT and cannot overwrite anybody else's message.
+// The class is closed rather than made unlikely.
+//
+// M-14: the cap survives as an opportunistic DELETE in the same batch, keeping
+// the per-client transcript bounded without a cron.
 
-async function readConversation(convoKey, env) {
-  const convo = (await env.CLIENT_KV.get(convoKey, { type: "json" })) || {};
-  return {
-    messages: Array.isArray(convo.messages) ? convo.messages : [],
-    humanActiveUntil: Number(convo.humanActiveUntil) || 0
-  };
-}
-
-// B-3: prefer an explicit id. Date.now() is frozen inside a single Worker
-// invocation and is coarsened across them, so two genuine messages with the
-// same role and text — a client sending "?" twice, a curator sending the same
-// nudge to two clients — collided on (ts|role|text) and the second was
-// silently swallowed by the dedup. Messages written before ids existed still
-// fall back to the composite key.
-function messageFingerprint(m) {
-  if (m && m.id) return `id:${m.id}`;
-  return `${(m && m.ts) || 0}|${(m && m.role) || ""}|${(m && m.text) || ""}`;
-}
-
+// B-3: an explicit id. Date.now() is frozen inside a single Worker invocation,
+// so two genuine messages with the same role and text used to collide on a
+// (ts|role|text) fingerprint and the second was silently swallowed. The id is
+// now the PRIMARY KEY, so the database enforces what the fingerprint guessed at.
 function newMessage(author, role, text) {
   return { author, role, text, ts: Date.now(), id: crypto.randomUUID() };
 }
 
-// A-5: merge-on-write. The chat and human-reply handlers both read the
-// transcript, append to it and write the whole array back; a curator replying
-// while a client was mid-send simply lost one of the two messages. Re-reading
-// immediately before the put and merging on a (ts|role|text) fingerprint
-// shrinks that window to the put itself and makes a retried append a no-op.
-//
-// humanActiveUntil only ever moves forward, so a stale in-flight write cannot
-// shorten a takeover a curator has just extended.
-async function appendConversationMessages(convoKey, additions, env, opts = {}) {
-  const fresh = await readConversation(convoKey, env);
+async function ensureChatSession(email, env) {
+  return env.DB.prepare(
+    "INSERT OR IGNORE INTO chat_sessions (email, human_active_until, updated_at) VALUES (?, 0, ?)"
+  ).bind(email, Date.now());
+}
 
-  // Dedup across the whole merged result, not just the additions: a duplicate
-  // that a lost race wrote earlier is cleaned up on the next append instead of
-  // being carried forever.
-  const merged = [];
-  const seen = new Set();
-  for (const m of fresh.messages.concat(additions)) {
-    const fingerprint = messageFingerprint(m);
-    if (seen.has(fingerprint)) continue;
-    seen.add(fingerprint);
-    merged.push(m);
+// Returns the session's human_active_until as it stands AFTER the insert, so
+// callers decide on the state their own write produced (B-2) rather than on a
+// snapshot taken before it.
+async function appendChatMessage(email, msg, env) {
+  await env.DB.batch([
+    await ensureChatSession(email, env),
+    env.DB.prepare(
+      "INSERT INTO chat_messages (id, email, author, role, text, ts) VALUES (?, ?, ?, ?, ?, ?)"
+    ).bind(msg.id, email, msg.author, msg.role, msg.text, msg.ts),
+    // M-14: keep only the newest MAX_CURATOR_MESSAGES rows for this client.
+    env.DB.prepare(
+      `DELETE FROM chat_messages
+        WHERE email = ?1
+          AND id NOT IN (
+            SELECT id FROM chat_messages WHERE email = ?1
+             ORDER BY ts DESC, rowid DESC LIMIT ${MAX_CURATOR_MESSAGES}
+          )`
+    ).bind(email)
+  ]);
+
+  const session = await env.DB.prepare(
+    "SELECT human_active_until FROM chat_sessions WHERE email = ?"
+  ).bind(email).first();
+
+  const humanActiveUntil = Number(session && session.human_active_until) || 0;
+  await mirrorChatToKv(email, env);
+  return { humanActiveUntil };
+}
+
+// A-5 + B-2: the AI reply is inserted under a guard instead of after a second
+// read. If a curator took over while Gemini was generating, the NOT EXISTS
+// fails, changes === 0, and the reply is never stored — no window between
+// checking and writing, because they are the same statement.
+async function commitAiReply(email, msg, env) {
+  const res = await env.DB.prepare(
+    `INSERT INTO chat_messages (id, email, author, role, text, ts)
+     SELECT ?1, ?2, ?3, ?4, ?5, ?6
+      WHERE NOT EXISTS (
+        SELECT 1 FROM chat_sessions
+         WHERE email = ?2 AND human_active_until > ?7
+      )`
+  ).bind(msg.id, email, msg.author, msg.role, msg.text, msg.ts, Date.now()).run();
+
+  const stored = ((res.meta && res.meta.changes) || 0) > 0;
+  if (stored) await mirrorChatToKv(email, env);
+  return { stored };
+}
+
+// A-5: takeover only ever moves forward. MAX() in SQL means a stale in-flight
+// write cannot shorten a window a curator has just extended.
+async function setTakeover(email, untilTs, env) {
+  await env.DB.batch([
+    await ensureChatSession(email, env),
+    env.DB.prepare(
+      `UPDATE chat_sessions
+          SET human_active_until = MAX(human_active_until, ?1),
+              updated_at = ?2
+        WHERE email = ?3`
+    ).bind(untilTs, Date.now(), email)
+  ]);
+
+  const session = await env.DB.prepare(
+    "SELECT human_active_until FROM chat_sessions WHERE email = ?"
+  ).bind(email).first();
+  return { humanActiveUntil: Number(session && session.human_active_until) || 0 };
+}
+
+async function readConversation(email, env) {
+  const [rows, session] = await Promise.all([
+    env.DB.prepare(
+      "SELECT id, author, role, text, ts FROM chat_messages WHERE email = ? ORDER BY ts ASC, rowid ASC"
+    ).bind(email).all(),
+    env.DB.prepare("SELECT human_active_until FROM chat_sessions WHERE email = ?").bind(email).first()
+  ]);
+
+  return {
+    messages: (rows && rows.results) || [],
+    humanActiveUntil: Number(session && session.human_active_until) || 0
+  };
+}
+
+// §7 rollback mirror for the transcript, in the pre-migration KV shape.
+async function mirrorChatToKv(email, env) {
+  try {
+    const convo = await readConversation(email, env);
+    await env.CLIENT_KV.put(`curator_${email}`, JSON.stringify(convo));
+  } catch (e) {
+    console.error("KV chat mirror failed for", email, e);
   }
-
-  // M-14: the cap still applies to the merged result.
-  const capped = merged.length > MAX_CURATOR_MESSAGES
-    ? merged.slice(-MAX_CURATOR_MESSAGES)
-    : merged;
-
-  const humanActiveUntil = Math.max(
-    Number(fresh.humanActiveUntil) || 0,
-    Number(opts.humanActiveUntil) || 0
-  );
-
-  await env.CLIENT_KV.put(convoKey, JSON.stringify({
-    messages: capped,
-    humanActiveUntil
-  }));
-
-  return { messages: capped, humanActiveUntil };
 }
 
 // ---- Stripe webhook signature (C-1) ---------------------------------------
@@ -1165,31 +1574,27 @@ function stripClientMessageTags(value) {
 
 async function issuePortalAccess({ customerEmail, customerName, stripeCustomerId, stripeSubscriptionId, env }) {
   const magicToken = crypto.randomUUID();
-  const userKey = `user_${customerEmail}`;
-  const existingUser = (await env.CLIENT_KV.get(userKey, { type: "json" }))
-    || { tokens: 0, skipped: false, status: "Active" };
 
-  // A cancelled member re-subscribing starts a fresh balance rather than
-  // resuming the old one (which was zeroed on cancellation anyway).
-  const currentTokens = existingUser.status === "Canceled"
-    ? RENEWAL_TOKEN_GRANT
-    : (typeof existingUser.tokens === "number" ? existingUser.tokens : 0) + RENEWAL_TOKEN_GRANT;
+  // ADR-003: materialise a legacy client before the upsert, so a re-subscribe
+  // by someone who predates the migration sees their real prior status rather
+  // than looking like a brand-new signup.
+  await getUser(customerEmail, env);
 
   await env.CLIENT_KV.put(`magic_${magicToken}`, JSON.stringify({
     email: customerEmail,
     createdAt: Date.now()
   }), { expirationTtl: MAGIC_TOKEN_TTL_SECONDS });
 
-  await env.CLIENT_KV.put(userKey, JSON.stringify({
+  // D-1: was a read-modify-write. The "cancelled member starts fresh, everyone
+  // else is topped up" rule now lives in the ON CONFLICT clause, so two
+  // checkouts for one address cannot lose a grant between them.
+  await upsertFromCheckout({
     email: customerEmail,
+    grant: RENEWAL_TOKEN_GRANT,
     stripeCustomerId,
-    stripeSubscriptionId: stripeSubscriptionId || existingUser.stripeSubscriptionId || null,
-    tokens: currentTokens,
-    skipped: false,
-    status: "Active",
-    canceledAt: null,
-    updatedAt: Date.now()
-  }));
+    stripeSubscriptionId,
+    env
+  });
 
   // C-2: index for webhooks that only carry a customer id.
   await indexCustomerEmail(stripeCustomerId, customerEmail, env);
