@@ -1,0 +1,20 @@
+# Secrets are NOT configured here — only via `wrangler secret put`:
+#   STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, GEMINI_API_KEY,
+#   RESEND_API_KEY, ADMIN_SECRET, PORTAL_ORIGIN
+# The same list is documented in the worker.js header; keep them in sync.
+
+name = "stripe-magiclink"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# TODO(deploy): replace with the id of the existing namespace —
+#   wrangler kv namespace list
+kv_namespaces = [
+  { binding = "CLIENT_KV", id = "<existing-client-kv-id>" }
+]
+
+# TODO(deploy): replace with the id printed by `wrangler d1 create spring-renaissance`
+[[d1_databases]]
+binding = "DB"
+database_name = "spring-renaissance"
+database_id = "<id-from-wrangler-d1-create>"
