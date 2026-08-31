@@ -54,7 +54,16 @@ CREATE INDEX IF NOT EXISTS idx_chat_messages_email_ts ON chat_messages (email, t
 CREATE TABLE IF NOT EXISTS processed_events (
   event_id     TEXT PRIMARY KEY,
   event_type   TEXT,
-  processed_at INTEGER NOT NULL
+  processed_at INTEGER NOT NULL,        -- when the reservation was taken
+  -- H-1: NULL means "reserved but not finished". A reservation is committed
+  -- BEFORE the credit is applied, so an isolate that dies in between (CPU
+  -- limit, eviction, OOM) leaves a row no catch and no finally will ever
+  -- release. Stripe's retry then hits the PRIMARY KEY, is answered
+  -- {duplicate:true}, stops retrying, and the payment is silently lost.
+  -- A stale row that never completed is reclaimable; a completed one never is.
+  --
+  -- Existing deployments: ALTER TABLE processed_events ADD COLUMN completed_at INTEGER;
+  completed_at INTEGER
 );
 -- E-3: the opportunistic cleanup runs on every reserved webhook. Without this
 -- index `WHERE processed_at < ?` is a full table scan, and D1 meters rows read.

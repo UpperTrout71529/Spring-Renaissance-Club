@@ -358,10 +358,13 @@ export default {
         // B-2: the takeover check reads the state this write actually produced.
         // It used to test a snapshot taken before the append, so a takeover
         // landing in between was missed and the AI answered over the curator.
-        const afterUserMessage = await appendChatMessage(resolved.email, userMessage, env);
+        // P6-4: mirror=false here. Every exit below mirrors exactly once, so
+        // this request writes curator_<email> a single time whatever happens.
+        const afterUserMessage = await appendChatMessage(resolved.email, userMessage, env, false);
 
         // A human curator has taken over: queue the message, never answer over them.
         if (afterUserMessage.humanActiveUntil && afterUserMessage.humanActiveUntil > Date.now()) {
+          await mirrorChatToKv(resolved.email, env);
           return json({ queued: true, humanActive: true });
         }
 
@@ -369,6 +372,7 @@ export default {
           // The client's message is already stored, so a human curator still
           // sees it. Losing the message is the worse failure.
           console.error("GEMINI_API_KEY missing");
+          await mirrorChatToKv(resolved.email, env);
           return json({ queued: true, humanActive: false, degraded: true });
         }
 
@@ -392,6 +396,9 @@ export default {
           env
         );
         if (!committed.stored) {
+          // commitAiReply stored nothing, so it did not mirror: the client's
+          // own message still needs to reach the rollback mirror.
+          await mirrorChatToKv(resolved.email, env);
           return json({ queued: true, humanActive: true, aiReplySuppressed: true });
         }
 
@@ -479,7 +486,13 @@ export default {
 
         if (!email || !isPlausibleEmail(email)) return accepted;
 
-        const ip = request.headers.get("CF-Connecting-IP") || "";
+        // P6-3: withinRateLimit short-circuits on a falsy subject, so an empty
+        // header skipped the IP budget entirely and left only the per-email
+        // limit — which a fresh address resets by definition. Cloudflare always
+        // sets this header at the edge, so the sentinel should never be used;
+        // it exists so the bound does not depend on that being true forever.
+        // A comma-joined value (duplicate headers) collapses to its first token.
+        const ip = (request.headers.get("CF-Connecting-IP") || "").split(",")[0].trim() || "unknown";
 
         // E-1: the IP budget is consulted FIRST and short-circuits. These two
         // checks used to run in Promise.all, which meant every probe inserted a
@@ -801,6 +814,18 @@ export default {
           "Content-Type": "application/json"
         }
       });
+    } finally {
+      // H-1: the single completion point. reservedEventId is non-null here
+      // exactly when the event was reserved AND applied — releaseEvent() nulls
+      // it on every branch that did not apply, and the catch above nulls it on
+      // a throw. So this marks completion for applied events only, and it
+      // cannot miss a branch the way a marker hand-placed at each `return`
+      // could. A reservation that is never marked complete stays reclaimable,
+      // and re-crediting a paid event is the worse failure of the two.
+      if (reservedEventId) {
+        await completeReservation(reservedEventId, env);
+        reservedEventId = null;
+      }
     }
   }
 };
@@ -888,9 +913,14 @@ async function withinRateLimit(bucket, subject, limit, windowMs, env) {
       // two permanent D1 writes for the price of one HTTP request.
       await withdrawRateEvent(insert, bucket, subject, env);
       console.error("Rate limit hit:", bucket, subject);
+      // P6-2: sweep here as well. The sweep used to run only on the admitted
+      // path, and a sustained attacker is almost entirely refused — so the one
+      // thing that removes expired rows for subjects that never come back
+      // effectively stopped running exactly when the table was growing.
+      await sweepExpiredRateEvents(env);
       return false;
     }
-    await sweepExpiredRateEvents(floor, env);
+    await sweepExpiredRateEvents(env);
     return true;
   } catch (e) {
     // Fail open: a database blip must not take the concierge offline for
@@ -935,10 +965,19 @@ async function withdrawRateEvent(insertResult, bucket, subject, env) {
 // the amortised cost is negligible but the table cannot grow without bound.
 const RATE_SWEEP_PROBABILITY = 1 / 64;
 
-async function sweepExpiredRateEvents(floor, env) {
+// P6-1: the sweep is GLOBAL, so it must never be handed the calling bucket's
+// floor. Chat's window is 60s and the link windows are 120s, so a chat message
+// computing `now - 60s` deleted link_ip / link_email rows that were still
+// inside their own window — one endpoint silently reopening another's limit,
+// for every subject at once. The floor is now the longest window any bucket
+// uses, which is expired by every bucket's definition.
+const MAX_RATE_WINDOW_MS = Math.max(CHAT_RATE_LIMIT_WINDOW_MS, LINK_RATE_LIMIT_WINDOW_MS);
+
+async function sweepExpiredRateEvents(env) {
   if (Math.random() >= RATE_SWEEP_PROBABILITY) return;
   try {
-    await env.DB.prepare("DELETE FROM rate_events WHERE created_at < ?").bind(floor).run();
+    await env.DB.prepare("DELETE FROM rate_events WHERE created_at < ?")
+      .bind(Date.now() - MAX_RATE_WINDOW_MS).run();
   } catch (e) {
     console.error("rate_events sweep failed", e);
   }
@@ -961,19 +1000,56 @@ async function releaseReservation(eventId, env) {
   }
 }
 
+// H-1: a reservation older than this that never completed belongs to an
+// invocation that died. Comfortably longer than the worst-case handler (a cold
+// cust_ index means a live Stripe lookup capped at 15s, plus D1 writes), and
+// far shorter than Stripe's retry backoff, so a retry always arrives after it.
+// A live handler can therefore never be reclaimed out from under itself.
+const RESERVATION_STALE_MS = 120 * 1000;
+
+// H-1: mark a reservation finished, so it can never be reclaimed. Called from
+// the finally block in fetch(), which is the one place that sees every applied
+// branch. Failure here is logged, not thrown: the event HAS been applied, and
+// failing the response would make Stripe retry work that already landed.
+async function completeReservation(eventId, env) {
+  if (!eventId || !env.DB) return;
+  try {
+    await env.DB.prepare(
+      "UPDATE processed_events SET completed_at = ? WHERE event_id = ?"
+    ).bind(Date.now(), eventId).run();
+  } catch (e) {
+    console.error("Failed to mark reservation complete", eventId, e);
+  }
+}
+
 // ADR-004: reserve an event id. Returns false when the id is already present,
 // which is the "already processed" answer. No read-then-write, so there is no
 // window for two concurrent deliveries to both decide they are first (A-1).
 async function reserveEvent(eventId, eventType, env) {
+  const now = Date.now();
   try {
     const res = await env.DB.prepare(
-      "INSERT INTO processed_events (event_id, event_type, processed_at) VALUES (?, ?, ?)"
-    ).bind(eventId, eventType || null, Date.now()).run();
+      "INSERT INTO processed_events (event_id, event_type, processed_at, completed_at) VALUES (?, ?, ?, NULL)"
+    ).bind(eventId, eventType || null, now).run();
     if ((res.meta && res.meta.changes) === 0) return false;
   } catch (e) {
     // A PRIMARY KEY conflict is the expected duplicate signal, not a fault.
-    if (isUniqueViolation(e)) return false;
-    throw e;
+    // H-1: but it is only "already processed" if the previous holder actually
+    // finished. Reclaim the reservation when it is BOTH still pending AND
+    // stale — the guard lives in the WHERE, so two concurrent retries cannot
+    // both win: D1 serialises the statements, and the second sees the
+    // processed_at the first just moved forward.
+    if (!isUniqueViolation(e)) throw e;
+    const reclaim = await env.DB.prepare(
+      `UPDATE processed_events
+          SET processed_at = ?1
+        WHERE event_id = ?2
+          AND completed_at IS NULL
+          AND processed_at < ?3`
+    ).bind(now, eventId, now - RESERVATION_STALE_MS).run();
+    if (((reclaim.meta && reclaim.meta.changes) || 0) === 0) return false;
+    console.error("Reclaimed a stale webhook reservation:", eventId, eventType);
+    return true;
   }
 
   // Opportunistic cleanup instead of a cron: drop reservations past the
@@ -1382,7 +1458,7 @@ async function ensureChatSession(email, env) {
 // Returns the session's human_active_until as it stands AFTER the insert, so
 // callers decide on the state their own write produced (B-2) rather than on a
 // snapshot taken before it.
-async function appendChatMessage(email, msg, env) {
+async function appendChatMessage(email, msg, env, mirror = true) {
   await env.DB.batch([
     await ensureChatSession(email, env),
     env.DB.prepare(
@@ -1404,7 +1480,12 @@ async function appendChatMessage(email, msg, env) {
   ).bind(email).first();
 
   const humanActiveUntil = Number(session && session.human_active_until) || 0;
-  await mirrorChatToKv(email, env);
+  // P6-4: KV allows one write per second per key. The client's message and the
+  // AI reply both landed on curator_<email> inside the same request, so the
+  // second was throttled on EVERY message, not just under burst — the mirror
+  // was losing writes in normal use. Callers that will mirror again before
+  // responding pass mirror=false.
+  if (mirror) await mirrorChatToKv(email, env);
   return { humanActiveUntil };
 }
 
