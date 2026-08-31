@@ -80,6 +80,31 @@ database — rolling forward again should not have to re-migrate.
 Removing the mirror is a separate task, after D1 has been the source of truth
 for a week.
 
+## Webhook idempotency and isolate death
+
+A reservation is committed to `processed_events` *before* the credit is applied,
+which is what makes A-1 (two concurrent deliveries both crediting) impossible.
+The cost is that an isolate dying in between — CPU limit, eviction, OOM — runs
+no `catch` and no `finally`, so the reservation outlives the invocation that
+took it. Stripe's retry then hits the primary key, is answered
+`{duplicate: true}`, stops retrying, and the payment is lost with nothing
+logged. The window is not instantaneous: a cold `cust_` index puts a live
+Stripe lookup, capped at 15s, inside it.
+
+`completed_at` closes this. It is NULL from the moment the reservation is taken
+until the handler finishes; a reservation that is both still pending and older
+than `RESERVATION_STALE_MS` (120s) is reclaimed by the next retry. Completion is
+marked in the `finally` of `fetch()` — the one place that sees every applied
+branch — because `reservedEventId` is non-null there exactly when the event was
+reserved and applied. Marking it at each `return` instead would work until
+someone adds a branch and forgets, and a reservation that never completes is
+re-creditable once it ages.
+
+Reclaim is guarded on both conditions, and both matter:
+`completed_at IS NULL` alone would re-credit every settled payment once it aged;
+`processed_at < ?` alone would reclaim a reservation whose handler is still
+running, which double-credits. Both directions have a test.
+
 ## Known limits
 
 - **Rate limiting is approximate under a simultaneous burst.** Insert-then-count
