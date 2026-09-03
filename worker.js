@@ -41,6 +41,11 @@ const STRIPE_SIGNATURE_TOLERANCE_SECONDS = 300; // C-1: ±5 minutes
 const MIN_TAKEOVER_MINUTES = 1;
 const MAX_TAKEOVER_MINUTES = 24 * 60;
 const DEFAULT_TAKEOVER_MINUTES = 30;
+// Where Stripe sends the client back after the billing portal, and how much
+// history the invoices endpoint returns.
+const PORTAL_RETURN_URL = "https://club.springrenaissance.store";
+const INVOICE_PAGE_SIZE = 12;
+
 const RENEWAL_MIN_AMOUNT_CENTS = 2000;
 const RENEWAL_TOKEN_GRANT = 20;
 
@@ -298,6 +303,171 @@ export default {
           // instead of assuming billing has stopped.
           stripeSubscriptionCanceled
         });
+      }
+
+      // ----------------------------------------------------------------
+      // API 3b: Pause / resume collection on the Stripe subscription.
+      //
+      // Distinct from /api/user/skip, which is a local allocation flag and
+      // never touches Stripe. This suspends billing itself via
+      // pause_collection, so Stripe is the authority: it is called FIRST and
+      // D1 is only moved once Stripe has agreed, exactly as C-3 does for
+      // cancellation. "We could not reach Stripe" must never be recorded as
+      // "billing is paused".
+      // ----------------------------------------------------------------
+      if ((url.pathname === "/api/user/pause" || url.pathname === "/api/user/resume")
+          && request.method === "POST") {
+        const pausing = url.pathname === "/api/user/pause";
+
+        const body = await readJson(request);
+        if (!body) return json({ error: "Invalid request body" }, 400);
+
+        const resolved = await resolveUserByToken(body.authToken, env);
+        if (!resolved) return json({ error: "Session expired" }, 401);
+
+        // M-12: cancellation is terminal everywhere. Without this a cancelled
+        // membership could be resurrected into "Paused" with no payment
+        // behind it — the same hole the skip toggle is guarded against.
+        if (resolved.userData.status === "Canceled") {
+          return json({ error: "Membership is canceled" }, 409);
+        }
+
+        if (!env.STRIPE_SECRET_KEY) {
+          console.error("STRIPE_SECRET_KEY missing on", url.pathname);
+          return json({ error: "Billing changes are temporarily unavailable" }, 503);
+        }
+
+        const subscriptionId = typeof resolved.userData.stripe_subscription_id === "string"
+          ? resolved.userData.stripe_subscription_id
+          : "";
+        if (!subscriptionId) {
+          console.error("No subscription on file for", url.pathname, resolved.email);
+          return json({ error: "Billing changes are temporarily unavailable" }, 503);
+        }
+
+        // Stripe clears a nested object when the key is sent empty, so resume
+        // is `pause_collection=` rather than a separate endpoint.
+        const form = pausing
+          ? "pause_collection[behavior]=mark_uncollectible"
+          : "pause_collection=";
+
+        const stripeRes = await stripeRequest(
+          `https://api.stripe.com/v1/subscriptions/${encodeURIComponent(subscriptionId)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: form
+          },
+          env
+        );
+
+        if (!stripeRes.ok) {
+          console.error("Stripe pause/resume failed", url.pathname, stripeRes.status,
+            stripeRes.data?.error?.message);
+          return json({ error: "Stripe is unreachable, please retry" }, 503);
+        }
+
+        // Only now is local state moved, and the WHERE keeps the cancellation
+        // guard on the write itself rather than trusting the read above.
+        const applied = await applyMembershipStatus(resolved.email, pausing ? "Paused" : "Active", env);
+        if (!applied.changed) {
+          return json({ error: "Membership is canceled" }, 409);
+        }
+
+        return pausing ? json({ paused: true }) : json({ resumed: true });
+      }
+
+      // ----------------------------------------------------------------
+      // API 3c: Stripe Billing Portal session — the client updates their card
+      // without us ever handling it. Read-only here: no D1 write, no KV write.
+      // ----------------------------------------------------------------
+      if (url.pathname === "/api/user/billing-portal" && request.method === "POST") {
+        const body = await readJson(request);
+        if (!body) return json({ error: "Invalid request body" }, 400);
+
+        const resolved = await resolveUserByToken(body.authToken, env);
+        if (!resolved) return json({ error: "Session expired" }, 401);
+
+        if (!env.STRIPE_SECRET_KEY) {
+          console.error("STRIPE_SECRET_KEY missing on /api/user/billing-portal");
+          return json({ error: "The billing portal is temporarily unavailable" }, 503);
+        }
+
+        const customerId = typeof resolved.userData.stripe_customer_id === "string"
+          ? resolved.userData.stripe_customer_id
+          : "";
+        // cus_guest is the placeholder written for a checkout that carried no
+        // customer; Stripe has no portal for it.
+        if (!customerId || customerId === "cus_guest") {
+          console.error("No Stripe customer on file for billing portal", resolved.email);
+          return json({ error: "The billing portal is temporarily unavailable" }, 503);
+        }
+
+        const portal = await stripeRequest(
+          "https://api.stripe.com/v1/billing_portal/sessions",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              customer: customerId,
+              return_url: PORTAL_RETURN_URL
+            }).toString()
+          },
+          env
+        );
+
+        if (!portal.ok || !portal.data || !portal.data.url) {
+          console.error("Stripe billing portal failed", portal.status, portal.data?.error?.message);
+          return json({ error: "Stripe is unreachable, please retry" }, 503);
+        }
+
+        return json({ url: portal.data.url }, 200, { "Cache-Control": "no-store" });
+      }
+
+      // ----------------------------------------------------------------
+      // API 3d: billing history. A whitelisted projection of Stripe invoices,
+      // in the same spirit as M-13: the browser gets what it renders and
+      // nothing else, not a passed-through Stripe object.
+      // ----------------------------------------------------------------
+      if (url.pathname === "/api/user/invoices" && request.method === "GET") {
+        const resolved = await resolveUserByToken(url.searchParams.get("auth_token"), env);
+        if (!resolved) return json({ error: "Session expired" }, 401);
+
+        if (!env.STRIPE_SECRET_KEY) {
+          console.error("STRIPE_SECRET_KEY missing on /api/user/invoices");
+          return json({ error: "Billing history is temporarily unavailable" }, 503);
+        }
+
+        const customerId = typeof resolved.userData.stripe_customer_id === "string"
+          ? resolved.userData.stripe_customer_id
+          : "";
+        if (!customerId || customerId === "cus_guest") {
+          // Nothing to bill against is an empty history, not a failure.
+          return json({ invoices: [] }, 200, { "Cache-Control": "no-store" });
+        }
+
+        const listed = await stripeRequest(
+          `https://api.stripe.com/v1/invoices?customer=${encodeURIComponent(customerId)}` +
+          `&limit=${INVOICE_PAGE_SIZE}&status=paid`,
+          { method: "GET" },
+          env
+        );
+
+        if (!listed.ok) {
+          console.error("Stripe invoice list failed", listed.status, listed.data?.error?.message);
+          return json({ error: "Stripe is unreachable, please retry" }, 503);
+        }
+
+        const invoices = (Array.isArray(listed.data && listed.data.data) ? listed.data.data : [])
+          .map((inv) => ({
+            date: inv.created,
+            amount_paid: inv.amount_paid,
+            currency: inv.currency,
+            invoice_pdf: inv.invoice_pdf,
+            hosted_invoice_url: inv.hosted_invoice_url
+          }));
+
+        return json({ invoices }, 200, { "Cache-Control": "no-store" });
       }
 
       // ----------------------------------------------------------------
@@ -1335,6 +1505,12 @@ async function applySkip(email, skipped, env) {
     `UPDATE users
         SET skipped = ?1,
             status  = CASE WHEN status = 'Past Due' THEN 'Past Due'
+                           -- Same rule as 'Past Due', for the same reason:
+                           -- 'Paused' is Stripe's pause_collection state and
+                           -- only Stripe may clear it. Without this line the
+                           -- skip toggle relabels a paused member 'Active'
+                           -- while their billing is still suspended.
+                           WHEN status = 'Paused' THEN 'Paused'
                            WHEN ?1 = 1 THEN 'Paused (Offline)'
                            ELSE 'Active' END,
             updated_at = ?2
@@ -1348,6 +1524,23 @@ async function applySkip(email, skipped, env) {
   const row = await env.DB.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE email = ?`)
     .bind(email).first();
   return { changed: true, row };
+}
+
+// Pause / resume write their status through here. One guarded UPDATE, the
+// cancellation guard in the WHERE, and the KV rollback mirror refreshed only
+// when the row actually moved — the same shape as every other mutation here.
+async function applyMembershipStatus(email, status, env) {
+  const res = await env.DB.prepare(
+    `UPDATE users
+        SET status = ?1,
+            updated_at = ?2
+      WHERE email = ?3
+        AND status != 'Canceled'`
+  ).bind(status, Date.now(), email).run();
+
+  const changed = ((res.meta && res.meta.changes) || 0) > 0;
+  if (changed) await mirrorUserToKv(email, env);
+  return { changed };
 }
 
 // C-3 + A-6: terminal cancellation. magic_revoked_before is stamped in the same
