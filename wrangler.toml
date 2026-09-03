@@ -7,14 +7,11 @@ name = "stripe-magiclink"
 main = "worker.js"
 compatibility_date = "2025-01-01"
 
-# TODO(deploy): replace with the id of the existing namespace —
-#   wrangler kv namespace list
 kv_namespaces = [
-  { binding = "CLIENT_KV", id = "<existing-client-kv-id>" }
+  { binding = "CLIENT_KV", id = "804fd8ed9cb84f229077272239bcb138" }
 ]
 
-# TODO(deploy): replace with the id printed by `wrangler d1 create spring-renaissance`
 [[d1_databases]]
 binding = "DB"
 database_name = "spring-renaissance"
-database_id = "<id-from-wrangler-d1-create>"
+database_id = "88e830cc-fc14-4ab6-ab69-e91a37698e28"
