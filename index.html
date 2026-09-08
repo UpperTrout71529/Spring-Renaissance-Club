@@ -18,7 +18,7 @@
        hash extractor would match it instead of the real element.)
        style-src still allows inline styles. The rule in 8.3 is about script;
        the page's stylesheet block carries no injection surface. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-viM3BfvnZ7vQLt6NNLCFDGrEX2gQxOWQfH4txlMs2gs='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src https://stripe-magiclink.sagradyanfelix.workers.dev; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-ZLAWAMg/YWpAZGewyRYpJXqNGX7SBKCPFqrurNyVaAg='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src https://stripe-magiclink.sagradyanfelix.workers.dev; base-uri 'none'; form-action 'none'">
   <title>Private Client Portal — Spring Renaissance</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -485,6 +485,21 @@
 
     .invoice-empty { font-size: 12px; color: var(--text-muted); font-weight: 300; }
 
+    /* Step 4: credits widget headline balance. */
+    .credits-balance-label {
+      font-size: 9px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .credits-balance {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 44px;
+      font-weight: 400;
+      line-height: 1.15;
+      margin-bottom: 8px;
+    }
+
     /* ---------- Form controls ---------- */
     .text-input {
       flex: 1 1 160px;
@@ -760,7 +775,6 @@
           <div class="billing-row"><span>Renewal</span><strong id="renewalStatus">—</strong></div>
           <div class="billing-row"><span>Next billing date</span><strong id="nextBillingDate">—</strong></div>
           <div class="billing-row"><span>Card on file</span><strong id="cardOnFile">—</strong></div>
-          <div class="billing-row"><span>Digital Tokens</span><strong id="tokenBalance">—</strong></div>
         </div>
 
         <div class="membership-actions">
@@ -783,6 +797,23 @@
           <button class="btn btn-secondary" id="webauthnRegisterBtn" type="button">Enable Face/Touch ID</button>
         </div>
         <div class="relink-note" id="webauthnRegisterNote" role="status" aria-live="polite" hidden></div>
+      </div>
+
+      <!-- Step 4: a distinct widget rather than the old plain "Digital
+           Tokens" billing-row — the current balance plus the history of how
+           it got there, same .invoice-row visual pattern as billing history
+           below. No new ledger: this list IS the qualifying invoices, sourced
+           from GET /api/user/credits-history. -->
+      <div class="card">
+        <div class="card-tag">
+          <span>Digital Tokens</span>
+        </div>
+        <div class="credits-balance-label">Current balance</div>
+        <div class="credits-balance" id="tokenBalance">—</div>
+        <p class="card-desc">Credited automatically on each qualifying renewal payment.</p>
+        <div class="invoice-list" id="creditsGrantList" role="status" aria-live="polite">
+          <p class="invoice-empty">Loading…</p>
+        </div>
       </div>
 
       <div class="card">
@@ -874,6 +905,7 @@
       pauseSubBtn: document.getElementById('pauseSubBtn'),
       billingPortalBtn: document.getElementById('billingPortalBtn'),
       invoiceList: document.getElementById('invoiceList'),
+      creditsGrantList: document.getElementById('creditsGrantList'),
       renewalStatus: document.getElementById('renewalStatus'),
       nextBillingDate: document.getElementById('nextBillingDate'),
       cardOnFile: document.getElementById('cardOnFile'),
@@ -1993,6 +2025,68 @@
       }
     }
 
+    // ---------- Credits widget (Step 4) ----------
+    // Same .invoice-row visual pattern as billing history above — a
+    // distinct widget, not a new card style. The headline balance
+    // (el.tokenBalance) is set by renderUserData/showDemoState from
+    // /api/user's already-fetched tokens field; this only renders the
+    // grant list below it.
+    function renderCreditsGrantsMessage(text) {
+      el.creditsGrantList.innerHTML = '';
+      const p = document.createElement('p');
+      p.className = 'invoice-empty';
+      p.textContent = text;
+      el.creditsGrantList.appendChild(p);
+    }
+
+    function renderCreditsGrants(grants) {
+      if (!grants.length) {
+        renderCreditsGrantsMessage("No credits granted yet.");
+        return;
+      }
+
+      el.creditsGrantList.innerHTML = '';
+      for (let i = 0; i < grants.length; i++) {
+        const grant = grants[i];
+
+        const row = document.createElement('div');
+        row.className = 'invoice-row';
+
+        const date = document.createElement('span');
+        date.className = 'invoice-date';
+        date.textContent = new Date(grant.date * 1000)
+          .toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+        const amount = document.createElement('span');
+        amount.className = 'invoice-amount';
+        amount.textContent = '+' + grant.tokens + ' tokens';
+
+        row.appendChild(date);
+        row.appendChild(amount);
+        el.creditsGrantList.appendChild(row);
+      }
+    }
+
+    async function loadCreditsHistory() {
+      if (!authToken || sessionInvalid) {
+        renderCreditsGrantsMessage("Credit history unavailable.");
+        return;
+      }
+      try {
+        const res = await fetchWithTimeout(
+          WORKER_URL + '/api/user/credits-history?auth_token=' + encodeURIComponent(authToken));
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        // Newest first, matching renderInvoices' Stripe-provided ordering.
+        const grants = (Array.isArray(data.grants) ? data.grants : [])
+          .slice().sort((a, b) => b.date - a.date);
+        renderCreditsGrants(grants);
+      } catch (e) {
+        console.error("Credit history load failed:", e);
+        renderCreditsGrantsMessage("Credit history unavailable.");
+      }
+    }
+
     // ---------- Re-authentication (Step 7) ----------
     // The message is the same whatever the server did: sent, not sent because
     // the address is unknown, not sent because the membership is cancelled, not
@@ -2224,6 +2318,11 @@
         authToken = body.authToken;
         setSessionExpired(false);
         loadUserData();
+        // loadInvoices()/loadCreditsHistory() only ran once at Boot, when
+        // this tab had no token yet — re-run now that it does, or both
+        // stay stuck on "unavailable" until the next full page reload.
+        loadInvoices();
+        loadCreditsHistory();
       } catch (e) {
         console.error("WebAuthn sign-in failed:", e);
         if (!(e && e.name === 'NotAllowedError')) {
@@ -2244,6 +2343,7 @@
     // ---------- Boot ----------
     loadUserData();
     loadInvoices();
+    loadCreditsHistory();
     if (authToken) {
       syncCuratorMessages();
       startCuratorPolling();

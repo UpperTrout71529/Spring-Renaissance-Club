@@ -487,6 +487,53 @@ export default {
       }
 
       // ----------------------------------------------------------------
+      // Step 4: credit grant history. A separate endpoint rather than
+      // widening /api/user/invoices — billing history and "why is my
+      // balance what it is" are different questions even though both are
+      // sourced from the same Stripe invoice list, and this way
+      // /api/user/invoices's existing contract is untouched.
+      //
+      // No new ledger table: filters the same invoice list /api/user/
+      // invoices fetches through isCreditQualifyingInvoice, the exact
+      // predicate the webhook itself applies — so what this reports can
+      // never drift from what was actually credited.
+      // ----------------------------------------------------------------
+      if (url.pathname === "/api/user/credits-history" && request.method === "GET") {
+        const resolved = await resolveUserByToken(url.searchParams.get("auth_token"), env);
+        if (!resolved) return json({ error: "Session expired" }, 401);
+
+        if (!env.STRIPE_SECRET_KEY) {
+          console.error("STRIPE_SECRET_KEY missing on /api/user/credits-history");
+          return json({ error: "Credit history is temporarily unavailable" }, 503);
+        }
+
+        const customerId = typeof resolved.userData.stripe_customer_id === "string"
+          ? resolved.userData.stripe_customer_id
+          : "";
+        if (!customerId || customerId === "cus_guest") {
+          return json({ grants: [] }, 200, { "Cache-Control": "no-store" });
+        }
+
+        const listed = await stripeRequest(
+          `https://api.stripe.com/v1/invoices?customer=${encodeURIComponent(customerId)}` +
+          `&limit=${INVOICE_PAGE_SIZE}&status=paid`,
+          { method: "GET" },
+          env
+        );
+
+        if (!listed.ok) {
+          console.error("Stripe invoice list failed", listed.status, listed.data?.error?.message);
+          return json({ error: "Stripe is unreachable, please retry" }, 503);
+        }
+
+        const grants = (Array.isArray(listed.data && listed.data.data) ? listed.data.data : [])
+          .filter(isCreditQualifyingInvoice)
+          .map((inv) => ({ date: inv.created, tokens: RENEWAL_TOKEN_GRANT }));
+
+        return json({ grants }, 200, { "Cache-Control": "no-store" });
+      }
+
+      // ----------------------------------------------------------------
       // API 4: Curator Space — send a message.
       // ----------------------------------------------------------------
       if (url.pathname === "/api/curator/chat" && request.method === "POST") {
@@ -1289,7 +1336,15 @@ export default {
           return json({ ignored: true, reason: "Initial invoice handled by checkout.session.completed" });
         }
 
-        if ((stripeObj.amount_paid || 0) < RENEWAL_MIN_AMOUNT_CENTS) {
+        // Step 4: isCreditQualifyingInvoice is the ONE place this rule (both
+        // halves — not the initial invoice, and $20+) is written down; the
+        // subscription_create check above stays separate only because this
+        // branch wants its own distinct reason string. GET
+        // /api/user/credits-history calls the same helper directly over a
+        // whole invoice list with no such up-front check, so the helper
+        // includes the subscription_create exclusion too — otherwise that
+        // endpoint could report a grant this handler would never make.
+        if (!isCreditQualifyingInvoice(stripeObj)) {
           return json({ ignored: true, reason: "Payment amount less than $20" });
         }
 
@@ -1678,6 +1733,15 @@ function extractSubscriptionId(stripeObj) {
   if (stripeObj.object === "subscription" && typeof stripeObj.id === "string") return stripeObj.id;
   if (stripeObj.mode === "subscription" && typeof stripeObj.id === "string") return stripeObj.id;
   return null;
+}
+
+// Step 4: the single source of truth for "does this invoice fund a
+// RENEWAL_TOKEN_GRANT credit" — used both by the webhook (which applies the
+// credit) and by GET /api/user/credits-history (which reports it). One
+// function means the two can never physically disagree with each other.
+function isCreditQualifyingInvoice(stripeObj) {
+  return stripeObj.billing_reason !== "subscription_create" &&
+    (Number(stripeObj.amount_paid) || 0) >= RENEWAL_MIN_AMOUNT_CENTS;
 }
 
 // M-13: whitelisted projection sent to the browser. Adding a field here is a
