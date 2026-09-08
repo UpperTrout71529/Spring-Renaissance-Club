@@ -10,10 +10,11 @@ key stays in **KV**.
 
 | Store | Data | Why |
 |---|---|---|
-| D1 `users` | status, credits, skipped, Stripe ids, revocation stamp | Mutated by two handlers and four webhook branches at once. Every write is a guarded `UPDATE`, so `meta.changes` answers "did it apply" exactly. |
-| D1 `chat_sessions` / `chat_messages` | curator transcript, takeover window | One row per message. An append is an `INSERT`, so a curator and a client writing at the same instant cannot overwrite each other. |
+| D1 `users` | status, credits, skipped, Stripe ids, revocation stamp, tier | Mutated by two handlers and four webhook branches at once. Every write is a guarded `UPDATE`, so `meta.changes` answers "did it apply" exactly. `tier` is a hand-operated flag (`POST /api/admin/set-tier`), not billing-derived — the club sells one Stripe price today, so there is no signal to compute it from. |
+| D1 `chat_sessions` / `chat_messages` | curator transcript, takeover window | One row per message. An append is an `INSERT`, so a curator and a client writing at the same instant cannot overwrite each other. `chat_messages` also backs the regular-tier monthly concierge quota (5/month, VIP unlimited) — no separate counter, the quota is a `COUNT(*)` over this table. |
 | D1 `processed_events` | webhook idempotency | The `PRIMARY KEY` conflict *is* the "already processed" answer, so check-and-reserve is one atomic statement. |
 | D1 `rate_events` | chat + link rate limits | Sliding window, insert-then-count. Rows expire via a `DELETE` in the same batch — no cron. |
+| D1 `webauthn_credentials` / `webauthn_challenges` | VIP Face/Touch ID login | One row per registered platform credential; challenges are single-use via `DELETE … RETURNING`, the same PRIMARY-KEY-as-reservation shape `processed_events` uses. |
 | KV `magic_<token>` | portal sessions | Written once, read by key, never races. KV's TTL is a free and reliable expiry mechanism; reimplementing it in SQL would buy nothing. |
 | KV `cust_<id>` | Stripe customer → email index | Same: write-once, read by key. |
 | KV `user_<email>`, `curator_<email>` | **rollback mirror only** | Not read as the source of truth. See below. |
@@ -46,6 +47,10 @@ one code path an unauthenticated caller can reach.
 `wrangler.toml` carries the bindings. Secrets are set only with
 `wrangler secret put`: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
 `GEMINI_API_KEY`, `RESEND_API_KEY`, `ADMIN_SECRET`, `PORTAL_ORIGIN`.
+`PORTAL_ORIGIN` is also WebAuthn's `rp.id`/origin — it must be the
+frontend's real origin (`club.springrenaissance.store`), never this
+Worker's own `*.workers.dev` origin, or every registration and login
+fails closed.
 
 ## Tests
 
@@ -134,3 +139,21 @@ running, which double-credits. Both directions have a test.
   (there is no CI in this repository). Editing the inline script without
   updating the `sha256-` in the meta tag fails `AC-20` rather than silently
   blanking the page in production.
+- **WebAuthn (VIP Face/Touch ID) is a deliberately narrow, hand-written
+  implementation**, not a vetted library — there is no Workers-compatible
+  WebAuthn library free of Node polyfills, and this project takes no npm
+  dependencies at all. It supports ES256/P-256 only, does not verify the
+  attestation statement or certificate chain (attestation establishes
+  authenticator provenance, not session security), requires User
+  Verification on every ceremony, and only supports resident
+  (`authenticatorAttachment: 'platform'`) credentials. The CBOR decoder,
+  authenticatorData parsing, COSE→JWK conversion, and the DER→raw ECDSA
+  signature conversion in `worker.js` are all written by hand against the
+  spec rather than a battle-tested implementation; `test/webauthn.test.mjs`
+  covers the adversarial cases this scope allows for, but a security review
+  before relying on this at real scale would be prudent.
+- **The regular-tier concierge quota (5/month) resets on the UTC calendar
+  month boundary with no session-level grandfathering.** A message counts
+  toward whichever month `Date.now()` falls in at the instant it is sent;
+  a conversation open across midnight UTC on the last day of the month
+  simply gets a fresh allowance one second later, like anyone else.
