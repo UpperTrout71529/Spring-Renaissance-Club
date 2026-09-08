@@ -62,6 +62,13 @@ const LINK_RATE_LIMIT_PER_EMAIL = 1;
 const LINK_RATE_LIMIT_PER_IP = 5;
 const LINK_RATE_LIMIT_WINDOW_MS = 120 * 1000;
 
+// Step 2: WebAuthn (VIP tier only). Long enough for a Face/Touch ID prompt
+// including a fumbled attempt, short enough that a challenge sitting in a
+// browser history entry or a server log is worthless within minutes.
+const WEBAUTHN_CHALLENGE_TTL_MS = 5 * 60 * 1000;
+const WEBAUTHN_TIMEOUT_MS = 60 * 1000; // a hint to the browser only, not enforced here
+const WEBAUTHN_RP_NAME = "Spring Renaissance Club";
+
 // 8.2: applied to every response path — JSON, 405 and the catch-all 500 — so a
 // bug in one branch cannot ship a response without them.
 const securityHeaders = {
@@ -585,7 +592,11 @@ export default {
         const convo = await readConversation(resolved.email, env);
         return json({
           messages: convo.messages,
-          humanActive: !!(convo.humanActiveUntil && convo.humanActiveUntil > Date.now())
+          humanActive: !!(convo.humanActiveUntil && convo.humanActiveUntil > Date.now()),
+          // Step 2/3: this endpoint is already resolved-and-polled on every
+          // session load, so tier rides along here rather than widening
+          // /api/user's whitelisted, exact-shape response for one UI toggle.
+          tier: resolved.userData.tier
         }, 200, { "Cache-Control": "no-store, no-cache, must-revalidate" });
       }
 
@@ -664,6 +675,290 @@ export default {
 
         const applied = await setTier(email, tier, env);
         return json({ success: true, email, tier: applied.tier });
+      }
+
+      // ----------------------------------------------------------------
+      // Step 2: WebAuthn (VIP tier only) — registration.
+      //
+      // Registration is a follow-up action for someone already logged in via
+      // magic link — that session is what proves "this is really the VIP
+      // account", the same way a password confirmation would gate adding a
+      // second factor anywhere else. Magic link keeps working for VIP exactly
+      // as before; this is an addition, not a replacement.
+      //
+      // rp.id and the origin checked below are the FRONTEND's origin
+      // (club.springrenaissance.store, via env.PORTAL_ORIGIN — the same value
+      // CORS already treats as authoritative), never the Worker's own
+      // *.workers.dev origin. Getting that backwards would either fail every
+      // assertion closed, or worse, accept one meant for a different site.
+      // ----------------------------------------------------------------
+      if (url.pathname === "/api/auth/webauthn/register-options" && request.method === "POST") {
+        const body = await readJson(request);
+        if (!body) return json({ error: "Invalid request body" }, 400);
+
+        const resolved = await resolveUserByToken(body.authToken, env);
+        if (!resolved) return json({ error: "Session expired" }, 401);
+        if (resolved.userData.tier !== "vip") {
+          return json({ error: "Face/Touch ID sign-in is a VIP feature" }, 403);
+        }
+
+        const existing = await env.DB.prepare(
+          "SELECT credential_id FROM webauthn_credentials WHERE email = ?"
+        ).bind(resolved.email).all();
+
+        const challenge = await issueWebauthnChallenge("register", resolved.email, env);
+
+        return json({
+          challenge,
+          timeout: WEBAUTHN_TIMEOUT_MS,
+          rp: { id: frontendRpId(env), name: WEBAUTHN_RP_NAME },
+          user: {
+            id: bytesToBase64url(new TextEncoder().encode(resolved.email)),
+            name: resolved.email,
+            displayName: resolved.email
+          },
+          pubKeyCredParams: [{ type: "public-key", alg: -7 }], // ES256 only
+          attestation: "none",
+          authenticatorSelection: {
+            residentKey: "required",
+            userVerification: "required",
+            authenticatorAttachment: "platform"
+          },
+          excludeCredentials: ((existing && existing.results) || []).map((r) => ({
+            type: "public-key",
+            id: r.credential_id
+          }))
+        });
+      }
+
+      if (url.pathname === "/api/auth/webauthn/register" && request.method === "POST") {
+        const body = await readJson(request);
+        if (!body) return json({ error: "Invalid request body" }, 400);
+
+        const resolved = await resolveUserByToken(body.authToken, env);
+        if (!resolved) return json({ error: "Session expired" }, 401);
+        if (resolved.userData.tier !== "vip") {
+          return json({ error: "Face/Touch ID sign-in is a VIP feature" }, 403);
+        }
+
+        const { credentialId, clientDataJSON, attestationObject } = body;
+        if (typeof credentialId !== "string" || typeof clientDataJSON !== "string" ||
+            typeof attestationObject !== "string") {
+          return json({ error: "Malformed registration response" }, 400);
+        }
+
+        let clientData;
+        try {
+          clientData = JSON.parse(new TextDecoder().decode(base64urlToBytes(clientDataJSON)));
+        } catch (e) {
+          return json({ error: "Malformed clientDataJSON" }, 400);
+        }
+
+        if (clientData.type !== "webauthn.create") {
+          return json({ error: "Wrong ceremony type" }, 400);
+        }
+        if (clientData.origin !== frontendOrigin(env)) {
+          return json({ error: "Origin mismatch" }, 400);
+        }
+
+        // Single-use by construction (ADR-004-style PK reservation, here a
+        // DELETE...RETURNING): a challenge that was never issued, already
+        // consumed, or issued for the OTHER purpose all fail this the same
+        // way. The email tie-back stops a stolen challenge value from being
+        // replayed under a different, already-authenticated session.
+        const challengeRow = await consumeWebauthnChallenge(clientData.challenge, "register", env);
+        if (!challengeRow || challengeRow.email !== resolved.email) {
+          return json({ error: "Challenge expired or already used" }, 400);
+        }
+
+        let authData;
+        try {
+          const attestationBytes = base64urlToBytes(attestationObject);
+          const attestation = decodeCbor(attestationBytes, 0).value;
+          authData = parseAuthenticatorData(attestation.get("authData"));
+        } catch (e) {
+          console.error("WebAuthn registration: malformed attestationObject", e);
+          return json({ error: "Malformed attestation" }, 400);
+        }
+
+        if (!authData.coseKey || !authData.credentialId) {
+          return json({ error: "Attestation carries no credential" }, 400);
+        }
+
+        const expectedRpIdHash = await sha256Bytes(frontendRpId(env));
+        if (!bytesEqual(authData.rpIdHash, expectedRpIdHash)) {
+          return json({ error: "RP ID mismatch" }, 400);
+        }
+        if (!authData.flags.up) {
+          return json({ error: "User presence was not confirmed" }, 400);
+        }
+        // Narrowed scope: registration always requires the biometric (UV), not
+        // just presence — this is meant to gate Face/Touch ID specifically,
+        // not any authenticator that merely requires a tap.
+        if (!authData.flags.uv) {
+          return json({ error: "Biometric verification is required" }, 400);
+        }
+
+        let jwk;
+        try {
+          jwk = coseEc2KeyToJwk(authData.coseKey);
+        } catch (e) {
+          return json({ error: "Unsupported credential type — only ES256/P-256 is accepted" }, 400);
+        }
+
+        const attestedCredentialId = bytesToBase64url(authData.credentialId);
+        if (attestedCredentialId !== credentialId) {
+          return json({ error: "Credential id mismatch" }, 400);
+        }
+
+        try {
+          await env.DB.prepare(
+            `INSERT INTO webauthn_credentials (credential_id, email, public_key, sign_count, created_at)
+             VALUES (?, ?, ?, ?, ?)`
+          ).bind(credentialId, resolved.email, JSON.stringify(jwk), authData.signCount, Date.now()).run();
+        } catch (e) {
+          if (isUniqueViolation(e)) {
+            return json({ error: "This credential is already registered" }, 409);
+          }
+          throw e;
+        }
+
+        return json({ success: true });
+      }
+
+      // ----------------------------------------------------------------
+      // Step 2: WebAuthn — tokenless login from the landing page.
+      //
+      // No allowCredentials on the options side: this is a discoverable
+      // (resident-key) flow, so the browser itself finds a matching platform
+      // credential and the assertion's userHandle says which account it is.
+      // On success this mints the exact same magic_<token> KV session a
+      // magic-link click would, so /api/user and everything downstream needs
+      // no changes at all — a WebAuthn login IS a magic-link session, just
+      // reached a different way.
+      // ----------------------------------------------------------------
+      if (url.pathname === "/api/auth/webauthn/login-options" && request.method === "POST") {
+        const challenge = await issueWebauthnChallenge("login", null, env);
+        return json({
+          challenge,
+          timeout: WEBAUTHN_TIMEOUT_MS,
+          rpId: frontendRpId(env),
+          userVerification: "required"
+        });
+      }
+
+      if (url.pathname === "/api/auth/webauthn/login" && request.method === "POST") {
+        const body = await readJson(request);
+        if (!body) return json({ error: "Invalid request body" }, 400);
+
+        const { credentialId, clientDataJSON, authenticatorData, signature } = body;
+        const userHandle = typeof body.userHandle === "string" ? body.userHandle : null;
+
+        if (typeof credentialId !== "string" || typeof clientDataJSON !== "string" ||
+            typeof authenticatorData !== "string" || typeof signature !== "string") {
+          return json({ error: "Malformed login response" }, 400);
+        }
+
+        // This endpoint takes no session by design, so every failure from
+        // here on answers the same way — it must not become an oracle for
+        // which emails or credential ids exist, the same posture
+        // request-link already takes below.
+        const reject = () => json({ error: "Sign-in failed" }, 401);
+
+        let clientData;
+        try {
+          clientData = JSON.parse(new TextDecoder().decode(base64urlToBytes(clientDataJSON)));
+        } catch (e) {
+          return reject();
+        }
+
+        if (clientData.type !== "webauthn.get") return reject();
+        if (clientData.origin !== frontendOrigin(env)) return reject();
+
+        const challengeRow = await consumeWebauthnChallenge(clientData.challenge, "login", env);
+        if (!challengeRow) return reject();
+
+        const credentialRow = await env.DB.prepare(
+          "SELECT * FROM webauthn_credentials WHERE credential_id = ?"
+        ).bind(credentialId).first();
+        if (!credentialRow) return reject();
+
+        if (userHandle) {
+          let handleEmail;
+          try {
+            handleEmail = new TextDecoder().decode(base64urlToBytes(userHandle));
+          } catch (e) {
+            return reject();
+          }
+          if (handleEmail !== credentialRow.email) return reject();
+        }
+
+        // Tier is orthogonal to whether a login method WORKS — only whether a
+        // credential could be REGISTERED in the first place — so a member
+        // demoted after registering keeps signing in with it, same as magic
+        // link. A cancelled membership does not: this is a self-service
+        // re-entry point, and request-link already withholds exactly that for
+        // a cancelled account below.
+        const userData = await getUser(credentialRow.email, env);
+        if (!userData || userData.status === "Canceled") return reject();
+
+        let authData;
+        try {
+          authData = parseAuthenticatorData(base64urlToBytes(authenticatorData));
+        } catch (e) {
+          return reject();
+        }
+
+        const expectedRpIdHash = await sha256Bytes(frontendRpId(env));
+        if (!bytesEqual(authData.rpIdHash, expectedRpIdHash)) return reject();
+        if (!authData.flags.up || !authData.flags.uv) return reject();
+
+        let jwk;
+        try {
+          jwk = JSON.parse(credentialRow.public_key);
+        } catch (e) {
+          console.error("Stored WebAuthn public key is corrupt", credentialId);
+          return reject();
+        }
+
+        let verified = false;
+        try {
+          const key = await crypto.subtle.importKey(
+            "jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]
+          );
+          const clientDataHash = await sha256Bytes(base64urlToBytes(clientDataJSON));
+          const signedData = concatBytes(base64urlToBytes(authenticatorData), clientDataHash);
+          const rawSignature = derSignatureToRaw(base64urlToBytes(signature));
+          verified = await crypto.subtle.verify(
+            { name: "ECDSA", hash: "SHA-256" }, key, rawSignature, signedData
+          );
+        } catch (e) {
+          console.error("WebAuthn signature verification error", e);
+          return reject();
+        }
+        if (!verified) return reject();
+
+        // Clone detection. An authenticator with no counter support always
+        // reports 0 — the spec says not to use 0 for detection in that case —
+        // so only a nonzero count is held to "must strictly increase".
+        // Anything else is the classic sign of two authenticators answering
+        // for what is supposed to be one physical credential.
+        const storedCount = Number(credentialRow.sign_count) || 0;
+        if (authData.signCount !== 0 && authData.signCount <= storedCount) {
+          console.error("WebAuthn sign_count regression — possible cloned credential", credentialId);
+          return reject();
+        }
+
+        await env.DB.prepare("UPDATE webauthn_credentials SET sign_count = ? WHERE credential_id = ?")
+          .bind(authData.signCount, credentialId).run();
+
+        const magicToken = crypto.randomUUID();
+        await env.CLIENT_KV.put(`magic_${magicToken}`, JSON.stringify({
+          email: credentialRow.email,
+          createdAt: Date.now()
+        }), { expirationTtl: MAGIC_TOKEN_TTL_SECONDS });
+
+        return json({ success: true, authToken: magicToken, email: credentialRow.email });
       }
 
       // ----------------------------------------------------------------
@@ -2087,4 +2382,302 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+// ============================================================================
+// Step 2: WebAuthn (VIP tier only).
+//
+// rp.id / origin is always the FRONTEND's origin (club.springrenaissance.store
+// via env.PORTAL_ORIGIN — the same value CORS already treats as
+// authoritative), never this Worker's own *.workers.dev origin. Every helper
+// below that needs it takes env and derives it the same way, so there is
+// exactly one place that decision is made.
+//
+// Deliberately narrow scope, chosen over a from-scratch full implementation
+// of the spec's every branch:
+//   - ES256 (P-256) only. No RSA, no Ed25519.
+//   - No attestation statement / certificate chain verification. attStmt is
+//     parsed only far enough to skip past it to authData; its signature is
+//     never checked. This accepts attestation from any authenticator,
+//     platform or virtual — attestation establishes authenticator
+//     provenance, not session security, and verifying a certificate chain
+//     here would be a second, larger crypto surface for no security benefit
+//     to login itself.
+//   - User Verification (UV) is mandatory on both registration and login —
+//     this feature is specifically "Face/Touch ID", not "any authenticator
+//     that merely requires a tap".
+//   - Resident (discoverable) credentials only, with authenticatorAttachment
+//     'platform' requested — no roaming/USB security keys.
+// ============================================================================
+
+// ---- base64url <-> bytes ---------------------------------------------------
+// Everything navigator.credentials.create()/.get() hands back travels as
+// base64url text over JSON; these are the only two conversions needed to get
+// back to the raw bytes the checks below actually operate on. atob/btoa are
+// standard in both the Workers runtime and Node — no polyfill needed.
+function base64urlToBytes(b64url) {
+  if (typeof b64url !== "string") throw new Error("expected a base64url string");
+  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = (4 - (b64.length % 4)) % 4;
+  const bin = atob(b64 + "=".repeat(pad));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+function bytesToBase64url(bytes) {
+  const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  let bin = "";
+  for (let i = 0; i < arr.length; i++) bin += String.fromCharCode(arr[i]);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function randomBase64url(numBytes) {
+  const bytes = new Uint8Array(numBytes);
+  crypto.getRandomValues(bytes);
+  return bytesToBase64url(bytes);
+}
+
+function bytesEqual(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function concatBytes(a, b) {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a, 0);
+  out.set(b, a.length);
+  return out;
+}
+
+async function sha256Bytes(input) {
+  const data = typeof input === "string" ? new TextEncoder().encode(input) : input;
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", data));
+}
+
+function frontendOrigin(env) {
+  return env.PORTAL_ORIGIN || DEFAULT_PORTAL_ORIGIN;
+}
+
+function frontendRpId(env) {
+  return new URL(frontendOrigin(env)).hostname;
+}
+
+// ---- CBOR decoder -----------------------------------------------------------
+// Just enough of RFC 8949 to read a WebAuthn attestationObject (a map with
+// text-string keys fmt/attStmt/authData) and a COSE_Key (a map with integer
+// keys). No indefinite-length items, no floats: WebAuthn never emits either,
+// and rejecting anything unrecognised is safer than guessing at a shape this
+// was never tested against. Maps decode to a JS Map so both key types (text
+// and integer) work with the same code.
+function decodeCbor(bytes, offset) {
+  if (offset >= bytes.length) throw new Error("CBOR: unexpected end of input");
+  const first = bytes[offset];
+  const majorType = first >> 5;
+  const info = first & 0x1f;
+  let pos = offset + 1;
+
+  function readArg() {
+    if (info < 24) return info;
+    if (info === 24) { const v = bytes[pos]; pos += 1; return v; }
+    if (info === 25) { const v = (bytes[pos] << 8) | bytes[pos + 1]; pos += 2; return v; }
+    if (info === 26) {
+      const v = (bytes[pos] * 0x1000000) + (bytes[pos + 1] << 16) + (bytes[pos + 2] << 8) + bytes[pos + 3];
+      pos += 4;
+      return v;
+    }
+    throw new Error("CBOR: unsupported length encoding (info=" + info + ")");
+  }
+
+  if (majorType === 0) return { value: readArg(), offset: pos }; // unsigned int
+  if (majorType === 1) return { value: -1 - readArg(), offset: pos }; // negative int
+
+  if (majorType === 2) { // byte string
+    const len = readArg();
+    if (pos + len > bytes.length) throw new Error("CBOR: byte string runs past end of input");
+    return { value: bytes.slice(pos, pos + len), offset: pos + len };
+  }
+
+  if (majorType === 3) { // text string
+    const len = readArg();
+    if (pos + len > bytes.length) throw new Error("CBOR: text string runs past end of input");
+    return { value: new TextDecoder().decode(bytes.slice(pos, pos + len)), offset: pos + len };
+  }
+
+  if (majorType === 4) { // array
+    const len = readArg();
+    const value = [];
+    for (let i = 0; i < len; i++) {
+      const item = decodeCbor(bytes, pos);
+      value.push(item.value);
+      pos = item.offset;
+    }
+    return { value, offset: pos };
+  }
+
+  if (majorType === 5) { // map
+    const len = readArg();
+    const value = new Map();
+    for (let i = 0; i < len; i++) {
+      const k = decodeCbor(bytes, pos);
+      pos = k.offset;
+      const v = decodeCbor(bytes, pos);
+      pos = v.offset;
+      value.set(k.value, v.value);
+    }
+    return { value, offset: pos };
+  }
+
+  if (majorType === 7) {
+    if (first === 0xf4) return { value: false, offset: pos };
+    if (first === 0xf5) return { value: true, offset: pos };
+    if (first === 0xf6) return { value: null, offset: pos };
+    throw new Error("CBOR: unsupported simple/float value (first=" + first + ")");
+  }
+
+  throw new Error("CBOR: unsupported major type " + majorType);
+}
+
+// ---- authenticatorData -------------------------------------------------------
+// Fixed binary layout per the WebAuthn spec: rpIdHash[32] + flags[1] +
+// signCount[4] (big-endian uint32), then IF the AT flag is set,
+// attestedCredentialData: aaguid[16] + credIdLen[2] (big-endian uint16) +
+// credId[credIdLen] + credentialPublicKey (a COSE_Key, CBOR-encoded — the one
+// place CBOR shows up again inside what is otherwise raw bytes). This same
+// parser reads both the registration ceremony's authData (unwrapped from the
+// attestationObject) and the login ceremony's authData (handed over as-is,
+// with AT normally unset since a plain assertion carries no attested data).
+function parseAuthenticatorData(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.length < 37) {
+    throw new Error("authenticatorData is too short");
+  }
+  const rpIdHash = bytes.slice(0, 32);
+  const flagsByte = bytes[32];
+  const flags = {
+    up: !!(flagsByte & 0x01),
+    uv: !!(flagsByte & 0x04),
+    at: !!(flagsByte & 0x40),
+    ed: !!(flagsByte & 0x80)
+  };
+  // >>> 0: the raw bitwise OR is a signed 32-bit int, and a counter this far
+  // into an authenticator's life is a legitimate, if unlikely, value.
+  const signCount = ((bytes[33] << 24) | (bytes[34] << 16) | (bytes[35] << 8) | bytes[36]) >>> 0;
+
+  let credentialId = null;
+  let coseKey = null;
+
+  if (flags.at) {
+    let offset = 37 + 16; // skip aaguid — unused for our narrowed scope
+    if (bytes.length < offset + 2) throw new Error("authenticatorData: truncated credential id length");
+    const credIdLen = (bytes[offset] << 8) | bytes[offset + 1];
+    offset += 2;
+    if (bytes.length < offset + credIdLen) throw new Error("authenticatorData: truncated credential id");
+    credentialId = bytes.slice(offset, offset + credIdLen);
+    offset += credIdLen;
+    coseKey = decodeCbor(bytes, offset).value;
+  }
+
+  return { rpIdHash, flags, signCount, credentialId, coseKey };
+}
+
+// COSE_Key (EC2, RFC 9053 §7.1) -> JWK, for crypto.subtle.importKey. Rejects
+// anything that is not exactly ES256/P-256 — the one algorithm this feature
+// supports end to end.
+function coseEc2KeyToJwk(coseMap) {
+  if (!(coseMap instanceof Map)) throw new Error("COSE key is not a CBOR map");
+  const kty = coseMap.get(1);
+  const alg = coseMap.get(3);
+  const crv = coseMap.get(-1);
+  const x = coseMap.get(-2);
+  const y = coseMap.get(-3);
+  if (kty !== 2) throw new Error("Unsupported COSE key type (expected EC2)");
+  if (alg !== -7) throw new Error("Unsupported COSE algorithm (only ES256 is accepted)");
+  if (crv !== 1) throw new Error("Unsupported COSE curve (only P-256 is accepted)");
+  if (!(x instanceof Uint8Array) || x.length !== 32) throw new Error("Malformed COSE key: x");
+  if (!(y instanceof Uint8Array) || y.length !== 32) throw new Error("Malformed COSE key: y");
+  return { kty: "EC", crv: "P-256", x: bytesToBase64url(x), y: bytesToBase64url(y), ext: true };
+}
+
+// ---- DER -> raw ECDSA signature ---------------------------------------------
+// The one gotcha this feature exists to get right: authenticators sign in
+// ASN.1 DER (SEQUENCE { INTEGER r, INTEGER s }), but crypto.subtle.verify for
+// "ECDSA" takes the raw IEEE P1363 format — r and s concatenated, each a
+// fixed-width big-endian integer (32 bytes apiece for P-256). Passing a DER
+// signature straight to verify() does not error — it just always returns
+// false, which looks exactly like "the signature is wrong" and is easy to
+// chase down the wrong path entirely.
+function readDerLength(bytes, offset) {
+  const first = bytes[offset];
+  if ((first & 0x80) === 0) return { len: first, offset: offset + 1 };
+  const numBytes = first & 0x7f;
+  let len = 0;
+  for (let i = 0; i < numBytes; i++) len = (len << 8) | bytes[offset + 1 + i];
+  return { len, offset: offset + 1 + numBytes };
+}
+
+function readDerInteger(bytes, offset) {
+  if (bytes[offset] !== 0x02) throw new Error("Expected a DER INTEGER");
+  const { len, offset: afterLen } = readDerLength(bytes, offset + 1);
+  return { value: bytes.slice(afterLen, afterLen + len), offset: afterLen + len };
+}
+
+// A DER INTEGER carries a leading 0x00 guard byte whenever the value's high
+// bit would otherwise read as a sign, and drops leading zero bytes otherwise
+// — so it is very rarely exactly 32 bytes. Strip the guard byte, then
+// left-pad with zeros to the curve's fixed width.
+function derIntegerToFixedLength(bytes, size) {
+  let b = bytes;
+  if (b.length > size && b[0] === 0x00) b = b.slice(1);
+  if (b.length > size) throw new Error("DER integer is too large for the curve");
+  if (b.length === size) return b;
+  const out = new Uint8Array(size);
+  out.set(b, size - b.length);
+  return out;
+}
+
+function derSignatureToRaw(der) {
+  if (der[0] !== 0x30) throw new Error("Signature is not a DER SEQUENCE");
+  const { len: seqLen, offset: afterSeqLen } = readDerLength(der, 1);
+  const seqEnd = afterSeqLen + seqLen;
+
+  const r = readDerInteger(der, afterSeqLen);
+  const s = readDerInteger(der, r.offset);
+  if (s.offset !== seqEnd) throw new Error("Signature has trailing bytes");
+
+  return concatBytes(derIntegerToFixedLength(r.value, 32), derIntegerToFixedLength(s.value, 32));
+}
+
+// ---- challenges --------------------------------------------------------------
+// Single-use, short-lived, same shape as processed_events' PRIMARY KEY
+// reservation: the DELETE...RETURNING IS the check, so there is no window
+// between "is this challenge still valid" and "consume it" for a second,
+// concurrent attempt to land in.
+async function issueWebauthnChallenge(purpose, email, env) {
+  const challenge = randomBase64url(32);
+  await env.DB.prepare(
+    "INSERT INTO webauthn_challenges (challenge, email, purpose, created_at) VALUES (?, ?, ?, ?)"
+  ).bind(challenge, email || null, purpose, Date.now()).run();
+
+  // Opportunistic cleanup, no cron — same posture as processed_events and
+  // rate_events: a prompt the user abandoned must not accumulate forever.
+  try {
+    await env.DB.prepare("DELETE FROM webauthn_challenges WHERE created_at < ?")
+      .bind(Date.now() - WEBAUTHN_CHALLENGE_TTL_MS).run();
+  } catch (e) {
+    console.error("webauthn_challenges cleanup failed", e);
+  }
+
+  return challenge;
+}
+
+async function consumeWebauthnChallenge(challenge, purpose, env) {
+  const row = await env.DB.prepare(
+    "DELETE FROM webauthn_challenges WHERE challenge = ? AND purpose = ? RETURNING *"
+  ).bind(challenge, purpose).first();
+  if (!row) return null;
+  // The opportunistic sweep above is best-effort, not a guarantee — a
+  // challenge it hasn't gotten to yet must still be rejected as expired here.
+  if (Date.now() - Number(row.created_at) > WEBAUTHN_CHALLENGE_TTL_MS) return null;
+  return row;
 }

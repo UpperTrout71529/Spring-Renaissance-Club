@@ -18,7 +18,7 @@
        hash extractor would match it instead of the real element.)
        style-src still allows inline styles. The rule in 8.3 is about script;
        the page's stylesheet block carries no injection surface. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-hz8npi1YGELB2bvWPERypogVGUnfyd2VozALov0pxVc='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src https://stripe-magiclink.sagradyanfelix.workers.dev; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Ra2XQPiF5lJ2+AB2sLj23kBr9UKj4knjWYgQZMB0Dag='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src https://stripe-magiclink.sagradyanfelix.workers.dev; base-uri 'none'; form-action 'none'">
   <title>Private Client Portal — Spring Renaissance</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -312,6 +312,15 @@
       text-transform: none;
       color: var(--text-muted);
       line-height: 1.5;
+    }
+
+    /* Step 2: WebAuthn — offered above the email fallback in the same banner. */
+    .auth-divider {
+      margin: 10px 0;
+      font-size: 9px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-muted);
     }
 
     /* ---------- Views ---------- */
@@ -680,6 +689,10 @@
     <p class="client-line" id="userEmailDisplay">Authenticating secure allocation...</p>
     <div class="session-banner" id="sessionBanner" role="alert">
       <div>Session Expired — request a new secure link to continue</div>
+      <!-- Step 2: offered first when this device supports it — magic link
+           below still works exactly as before either way. -->
+      <button type="button" class="btn btn-secondary" id="webauthnLoginBtn" hidden>Sign in with Face/Touch ID</button>
+      <p class="auth-divider" id="webauthnDivider" hidden>or</p>
       <!-- Step 7: the way back in. Before this, an expired link meant emailing
            the concierge and waiting. -->
       <div class="relink-row">
@@ -745,6 +758,21 @@
           <button class="btn btn-secondary" id="billingPortalBtn" type="button">Update payment method</button>
           <button class="btn btn-secondary" id="cancelSubBtn" type="button">Cancel Subscription</button>
         </div>
+      </div>
+
+      <!-- Step 2: VIP tier only. Hidden until tier rides in on the curator
+           poll (see applyTier) — never known from /api/user, which stays a
+           deliberately narrow, unchanged whitelist. -->
+      <div class="card" id="webauthnCard" hidden>
+        <div class="card-tag">
+          <span>Security</span>
+        </div>
+        <h2 class="card-title">Face / Touch ID Sign-In</h2>
+        <p class="card-desc">A VIP perk: sign in instantly on this device, no email link required. Your magic link keeps working exactly as before.</p>
+        <div class="membership-actions">
+          <button class="btn btn-secondary" id="webauthnRegisterBtn" type="button">Enable Face/Touch ID</button>
+        </div>
+        <div class="relink-note" id="webauthnRegisterNote" role="status" aria-live="polite" hidden></div>
       </div>
 
       <div class="card">
@@ -821,6 +849,11 @@
       relinkEmail: document.getElementById('relinkEmail'),
       relinkBtn: document.getElementById('relinkBtn'),
       relinkNote: document.getElementById('relinkNote'),
+      webauthnLoginBtn: document.getElementById('webauthnLoginBtn'),
+      webauthnDivider: document.getElementById('webauthnDivider'),
+      webauthnCard: document.getElementById('webauthnCard'),
+      webauthnRegisterBtn: document.getElementById('webauthnRegisterBtn'),
+      webauthnRegisterNote: document.getElementById('webauthnRegisterNote'),
       statusDot: document.getElementById('statusDot'),
       subStatusText: document.getElementById('subStatusText'),
       capsuleStatusBadge: document.getElementById('capsuleStatusBadge'),
@@ -1260,6 +1293,10 @@
         setSessionExpired(false);
         setChatEnabled(true);
         renderUserData(reconcileWithOverrides(payload));
+        // Step 2: tier is not on this response (see applyTier) — fetched here
+        // rather than waiting for the user to open Curator Space, so the
+        // Face/Touch ID card in Membership is correct from the first paint.
+        syncCuratorMessages();
       } catch (e) {
         console.error("Worker sync failed:", e);
         // A network blip is not an expired session — say so, and leave the
@@ -1547,6 +1584,7 @@
         if (!res.ok) return; // transient — the next poll retries
 
         const data = await res.json();
+        applyTier(data.tier);
         const messages = Array.isArray(data.messages) ? data.messages : [];
 
         if (messages.length === 0) {
@@ -1993,6 +2031,179 @@
         requestAccessLink();
       }
     });
+
+    // ---------- WebAuthn (Step 2, VIP tier only) ----------
+    // Registration is a follow-up action, offered only once tier === 'vip' is
+    // confirmed (see applyTier). Login is tokenless and offered to everyone
+    // on the session-expired banner — if this device has no matching
+    // platform credential, the browser reports that back and the magic-link
+    // fallback right below still works exactly as it always has.
+    const webauthnSupported = !!(window.PublicKeyCredential && navigator.credentials);
+
+    function base64urlToBuffer(b64url) {
+      const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
+      const pad = (4 - (b64.length % 4)) % 4;
+      const bin = atob(b64 + '='.repeat(pad));
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes;
+    }
+
+    function bufferToBase64url(buf) {
+      const bytes = new Uint8Array(buf);
+      let bin = '';
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    // Called from syncCuratorMessages, the only place tier is known — it is
+    // deliberately absent from /api/user's narrow, unchanged whitelist.
+    function applyTier(tier) {
+      if (el.webauthnCard) {
+        el.webauthnCard.hidden = !(webauthnSupported && tier === 'vip');
+      }
+    }
+
+    function setWebauthnRegisterNote(text) {
+      if (!el.webauthnRegisterNote) return;
+      el.webauthnRegisterNote.textContent = text;
+      el.webauthnRegisterNote.hidden = !text;
+    }
+
+    async function registerWebauthnCredential() {
+      if (!authToken) return;
+      el.webauthnRegisterBtn.disabled = true;
+      const settledLabel = el.webauthnRegisterBtn.textContent;
+      el.webauthnRegisterBtn.textContent = "Requesting...";
+      setWebauthnRegisterNote("");
+
+      try {
+        const optionsRes = await fetchWithTimeout(WORKER_URL + '/api/auth/webauthn/register-options', {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ authToken: authToken })
+        });
+        if (!optionsRes.ok) throw new Error('Unable to start registration');
+        const options = await optionsRes.json();
+
+        const credential = await navigator.credentials.create({
+          publicKey: {
+            challenge: base64urlToBuffer(options.challenge),
+            rp: options.rp,
+            user: {
+              id: base64urlToBuffer(options.user.id),
+              name: options.user.name,
+              displayName: options.user.displayName
+            },
+            pubKeyCredParams: options.pubKeyCredParams,
+            authenticatorSelection: options.authenticatorSelection,
+            attestation: options.attestation,
+            timeout: options.timeout,
+            excludeCredentials: (options.excludeCredentials || []).map(function (c) {
+              return { type: c.type, id: base64urlToBuffer(c.id) };
+            })
+          }
+        });
+        if (!credential) throw new Error('No credential returned');
+
+        const res = await fetchWithTimeout(WORKER_URL + '/api/auth/webauthn/register', {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            authToken: authToken,
+            credentialId: bufferToBase64url(credential.rawId),
+            clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
+            attestationObject: bufferToBase64url(credential.response.attestationObject)
+          })
+        });
+        const body = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(body.error || 'Registration failed');
+
+        el.webauthnRegisterBtn.textContent = "Face/Touch ID enabled";
+        setWebauthnRegisterNote("Face/Touch ID is enabled for this device.");
+      } catch (e) {
+        console.error("WebAuthn registration failed:", e);
+        el.webauthnRegisterBtn.disabled = false;
+        el.webauthnRegisterBtn.textContent = settledLabel;
+        if (e && e.name === 'InvalidStateError') {
+          setWebauthnRegisterNote("Face/Touch ID is already enabled on this device.");
+        } else if (e && e.name === 'NotAllowedError') {
+          setWebauthnRegisterNote("Registration was cancelled.");
+        } else {
+          setWebauthnRegisterNote("Couldn't enable Face/Touch ID on this device. Please try again.");
+        }
+      }
+    }
+
+    if (el.webauthnRegisterBtn) {
+      el.webauthnRegisterBtn.addEventListener('click', registerWebauthnCredential);
+    }
+
+    async function signInWithWebauthn() {
+      if (!webauthnSupported || !el.webauthnLoginBtn) return;
+      el.webauthnLoginBtn.disabled = true;
+      const settledLabel = el.webauthnLoginBtn.textContent;
+      el.webauthnLoginBtn.textContent = "Waiting for Face/Touch ID...";
+
+      try {
+        const optionsRes = await fetchWithTimeout(WORKER_URL + '/api/auth/webauthn/login-options', {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({})
+        });
+        if (!optionsRes.ok) throw new Error('Unable to start sign-in');
+        const options = await optionsRes.json();
+
+        const assertion = await navigator.credentials.get({
+          publicKey: {
+            challenge: base64urlToBuffer(options.challenge),
+            rpId: options.rpId,
+            timeout: options.timeout,
+            userVerification: options.userVerification
+          }
+        });
+        if (!assertion) throw new Error('No assertion returned');
+
+        const loginBody = {
+          credentialId: bufferToBase64url(assertion.rawId),
+          clientDataJSON: bufferToBase64url(assertion.response.clientDataJSON),
+          authenticatorData: bufferToBase64url(assertion.response.authenticatorData),
+          signature: bufferToBase64url(assertion.response.signature)
+        };
+        if (assertion.response.userHandle) {
+          loginBody.userHandle = bufferToBase64url(assertion.response.userHandle);
+        }
+
+        const res = await fetchWithTimeout(WORKER_URL + '/api/auth/webauthn/login', {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(loginBody)
+        });
+        const body = await res.json().catch(function () { return {}; });
+        if (!res.ok || !body.authToken) throw new Error(body.error || 'Sign-in failed');
+
+        // Same session shape a magic-link click produces, persisted the same
+        // way (Step 1: localStorage, so it survives closing the tab).
+        try { localStorage.setItem('sr_auth_token', body.authToken); } catch (e) { /* private mode */ }
+        authToken = body.authToken;
+        setSessionExpired(false);
+        loadUserData();
+      } catch (e) {
+        console.error("WebAuthn sign-in failed:", e);
+        if (!(e && e.name === 'NotAllowedError')) {
+          setRelinkNote("Face/Touch ID sign-in wasn't available on this device. Please use your email link below.");
+        }
+      } finally {
+        el.webauthnLoginBtn.disabled = false;
+        el.webauthnLoginBtn.textContent = settledLabel;
+      }
+    }
+
+    if (el.webauthnLoginBtn) {
+      el.webauthnLoginBtn.hidden = !webauthnSupported;
+      if (el.webauthnDivider) el.webauthnDivider.hidden = !webauthnSupported;
+      el.webauthnLoginBtn.addEventListener('click', signInWithWebauthn);
+    }
 
     // ---------- Boot ----------
     loadUserData();

@@ -106,6 +106,17 @@ test('/api/user response shape is unchanged: no tier field leaks', async () => {
   assert.deepEqual(Object.keys(body).sort(), ['email', 'skipped', 'status', 'tokens', 'updatedAt']);
 });
 
+test('/api/curator/messages carries tier — already-polled, so it needs no new endpoint', async () => {
+  const env = env0();
+  await seedClient(env, { tier: 'vip' });
+  const vipBody = await (await worker.fetch(get('/api/curator/messages?auth_token=TOK'), env)).json();
+  assert.equal(vipBody.tier, 'vip');
+
+  await seedClient(env, { tier: 'regular' });
+  const regularBody = await (await worker.fetch(get('/api/curator/messages?auth_token=TOK'), env)).json();
+  assert.equal(regularBody.tier, 'regular');
+});
+
 test('a VIP re-checking out through Stripe keeps their tier', async () => {
   const { webhookRequest } = await import('./harness.mjs');
   const env = env0();
