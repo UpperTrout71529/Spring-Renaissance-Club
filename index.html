@@ -18,7 +18,7 @@
        hash extractor would match it instead of the real element.)
        style-src still allows inline styles. The rule in 8.3 is about script;
        the page's stylesheet block carries no injection surface. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-tsoxlMJ4GDrzyjK8d+kXgCQJ3sVllhmkYICRzwS0IVA='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src https://stripe-magiclink.sagradyanfelix.workers.dev; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-hz8npi1YGELB2bvWPERypogVGUnfyd2VozALov0pxVc='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src https://stripe-magiclink.sagradyanfelix.workers.dev; base-uri 'none'; form-action 'none'">
   <title>Private Client Portal — Spring Renaissance</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -844,17 +844,41 @@
       toast: document.getElementById('toast')
     };
 
-    // ---------- Session token handling (M-11) ----------
+    // ---------- Session token handling (M-11, Step 1) ----------
     // The token arrives as ?auth_token=... . Leaving it in the address bar
     // means it lands in browser history, gets copy-pasted into support
     // tickets, and (absent the no-referrer meta tag) can leak via Referer.
-    // Move it into sessionStorage and scrub the URL immediately — before any
-    // navigation or share action can carry it — while keeping it available
-    // across in-tab reloads. sessionStorage, not localStorage: the token dies
-    // with the tab rather than persisting on a shared machine.
+    // Move it into localStorage and scrub the URL immediately — before any
+    // navigation or share action can carry it.
+    //
+    // localStorage, not a cookie: the frontend (club.springrenaissance.store)
+    // and the Worker (*.workers.dev) are different eTLD+1s, so a cookie set
+    // by either would be a third-party cookie to the other, and Safari/iOS
+    // ITP (increasingly Chrome too) can silently drop those — a session that
+    // works in testing and then logs people out with no visible cause. This
+    // token is already sent as a query/body value on every request rather
+    // than relying on the browser to attach a cookie, so it has none of that
+    // failure mode.
+    //
+    // localStorage, not sessionStorage: the point of this change is that
+    // closing the tab must NOT end the session — reopening the site later
+    // should find the member still logged in. The only way to end a
+    // persistent session now is server-side revocation (magic_revoked_before,
+    // e.g. on cancellation), not tab lifetime.
     let authToken = null;
 
     (function adoptToken() {
+      // One-time migration: a tab open across this change may still be
+      // holding the token under the old sessionStorage key. Pick it up once
+      // so that tab isn't silently logged out by the switch.
+      try {
+        const legacyToken = sessionStorage.getItem('sr_auth_token');
+        if (legacyToken) {
+          try { localStorage.setItem('sr_auth_token', legacyToken); } catch (e) {}
+          sessionStorage.removeItem('sr_auth_token');
+        }
+      } catch (e) { /* storage blocked — nothing to migrate */ }
+
       let tokenFromUrl = null;
       try {
         const urlParams = new URLSearchParams(window.location.search);
@@ -862,7 +886,7 @@
 
         if (tokenFromUrl) {
           try {
-            sessionStorage.setItem('sr_auth_token', tokenFromUrl);
+            localStorage.setItem('sr_auth_token', tokenFromUrl);
           } catch (e) { /* private mode: keep it in memory only */ }
           authToken = tokenFromUrl;
 
@@ -872,7 +896,7 @@
             window.location.pathname + (qs ? '?' + qs : '') + window.location.hash);
         } else {
           try {
-            authToken = sessionStorage.getItem('sr_auth_token');
+            authToken = localStorage.getItem('sr_auth_token');
           } catch (e) {
             authToken = null;
           }
@@ -930,8 +954,12 @@
     // wrote the bearer token into a key name that survives the tab, the browser
     // restart and the client walking away from a shared machine — and it left a
     // key behind for every link ever opened. The state now lives in
-    // sessionStorage under one constant key: same tab lifetime as the token
-    // itself, nothing token-derived on disk.
+    // sessionStorage under one constant key: it dies with the tab on purpose
+    // (an optimistic UI patch is only ever meant to bridge to the next server
+    // read, not to persist), and nothing token-derived ever touches disk. This
+    // is now shorter-lived than the auth token itself (Step 1 moved that to
+    // localStorage) — that's fine, a fresh tab just re-reads real state from
+    // the server instead of replaying a stale optimistic patch.
     const OVERRIDE_KEY = 'sr_override_state';
     const EMPTY_OVERRIDES = { status: null, skipped: null, timestamp: 0 };
 
@@ -1162,7 +1190,7 @@
           userRetryTimer = null;
         }
         clearOverrides();
-        try { sessionStorage.removeItem('sr_auth_token'); } catch (e) {}
+        try { localStorage.removeItem('sr_auth_token'); } catch (e) {}
       } else if (authToken) {
         // A-9: recovering from a 401 (or booting with a good token) must bring
         // the poll loop back. Without this, one transient 401 killed the timer

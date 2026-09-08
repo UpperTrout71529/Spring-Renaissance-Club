@@ -633,6 +633,40 @@ export default {
       }
 
       // ----------------------------------------------------------------
+      // API 6b: admin — set a member's tier by hand.
+      //
+      // Manual on purpose: the club sells one Stripe price today, so there is
+      // no billing signal that could derive "regular" vs "vip" automatically.
+      // Same auth seam and posture as human-reply: never call this from a
+      // page shipped to a browser.
+      // ----------------------------------------------------------------
+      if (url.pathname === "/api/admin/set-tier" && request.method === "POST") {
+        if (!authorizeAdmin(request, env)) {
+          return json({ error: "Unauthorized" }, 401);
+        }
+
+        const body = await readJson(request);
+        if (!body) return json({ error: "Invalid request body" }, 400);
+
+        const email = typeof body.email === "string" ? normalizeEmail(body.email) : "";
+        const tier = body.tier;
+
+        if (!email || (tier !== "regular" && tier !== "vip")) {
+          return json({ error: "email and tier ('regular'|'vip') are required" }, 400);
+        }
+
+        // ADR-003: materialise a legacy client first, so promoting someone who
+        // has never opened the portal still has a row for the UPDATE to find.
+        const existing = await getUser(email, env);
+        if (!existing) {
+          return json({ error: "No such member" }, 404);
+        }
+
+        const applied = await setTier(email, tier, env);
+        return json({ success: true, email, tier: applied.tier });
+      }
+
+      // ----------------------------------------------------------------
       // API 7 (Step 6): re-authentication — request a fresh portal link.
       //
       // A client whose link expired, or who cancelled and re-subscribed, had
@@ -1423,7 +1457,7 @@ async function stripeRequest(url, options, env) {
 // ============================================================================
 
 const USER_COLUMNS = `email, status, credits, skipped, stripe_customer_id,
-  stripe_subscription_id, magic_revoked_before, past_due_at, canceled_at, updated_at`;
+  stripe_subscription_id, magic_revoked_before, past_due_at, canceled_at, updated_at, tier`;
 
 // D-1: previously each handler did KV.get(user_<email>) -> mutate the object in
 // JS -> KV.put the whole record. Two concurrent writers both read the old
@@ -1452,7 +1486,7 @@ async function migrateUserFromKv(email, env) {
   if (!legacy) return null;
 
   await env.DB.prepare(
-    `INSERT OR IGNORE INTO users (${USER_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?)`
+    `INSERT OR IGNORE INTO users (${USER_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(
     email,
     typeof legacy.status === "string" ? legacy.status : "Active",
@@ -1463,7 +1497,10 @@ async function migrateUserFromKv(email, env) {
     Number(legacy.magicRevokedBefore) || 0,
     Number(legacy.pastDueAt) || null,
     Number(legacy.canceledAt) || null,
-    Number(legacy.updatedAt) || 0
+    Number(legacy.updatedAt) || 0,
+    // KV predates tier entirely; a legacy client migrates in as regular and an
+    // operator promotes them by hand, same as any other existing member.
+    "regular"
   ).run();
 
   return env.DB.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE email = ?`).bind(email).first();
@@ -1543,6 +1580,17 @@ async function applyMembershipStatus(email, status, env) {
   return { changed };
 }
 
+// Step 0: tier is a membership class, not a billing state, so unlike
+// applySkip/applyCancel/markPastDue it carries no `status != 'Canceled'`
+// guard — a cancelled member can still be flagged VIP ahead of resubscribing.
+async function setTier(email, tier, env) {
+  await env.DB.prepare(
+    `UPDATE users SET tier = ?1, updated_at = ?2 WHERE email = ?3`
+  ).bind(tier, Date.now(), email).run();
+  await mirrorUserToKv(email, env);
+  return { tier };
+}
+
 // C-3 + A-6: terminal cancellation. magic_revoked_before is stamped in the same
 // statement that flips the status, so there is no instant where the account is
 // cancelled but old portal links still resolve.
@@ -1609,7 +1657,7 @@ async function markPastDue(email, env) {
 async function upsertFromCheckout({ email, grant, stripeCustomerId, stripeSubscriptionId, env }) {
   await env.DB.prepare(
     `INSERT INTO users (${USER_COLUMNS})
-     VALUES (?1, 'Active', ?2, 0, ?3, ?4, 0, NULL, NULL, ?5)
+     VALUES (?1, 'Active', ?2, 0, ?3, ?4, 0, NULL, NULL, ?5, 'regular')
      ON CONFLICT(email) DO UPDATE SET
        credits = CASE WHEN users.status = 'Canceled' THEN ?2 ELSE users.credits + ?2 END,
        status = 'Active',
@@ -1618,7 +1666,10 @@ async function upsertFromCheckout({ email, grant, stripeCustomerId, stripeSubscr
        canceled_at = NULL,
        stripe_customer_id = COALESCE(?3, users.stripe_customer_id),
        stripe_subscription_id = COALESCE(?4, users.stripe_subscription_id),
-       updated_at = ?5`
+       updated_at = ?5
+       -- tier deliberately absent: it is not billing-derived (one Stripe price
+       -- funds both tiers today), so a VIP re-checking out must keep their
+       -- tier rather than being reset to the row's 'regular' default.`
   ).bind(email, grant, stripeCustomerId || null, stripeSubscriptionId || null, Date.now()).run();
 
   await mirrorUserToKv(email, env);

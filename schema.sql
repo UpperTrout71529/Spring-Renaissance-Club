@@ -18,7 +18,7 @@
 CREATE TABLE IF NOT EXISTS users (
   email                  TEXT PRIMARY KEY,           -- normalized, lowercase+trim
   status                 TEXT NOT NULL DEFAULT 'Active',
-                                                     -- Active | Paused (Offline) | Past Due | Canceled
+                                                     -- Active | Paused (Offline) | Past Due | Canceled | Paused
   credits                INTEGER NOT NULL DEFAULT 0, -- projected into JSON as tokens
   skipped                INTEGER NOT NULL DEFAULT 0, -- 0/1, projected as boolean
   stripe_customer_id     TEXT,
@@ -26,7 +26,13 @@ CREATE TABLE IF NOT EXISTS users (
   magic_revoked_before   INTEGER NOT NULL DEFAULT 0, -- A-6, bulk revocation by timestamp
   past_due_at            INTEGER,
   canceled_at            INTEGER,
-  updated_at             INTEGER NOT NULL DEFAULT 0
+  updated_at             INTEGER NOT NULL DEFAULT 0,
+  -- Manual flag until a real second Stripe price exists: one price funds the
+  -- whole club today, so there is no billing signal to derive this from.
+  -- Set by an operator via POST /api/admin/set-tier. Existing deployments:
+  -- ALTER TABLE users ADD COLUMN tier TEXT NOT NULL DEFAULT 'regular'
+  --   CHECK(tier IN ('regular','vip'));
+  tier                   TEXT NOT NULL DEFAULT 'regular' CHECK(tier IN ('regular','vip'))
 );
 CREATE INDEX IF NOT EXISTS idx_users_customer ON users (stripe_customer_id);
 
@@ -81,3 +87,28 @@ CREATE INDEX IF NOT EXISTS idx_rate_events_lookup ON rate_events (bucket, subjec
 -- global sweep (subjects that probe once and never return) needs its own, or it
 -- degrades into a full scan of a table an unauthenticated caller can grow.
 CREATE INDEX IF NOT EXISTS idx_rate_events_created ON rate_events (created_at);
+
+-- WebAuthn (VIP tier only). registration ties one credential to one email;
+-- login is discoverable (no username entered first), so the assertion's
+-- userHandle is what identifies the row — email is kept for admin/debugging
+-- and for scoping registration to a session that is already authenticated.
+CREATE TABLE IF NOT EXISTS webauthn_credentials (
+  credential_id TEXT PRIMARY KEY,      -- base64url, as returned by the authenticator
+  email         TEXT NOT NULL,
+  public_key    TEXT NOT NULL,         -- JWK (EC P-256), JSON — see coseEc2KeyToJwk
+  sign_count    INTEGER NOT NULL DEFAULT 0,
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_email ON webauthn_credentials (email);
+
+-- Single-use, short-lived challenges for both registration and login.
+-- Consumed atomically via `DELETE ... RETURNING`, matching the project's rule
+-- against read-modify-write: the delete IS the check, same shape as the
+-- processed_events PRIMARY KEY reservation.
+CREATE TABLE IF NOT EXISTS webauthn_challenges (
+  challenge  TEXT PRIMARY KEY,         -- base64url random bytes
+  email      TEXT,                     -- NULL for a login challenge (unknown until the assertion returns)
+  purpose    TEXT NOT NULL,            -- 'register' | 'login'
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_webauthn_challenges_created ON webauthn_challenges (created_at);
