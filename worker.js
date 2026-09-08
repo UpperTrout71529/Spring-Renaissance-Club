@@ -62,6 +62,22 @@ const LINK_RATE_LIMIT_PER_EMAIL = 1;
 const LINK_RATE_LIMIT_PER_IP = 5;
 const LINK_RATE_LIMIT_WINDOW_MS = 120 * 1000;
 
+// Step 3: regular-tier concierge entitlement — a calendar-month allowance,
+// not an abuse guard (that is CHAT_RATE_LIMIT_* above, and the two are never
+// conflated). Calendar month in UTC: a message counts toward whichever
+// month Date.now() falls in at the instant it is sent, with no per-session
+// grandfathering across the boundary — simple and exactly matches what
+// chat_messages already records, at the cost of the month wrapping at a
+// slightly different local moment depending on the client's timezone.
+const CONCIERGE_MONTHLY_LIMIT_REGULAR = 5;
+
+// Step 2: WebAuthn (VIP tier only). Long enough for a Face/Touch ID prompt
+// including a fumbled attempt, short enough that a challenge sitting in a
+// browser history entry or a server log is worthless within minutes.
+const WEBAUTHN_CHALLENGE_TTL_MS = 5 * 60 * 1000;
+const WEBAUTHN_TIMEOUT_MS = 60 * 1000; // a hint to the browser only, not enforced here
+const WEBAUTHN_RP_NAME = "Spring Renaissance Club";
+
 // 8.2: applied to every response path — JSON, 405 and the catch-all 500 — so a
 // bug in one branch cannot ship a response without them.
 const securityHeaders = {
@@ -471,6 +487,53 @@ export default {
       }
 
       // ----------------------------------------------------------------
+      // Step 4: credit grant history. A separate endpoint rather than
+      // widening /api/user/invoices — billing history and "why is my
+      // balance what it is" are different questions even though both are
+      // sourced from the same Stripe invoice list, and this way
+      // /api/user/invoices's existing contract is untouched.
+      //
+      // No new ledger table: filters the same invoice list /api/user/
+      // invoices fetches through isCreditQualifyingInvoice, the exact
+      // predicate the webhook itself applies — so what this reports can
+      // never drift from what was actually credited.
+      // ----------------------------------------------------------------
+      if (url.pathname === "/api/user/credits-history" && request.method === "GET") {
+        const resolved = await resolveUserByToken(url.searchParams.get("auth_token"), env);
+        if (!resolved) return json({ error: "Session expired" }, 401);
+
+        if (!env.STRIPE_SECRET_KEY) {
+          console.error("STRIPE_SECRET_KEY missing on /api/user/credits-history");
+          return json({ error: "Credit history is temporarily unavailable" }, 503);
+        }
+
+        const customerId = typeof resolved.userData.stripe_customer_id === "string"
+          ? resolved.userData.stripe_customer_id
+          : "";
+        if (!customerId || customerId === "cus_guest") {
+          return json({ grants: [] }, 200, { "Cache-Control": "no-store" });
+        }
+
+        const listed = await stripeRequest(
+          `https://api.stripe.com/v1/invoices?customer=${encodeURIComponent(customerId)}` +
+          `&limit=${INVOICE_PAGE_SIZE}&status=paid`,
+          { method: "GET" },
+          env
+        );
+
+        if (!listed.ok) {
+          console.error("Stripe invoice list failed", listed.status, listed.data?.error?.message);
+          return json({ error: "Stripe is unreachable, please retry" }, 503);
+        }
+
+        const grants = (Array.isArray(listed.data && listed.data.data) ? listed.data.data : [])
+          .filter(isCreditQualifyingInvoice)
+          .map((inv) => ({ date: inv.created, tokens: RENEWAL_TOKEN_GRANT }));
+
+        return json({ grants }, 200, { "Cache-Control": "no-store" });
+      }
+
+      // ----------------------------------------------------------------
       // API 4: Curator Space — send a message.
       // ----------------------------------------------------------------
       if (url.pathname === "/api/curator/chat" && request.method === "POST") {
@@ -521,6 +584,24 @@ export default {
 
         const userMessage = newMessage("You", "user", message || "[photo]");
 
+        // Step 3: regular tier gets 5 consultations per calendar month;
+        // images count toward the same limit since this counts EVERY user
+        // message, attachment or not — no separate budget to keep in sync.
+        // Distinct from the rate limiter above: that one is abuse protection
+        // shared by every tier, this is a membership entitlement, and the two
+        // must never be conflated.
+        //
+        // The guard lives INSIDE the INSERT (see appendChatMessage), not in a
+        // SELECT-COUNT-then-INSERT check here — ADR-005 exists precisely
+        // because that shape lets concurrent callers all observe the same
+        // pre-insert count and all proceed. One statement makes the count and
+        // the insert atomic, so a burst can overshoot by at most the last
+        // statement's own row, never by the whole burst.
+        const isVip = resolved.userData.tier === "vip";
+        const conciergeGuard = isVip
+          ? null
+          : { monthStart: startOfUtcMonth(userMessage.ts), limit: CONCIERGE_MONTHLY_LIMIT_REGULAR };
+
         // A-5: the client's message is an INSERT, so a curator writing at the
         // same instant cannot overwrite it — the two rows simply coexist. This
         // is what the old merge-on-write was approximating.
@@ -530,12 +611,36 @@ export default {
         // landing in between was missed and the AI answered over the curator.
         // P6-4: mirror=false here. Every exit below mirrors exactly once, so
         // this request writes curator_<email> a single time whatever happens.
-        const afterUserMessage = await appendChatMessage(resolved.email, userMessage, env, false);
+        const afterUserMessage = await appendChatMessage(resolved.email, userMessage, env, false, conciergeGuard);
+
+        if (!afterUserMessage.inserted) {
+          // The guard fired: this would have been the sixth this month. Read
+          // the real count back for the response rather than assuming it —
+          // "used" IS chat_messages, so this can never disagree with it.
+          const used = await conciergeMonthlyUsage(resolved.email, env);
+          return json({
+            error: "You've reached this month's consultation limit. Your allocation " +
+              "renews at the start of next month — for anything urgent, please reach " +
+              "out to the concierge team directly.",
+            limitReached: true,
+            concierge: { limit: CONCIERGE_MONTHLY_LIMIT_REGULAR, used, remaining: 0 }
+          }, 403);
+        }
+
+        let concierge = null;
+        if (!isVip) {
+          const usedNow = await conciergeMonthlyUsage(resolved.email, env);
+          concierge = {
+            limit: CONCIERGE_MONTHLY_LIMIT_REGULAR,
+            used: usedNow,
+            remaining: Math.max(0, CONCIERGE_MONTHLY_LIMIT_REGULAR - usedNow)
+          };
+        }
 
         // A human curator has taken over: queue the message, never answer over them.
         if (afterUserMessage.humanActiveUntil && afterUserMessage.humanActiveUntil > Date.now()) {
           await mirrorChatToKv(resolved.email, env);
-          return json({ queued: true, humanActive: true });
+          return json({ queued: true, humanActive: true, concierge });
         }
 
         if (!env.GEMINI_API_KEY) {
@@ -543,7 +648,7 @@ export default {
           // sees it. Losing the message is the worse failure.
           console.error("GEMINI_API_KEY missing");
           await mirrorChatToKv(resolved.email, env);
-          return json({ queued: true, humanActive: false, degraded: true });
+          return json({ queued: true, humanActive: false, degraded: true, concierge });
         }
 
         // The upstream call happens with nothing held open: no read is
@@ -569,10 +674,10 @@ export default {
           // commitAiReply stored nothing, so it did not mirror: the client's
           // own message still needs to reach the rollback mirror.
           await mirrorChatToKv(resolved.email, env);
-          return json({ queued: true, humanActive: true, aiReplySuppressed: true });
+          return json({ queued: true, humanActive: true, aiReplySuppressed: true, concierge });
         }
 
-        return json({ reply: replyText, humanActive: false });
+        return json({ reply: replyText, humanActive: false, concierge });
       }
 
       // ----------------------------------------------------------------
@@ -583,9 +688,29 @@ export default {
         if (!resolved) return json({ error: "Session expired" }, 401);
 
         const convo = await readConversation(resolved.email, env);
+
+        // Step 3: null for VIP (no ceiling) rather than a large `limit` —
+        // the frontend's counter should not exist for VIP at all, not read
+        // as "plenty left".
+        let concierge = null;
+        if (resolved.userData.tier !== "vip") {
+          const used = await conciergeMonthlyUsage(resolved.email, env);
+          concierge = {
+            limit: CONCIERGE_MONTHLY_LIMIT_REGULAR,
+            used,
+            remaining: Math.max(0, CONCIERGE_MONTHLY_LIMIT_REGULAR - used)
+          };
+        }
+
         return json({
           messages: convo.messages,
-          humanActive: !!(convo.humanActiveUntil && convo.humanActiveUntil > Date.now())
+          humanActive: !!(convo.humanActiveUntil && convo.humanActiveUntil > Date.now()),
+          // Step 2/3: this endpoint is already resolved-and-polled on every
+          // session load, so tier and the concierge quota ride along here
+          // rather than widening /api/user's whitelisted, exact-shape
+          // response for two UI toggles.
+          tier: resolved.userData.tier,
+          concierge
         }, 200, { "Cache-Control": "no-store, no-cache, must-revalidate" });
       }
 
@@ -630,6 +755,324 @@ export default {
         await appendChatMessage(email, newMessage("Curator", "curator", message), env);
 
         return json({ success: true, takeoverMinutes: minutes, humanActiveUntil: takeover.humanActiveUntil });
+      }
+
+      // ----------------------------------------------------------------
+      // API 6b: admin — set a member's tier by hand.
+      //
+      // Manual on purpose: the club sells one Stripe price today, so there is
+      // no billing signal that could derive "regular" vs "vip" automatically.
+      // Same auth seam and posture as human-reply: never call this from a
+      // page shipped to a browser.
+      // ----------------------------------------------------------------
+      if (url.pathname === "/api/admin/set-tier" && request.method === "POST") {
+        if (!authorizeAdmin(request, env)) {
+          return json({ error: "Unauthorized" }, 401);
+        }
+
+        const body = await readJson(request);
+        if (!body) return json({ error: "Invalid request body" }, 400);
+
+        const email = typeof body.email === "string" ? normalizeEmail(body.email) : "";
+        const tier = body.tier;
+
+        if (!email || (tier !== "regular" && tier !== "vip")) {
+          return json({ error: "email and tier ('regular'|'vip') are required" }, 400);
+        }
+
+        // ADR-003: materialise a legacy client first, so promoting someone who
+        // has never opened the portal still has a row for the UPDATE to find.
+        const existing = await getUser(email, env);
+        if (!existing) {
+          return json({ error: "No such member" }, 404);
+        }
+
+        const applied = await setTier(email, tier, env);
+        return json({ success: true, email, tier: applied.tier });
+      }
+
+      // ----------------------------------------------------------------
+      // Step 2: WebAuthn (VIP tier only) — registration.
+      //
+      // Registration is a follow-up action for someone already logged in via
+      // magic link — that session is what proves "this is really the VIP
+      // account", the same way a password confirmation would gate adding a
+      // second factor anywhere else. Magic link keeps working for VIP exactly
+      // as before; this is an addition, not a replacement.
+      //
+      // rp.id and the origin checked below are the FRONTEND's origin
+      // (club.springrenaissance.store, via env.PORTAL_ORIGIN — the same value
+      // CORS already treats as authoritative), never the Worker's own
+      // *.workers.dev origin. Getting that backwards would either fail every
+      // assertion closed, or worse, accept one meant for a different site.
+      // ----------------------------------------------------------------
+      if (url.pathname === "/api/auth/webauthn/register-options" && request.method === "POST") {
+        const body = await readJson(request);
+        if (!body) return json({ error: "Invalid request body" }, 400);
+
+        const resolved = await resolveUserByToken(body.authToken, env);
+        if (!resolved) return json({ error: "Session expired" }, 401);
+        if (resolved.userData.tier !== "vip") {
+          return json({ error: "Face/Touch ID sign-in is a VIP feature" }, 403);
+        }
+
+        const existing = await env.DB.prepare(
+          "SELECT credential_id FROM webauthn_credentials WHERE email = ?"
+        ).bind(resolved.email).all();
+
+        const challenge = await issueWebauthnChallenge("register", resolved.email, env);
+
+        return json({
+          challenge,
+          timeout: WEBAUTHN_TIMEOUT_MS,
+          rp: { id: frontendRpId(env), name: WEBAUTHN_RP_NAME },
+          user: {
+            id: bytesToBase64url(new TextEncoder().encode(resolved.email)),
+            name: resolved.email,
+            displayName: resolved.email
+          },
+          pubKeyCredParams: [{ type: "public-key", alg: -7 }], // ES256 only
+          attestation: "none",
+          authenticatorSelection: {
+            residentKey: "required",
+            userVerification: "required",
+            authenticatorAttachment: "platform"
+          },
+          excludeCredentials: ((existing && existing.results) || []).map((r) => ({
+            type: "public-key",
+            id: r.credential_id
+          }))
+        });
+      }
+
+      if (url.pathname === "/api/auth/webauthn/register" && request.method === "POST") {
+        const body = await readJson(request);
+        if (!body) return json({ error: "Invalid request body" }, 400);
+
+        const resolved = await resolveUserByToken(body.authToken, env);
+        if (!resolved) return json({ error: "Session expired" }, 401);
+        if (resolved.userData.tier !== "vip") {
+          return json({ error: "Face/Touch ID sign-in is a VIP feature" }, 403);
+        }
+
+        const { credentialId, clientDataJSON, attestationObject } = body;
+        if (typeof credentialId !== "string" || typeof clientDataJSON !== "string" ||
+            typeof attestationObject !== "string") {
+          return json({ error: "Malformed registration response" }, 400);
+        }
+
+        let clientData;
+        try {
+          clientData = JSON.parse(new TextDecoder().decode(base64urlToBytes(clientDataJSON)));
+        } catch (e) {
+          return json({ error: "Malformed clientDataJSON" }, 400);
+        }
+
+        if (clientData.type !== "webauthn.create") {
+          return json({ error: "Wrong ceremony type" }, 400);
+        }
+        if (clientData.origin !== frontendOrigin(env)) {
+          return json({ error: "Origin mismatch" }, 400);
+        }
+
+        // Single-use by construction (ADR-004-style PK reservation, here a
+        // DELETE...RETURNING): a challenge that was never issued, already
+        // consumed, or issued for the OTHER purpose all fail this the same
+        // way. The email tie-back stops a stolen challenge value from being
+        // replayed under a different, already-authenticated session.
+        const challengeRow = await consumeWebauthnChallenge(clientData.challenge, "register", env);
+        if (!challengeRow || challengeRow.email !== resolved.email) {
+          return json({ error: "Challenge expired or already used" }, 400);
+        }
+
+        let authData;
+        try {
+          const attestationBytes = base64urlToBytes(attestationObject);
+          const attestation = decodeCbor(attestationBytes, 0).value;
+          authData = parseAuthenticatorData(attestation.get("authData"));
+        } catch (e) {
+          console.error("WebAuthn registration: malformed attestationObject", e);
+          return json({ error: "Malformed attestation" }, 400);
+        }
+
+        if (!authData.coseKey || !authData.credentialId) {
+          return json({ error: "Attestation carries no credential" }, 400);
+        }
+
+        const expectedRpIdHash = await sha256Bytes(frontendRpId(env));
+        if (!bytesEqual(authData.rpIdHash, expectedRpIdHash)) {
+          return json({ error: "RP ID mismatch" }, 400);
+        }
+        if (!authData.flags.up) {
+          return json({ error: "User presence was not confirmed" }, 400);
+        }
+        // Narrowed scope: registration always requires the biometric (UV), not
+        // just presence — this is meant to gate Face/Touch ID specifically,
+        // not any authenticator that merely requires a tap.
+        if (!authData.flags.uv) {
+          return json({ error: "Biometric verification is required" }, 400);
+        }
+
+        let jwk;
+        try {
+          jwk = coseEc2KeyToJwk(authData.coseKey);
+        } catch (e) {
+          return json({ error: "Unsupported credential type — only ES256/P-256 is accepted" }, 400);
+        }
+
+        const attestedCredentialId = bytesToBase64url(authData.credentialId);
+        if (attestedCredentialId !== credentialId) {
+          return json({ error: "Credential id mismatch" }, 400);
+        }
+
+        try {
+          await env.DB.prepare(
+            `INSERT INTO webauthn_credentials (credential_id, email, public_key, sign_count, created_at)
+             VALUES (?, ?, ?, ?, ?)`
+          ).bind(credentialId, resolved.email, JSON.stringify(jwk), authData.signCount, Date.now()).run();
+        } catch (e) {
+          if (isUniqueViolation(e)) {
+            return json({ error: "This credential is already registered" }, 409);
+          }
+          throw e;
+        }
+
+        return json({ success: true });
+      }
+
+      // ----------------------------------------------------------------
+      // Step 2: WebAuthn — tokenless login from the landing page.
+      //
+      // No allowCredentials on the options side: this is a discoverable
+      // (resident-key) flow, so the browser itself finds a matching platform
+      // credential and the assertion's userHandle says which account it is.
+      // On success this mints the exact same magic_<token> KV session a
+      // magic-link click would, so /api/user and everything downstream needs
+      // no changes at all — a WebAuthn login IS a magic-link session, just
+      // reached a different way.
+      // ----------------------------------------------------------------
+      if (url.pathname === "/api/auth/webauthn/login-options" && request.method === "POST") {
+        const challenge = await issueWebauthnChallenge("login", null, env);
+        return json({
+          challenge,
+          timeout: WEBAUTHN_TIMEOUT_MS,
+          rpId: frontendRpId(env),
+          userVerification: "required"
+        });
+      }
+
+      if (url.pathname === "/api/auth/webauthn/login" && request.method === "POST") {
+        const body = await readJson(request);
+        if (!body) return json({ error: "Invalid request body" }, 400);
+
+        const { credentialId, clientDataJSON, authenticatorData, signature } = body;
+        const userHandle = typeof body.userHandle === "string" ? body.userHandle : null;
+
+        if (typeof credentialId !== "string" || typeof clientDataJSON !== "string" ||
+            typeof authenticatorData !== "string" || typeof signature !== "string") {
+          return json({ error: "Malformed login response" }, 400);
+        }
+
+        // This endpoint takes no session by design, so every failure from
+        // here on answers the same way — it must not become an oracle for
+        // which emails or credential ids exist, the same posture
+        // request-link already takes below.
+        const reject = () => json({ error: "Sign-in failed" }, 401);
+
+        let clientData;
+        try {
+          clientData = JSON.parse(new TextDecoder().decode(base64urlToBytes(clientDataJSON)));
+        } catch (e) {
+          return reject();
+        }
+
+        if (clientData.type !== "webauthn.get") return reject();
+        if (clientData.origin !== frontendOrigin(env)) return reject();
+
+        const challengeRow = await consumeWebauthnChallenge(clientData.challenge, "login", env);
+        if (!challengeRow) return reject();
+
+        const credentialRow = await env.DB.prepare(
+          "SELECT * FROM webauthn_credentials WHERE credential_id = ?"
+        ).bind(credentialId).first();
+        if (!credentialRow) return reject();
+
+        if (userHandle) {
+          let handleEmail;
+          try {
+            handleEmail = new TextDecoder().decode(base64urlToBytes(userHandle));
+          } catch (e) {
+            return reject();
+          }
+          if (handleEmail !== credentialRow.email) return reject();
+        }
+
+        // Tier is orthogonal to whether a login method WORKS — only whether a
+        // credential could be REGISTERED in the first place — so a member
+        // demoted after registering keeps signing in with it, same as magic
+        // link. A cancelled membership does not: this is a self-service
+        // re-entry point, and request-link already withholds exactly that for
+        // a cancelled account below.
+        const userData = await getUser(credentialRow.email, env);
+        if (!userData || userData.status === "Canceled") return reject();
+
+        let authData;
+        try {
+          authData = parseAuthenticatorData(base64urlToBytes(authenticatorData));
+        } catch (e) {
+          return reject();
+        }
+
+        const expectedRpIdHash = await sha256Bytes(frontendRpId(env));
+        if (!bytesEqual(authData.rpIdHash, expectedRpIdHash)) return reject();
+        if (!authData.flags.up || !authData.flags.uv) return reject();
+
+        let jwk;
+        try {
+          jwk = JSON.parse(credentialRow.public_key);
+        } catch (e) {
+          console.error("Stored WebAuthn public key is corrupt", credentialId);
+          return reject();
+        }
+
+        let verified = false;
+        try {
+          const key = await crypto.subtle.importKey(
+            "jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]
+          );
+          const clientDataHash = await sha256Bytes(base64urlToBytes(clientDataJSON));
+          const signedData = concatBytes(base64urlToBytes(authenticatorData), clientDataHash);
+          const rawSignature = derSignatureToRaw(base64urlToBytes(signature));
+          verified = await crypto.subtle.verify(
+            { name: "ECDSA", hash: "SHA-256" }, key, rawSignature, signedData
+          );
+        } catch (e) {
+          console.error("WebAuthn signature verification error", e);
+          return reject();
+        }
+        if (!verified) return reject();
+
+        // Clone detection. An authenticator with no counter support always
+        // reports 0 — the spec says not to use 0 for detection in that case —
+        // so only a nonzero count is held to "must strictly increase".
+        // Anything else is the classic sign of two authenticators answering
+        // for what is supposed to be one physical credential.
+        const storedCount = Number(credentialRow.sign_count) || 0;
+        if (authData.signCount !== 0 && authData.signCount <= storedCount) {
+          console.error("WebAuthn sign_count regression — possible cloned credential", credentialId);
+          return reject();
+        }
+
+        await env.DB.prepare("UPDATE webauthn_credentials SET sign_count = ? WHERE credential_id = ?")
+          .bind(authData.signCount, credentialId).run();
+
+        const magicToken = crypto.randomUUID();
+        await env.CLIENT_KV.put(`magic_${magicToken}`, JSON.stringify({
+          email: credentialRow.email,
+          createdAt: Date.now()
+        }), { expirationTtl: MAGIC_TOKEN_TTL_SECONDS });
+
+        return json({ success: true, authToken: magicToken, email: credentialRow.email });
       }
 
       // ----------------------------------------------------------------
@@ -893,7 +1336,15 @@ export default {
           return json({ ignored: true, reason: "Initial invoice handled by checkout.session.completed" });
         }
 
-        if ((stripeObj.amount_paid || 0) < RENEWAL_MIN_AMOUNT_CENTS) {
+        // Step 4: isCreditQualifyingInvoice is the ONE place this rule (both
+        // halves — not the initial invoice, and $20+) is written down; the
+        // subscription_create check above stays separate only because this
+        // branch wants its own distinct reason string. GET
+        // /api/user/credits-history calls the same helper directly over a
+        // whole invoice list with no such up-front check, so the helper
+        // includes the subscription_create exclusion too — otherwise that
+        // endpoint could report a grant this handler would never make.
+        if (!isCreditQualifyingInvoice(stripeObj)) {
           return json({ ignored: true, reason: "Payment amount less than $20" });
         }
 
@@ -1284,6 +1735,15 @@ function extractSubscriptionId(stripeObj) {
   return null;
 }
 
+// Step 4: the single source of truth for "does this invoice fund a
+// RENEWAL_TOKEN_GRANT credit" — used both by the webhook (which applies the
+// credit) and by GET /api/user/credits-history (which reports it). One
+// function means the two can never physically disagree with each other.
+function isCreditQualifyingInvoice(stripeObj) {
+  return stripeObj.billing_reason !== "subscription_create" &&
+    (Number(stripeObj.amount_paid) || 0) >= RENEWAL_MIN_AMOUNT_CENTS;
+}
+
 // M-13: whitelisted projection sent to the browser. Adding a field here is a
 // deliberate act; spreading the record is not.
 //
@@ -1423,7 +1883,7 @@ async function stripeRequest(url, options, env) {
 // ============================================================================
 
 const USER_COLUMNS = `email, status, credits, skipped, stripe_customer_id,
-  stripe_subscription_id, magic_revoked_before, past_due_at, canceled_at, updated_at`;
+  stripe_subscription_id, magic_revoked_before, past_due_at, canceled_at, updated_at, tier`;
 
 // D-1: previously each handler did KV.get(user_<email>) -> mutate the object in
 // JS -> KV.put the whole record. Two concurrent writers both read the old
@@ -1452,7 +1912,7 @@ async function migrateUserFromKv(email, env) {
   if (!legacy) return null;
 
   await env.DB.prepare(
-    `INSERT OR IGNORE INTO users (${USER_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?)`
+    `INSERT OR IGNORE INTO users (${USER_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(
     email,
     typeof legacy.status === "string" ? legacy.status : "Active",
@@ -1463,7 +1923,10 @@ async function migrateUserFromKv(email, env) {
     Number(legacy.magicRevokedBefore) || 0,
     Number(legacy.pastDueAt) || null,
     Number(legacy.canceledAt) || null,
-    Number(legacy.updatedAt) || 0
+    Number(legacy.updatedAt) || 0,
+    // KV predates tier entirely; a legacy client migrates in as regular and an
+    // operator promotes them by hand, same as any other existing member.
+    "regular"
   ).run();
 
   return env.DB.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE email = ?`).bind(email).first();
@@ -1543,6 +2006,17 @@ async function applyMembershipStatus(email, status, env) {
   return { changed };
 }
 
+// Step 0: tier is a membership class, not a billing state, so unlike
+// applySkip/applyCancel/markPastDue it carries no `status != 'Canceled'`
+// guard — a cancelled member can still be flagged VIP ahead of resubscribing.
+async function setTier(email, tier, env) {
+  await env.DB.prepare(
+    `UPDATE users SET tier = ?1, updated_at = ?2 WHERE email = ?3`
+  ).bind(tier, Date.now(), email).run();
+  await mirrorUserToKv(email, env);
+  return { tier };
+}
+
 // C-3 + A-6: terminal cancellation. magic_revoked_before is stamped in the same
 // statement that flips the status, so there is no instant where the account is
 // cancelled but old portal links still resolve.
@@ -1609,7 +2083,7 @@ async function markPastDue(email, env) {
 async function upsertFromCheckout({ email, grant, stripeCustomerId, stripeSubscriptionId, env }) {
   await env.DB.prepare(
     `INSERT INTO users (${USER_COLUMNS})
-     VALUES (?1, 'Active', ?2, 0, ?3, ?4, 0, NULL, NULL, ?5)
+     VALUES (?1, 'Active', ?2, 0, ?3, ?4, 0, NULL, NULL, ?5, 'regular')
      ON CONFLICT(email) DO UPDATE SET
        credits = CASE WHEN users.status = 'Canceled' THEN ?2 ELSE users.credits + ?2 END,
        status = 'Active',
@@ -1618,7 +2092,10 @@ async function upsertFromCheckout({ email, grant, stripeCustomerId, stripeSubscr
        canceled_at = NULL,
        stripe_customer_id = COALESCE(?3, users.stripe_customer_id),
        stripe_subscription_id = COALESCE(?4, users.stripe_subscription_id),
-       updated_at = ?5`
+       updated_at = ?5
+       -- tier deliberately absent: it is not billing-derived (one Stripe price
+       -- funds both tiers today), so a VIP re-checking out must keep their
+       -- tier rather than being reset to the row's 'regular' default.`
   ).bind(email, grant, stripeCustomerId || null, stripeSubscriptionId || null, Date.now()).run();
 
   await mirrorUserToKv(email, env);
@@ -1651,12 +2128,28 @@ async function ensureChatSession(email, env) {
 // Returns the session's human_active_until as it stands AFTER the insert, so
 // callers decide on the state their own write produced (B-2) rather than on a
 // snapshot taken before it.
-async function appendChatMessage(email, msg, env, mirror = true) {
-  await env.DB.batch([
+// conciergeGuard (Step 3): { monthStart, limit } makes the INSERT itself
+// conditional on this month's count, so the check and the write are one
+// statement — the same reasoning as ADR-005's insert-then-count, applied to
+// a guard that lives in a WHERE instead of a follow-up compare. A plain
+// SELECT COUNT before this call would let concurrent callers for the same
+// email all observe the same pre-insert count and all get through.
+async function appendChatMessage(email, msg, env, mirror = true, conciergeGuard = null) {
+  const insertStmt = conciergeGuard
+    ? env.DB.prepare(
+        `INSERT INTO chat_messages (id, email, author, role, text, ts)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6
+          WHERE (
+            SELECT COUNT(*) FROM chat_messages WHERE email = ?2 AND role = 'user' AND ts >= ?7
+          ) < ?8`
+      ).bind(msg.id, email, msg.author, msg.role, msg.text, msg.ts, conciergeGuard.monthStart, conciergeGuard.limit)
+    : env.DB.prepare(
+        "INSERT INTO chat_messages (id, email, author, role, text, ts) VALUES (?, ?, ?, ?, ?, ?)"
+      ).bind(msg.id, email, msg.author, msg.role, msg.text, msg.ts);
+
+  const results = await env.DB.batch([
     await ensureChatSession(email, env),
-    env.DB.prepare(
-      "INSERT INTO chat_messages (id, email, author, role, text, ts) VALUES (?, ?, ?, ?, ?, ?)"
-    ).bind(msg.id, email, msg.author, msg.role, msg.text, msg.ts),
+    insertStmt,
     // M-14: keep only the newest MAX_CURATOR_MESSAGES rows for this client.
     env.DB.prepare(
       `DELETE FROM chat_messages
@@ -1668,6 +2161,8 @@ async function appendChatMessage(email, msg, env, mirror = true) {
     ).bind(email)
   ]);
 
+  const inserted = ((results[1] && results[1].meta && results[1].meta.changes) || 0) > 0;
+
   const session = await env.DB.prepare(
     "SELECT human_active_until FROM chat_sessions WHERE email = ?"
   ).bind(email).first();
@@ -1678,8 +2173,12 @@ async function appendChatMessage(email, msg, env, mirror = true) {
   // second was throttled on EVERY message, not just under burst — the mirror
   // was losing writes in normal use. Callers that will mirror again before
   // responding pass mirror=false.
+  //
+  // A guard that refused the insert still leaves a chat_sessions row from
+  // ensureChatSession's own write — that row is harmless housekeeping, not
+  // a stored message, so it does not warrant skipping the mirror here.
   if (mirror) await mirrorChatToKv(email, env);
-  return { humanActiveUntil };
+  return { humanActiveUntil, inserted };
 }
 
 // A-5 + B-2: the AI reply is inserted under a guard instead of after a second
@@ -1732,6 +2231,22 @@ async function readConversation(email, env) {
     messages: (rows && rows.results) || [],
     humanActiveUntil: Number(session && session.human_active_until) || 0
   };
+}
+
+// Step 3: no new counter or table — chat_messages already logs every
+// message with ts and role, so this IS the real history rather than a
+// separate figure that could drift from it. Rides idx_chat_messages_email_ts.
+function startOfUtcMonth(ts) {
+  const d = new Date(ts);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0);
+}
+
+async function conciergeMonthlyUsage(email, env) {
+  const monthStart = startOfUtcMonth(Date.now());
+  const row = await env.DB.prepare(
+    "SELECT COUNT(*) AS count FROM chat_messages WHERE email = ? AND role = 'user' AND ts >= ?"
+  ).bind(email, monthStart).first();
+  return Number(row && row.count) || 0;
 }
 
 // §7 rollback mirror for the transcript, in the pre-migration KV shape.
@@ -2036,4 +2551,302 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+// ============================================================================
+// Step 2: WebAuthn (VIP tier only).
+//
+// rp.id / origin is always the FRONTEND's origin (club.springrenaissance.store
+// via env.PORTAL_ORIGIN — the same value CORS already treats as
+// authoritative), never this Worker's own *.workers.dev origin. Every helper
+// below that needs it takes env and derives it the same way, so there is
+// exactly one place that decision is made.
+//
+// Deliberately narrow scope, chosen over a from-scratch full implementation
+// of the spec's every branch:
+//   - ES256 (P-256) only. No RSA, no Ed25519.
+//   - No attestation statement / certificate chain verification. attStmt is
+//     parsed only far enough to skip past it to authData; its signature is
+//     never checked. This accepts attestation from any authenticator,
+//     platform or virtual — attestation establishes authenticator
+//     provenance, not session security, and verifying a certificate chain
+//     here would be a second, larger crypto surface for no security benefit
+//     to login itself.
+//   - User Verification (UV) is mandatory on both registration and login —
+//     this feature is specifically "Face/Touch ID", not "any authenticator
+//     that merely requires a tap".
+//   - Resident (discoverable) credentials only, with authenticatorAttachment
+//     'platform' requested — no roaming/USB security keys.
+// ============================================================================
+
+// ---- base64url <-> bytes ---------------------------------------------------
+// Everything navigator.credentials.create()/.get() hands back travels as
+// base64url text over JSON; these are the only two conversions needed to get
+// back to the raw bytes the checks below actually operate on. atob/btoa are
+// standard in both the Workers runtime and Node — no polyfill needed.
+function base64urlToBytes(b64url) {
+  if (typeof b64url !== "string") throw new Error("expected a base64url string");
+  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = (4 - (b64.length % 4)) % 4;
+  const bin = atob(b64 + "=".repeat(pad));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+function bytesToBase64url(bytes) {
+  const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  let bin = "";
+  for (let i = 0; i < arr.length; i++) bin += String.fromCharCode(arr[i]);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function randomBase64url(numBytes) {
+  const bytes = new Uint8Array(numBytes);
+  crypto.getRandomValues(bytes);
+  return bytesToBase64url(bytes);
+}
+
+function bytesEqual(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function concatBytes(a, b) {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a, 0);
+  out.set(b, a.length);
+  return out;
+}
+
+async function sha256Bytes(input) {
+  const data = typeof input === "string" ? new TextEncoder().encode(input) : input;
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", data));
+}
+
+function frontendOrigin(env) {
+  return env.PORTAL_ORIGIN || DEFAULT_PORTAL_ORIGIN;
+}
+
+function frontendRpId(env) {
+  return new URL(frontendOrigin(env)).hostname;
+}
+
+// ---- CBOR decoder -----------------------------------------------------------
+// Just enough of RFC 8949 to read a WebAuthn attestationObject (a map with
+// text-string keys fmt/attStmt/authData) and a COSE_Key (a map with integer
+// keys). No indefinite-length items, no floats: WebAuthn never emits either,
+// and rejecting anything unrecognised is safer than guessing at a shape this
+// was never tested against. Maps decode to a JS Map so both key types (text
+// and integer) work with the same code.
+function decodeCbor(bytes, offset) {
+  if (offset >= bytes.length) throw new Error("CBOR: unexpected end of input");
+  const first = bytes[offset];
+  const majorType = first >> 5;
+  const info = first & 0x1f;
+  let pos = offset + 1;
+
+  function readArg() {
+    if (info < 24) return info;
+    if (info === 24) { const v = bytes[pos]; pos += 1; return v; }
+    if (info === 25) { const v = (bytes[pos] << 8) | bytes[pos + 1]; pos += 2; return v; }
+    if (info === 26) {
+      const v = (bytes[pos] * 0x1000000) + (bytes[pos + 1] << 16) + (bytes[pos + 2] << 8) + bytes[pos + 3];
+      pos += 4;
+      return v;
+    }
+    throw new Error("CBOR: unsupported length encoding (info=" + info + ")");
+  }
+
+  if (majorType === 0) return { value: readArg(), offset: pos }; // unsigned int
+  if (majorType === 1) return { value: -1 - readArg(), offset: pos }; // negative int
+
+  if (majorType === 2) { // byte string
+    const len = readArg();
+    if (pos + len > bytes.length) throw new Error("CBOR: byte string runs past end of input");
+    return { value: bytes.slice(pos, pos + len), offset: pos + len };
+  }
+
+  if (majorType === 3) { // text string
+    const len = readArg();
+    if (pos + len > bytes.length) throw new Error("CBOR: text string runs past end of input");
+    return { value: new TextDecoder().decode(bytes.slice(pos, pos + len)), offset: pos + len };
+  }
+
+  if (majorType === 4) { // array
+    const len = readArg();
+    const value = [];
+    for (let i = 0; i < len; i++) {
+      const item = decodeCbor(bytes, pos);
+      value.push(item.value);
+      pos = item.offset;
+    }
+    return { value, offset: pos };
+  }
+
+  if (majorType === 5) { // map
+    const len = readArg();
+    const value = new Map();
+    for (let i = 0; i < len; i++) {
+      const k = decodeCbor(bytes, pos);
+      pos = k.offset;
+      const v = decodeCbor(bytes, pos);
+      pos = v.offset;
+      value.set(k.value, v.value);
+    }
+    return { value, offset: pos };
+  }
+
+  if (majorType === 7) {
+    if (first === 0xf4) return { value: false, offset: pos };
+    if (first === 0xf5) return { value: true, offset: pos };
+    if (first === 0xf6) return { value: null, offset: pos };
+    throw new Error("CBOR: unsupported simple/float value (first=" + first + ")");
+  }
+
+  throw new Error("CBOR: unsupported major type " + majorType);
+}
+
+// ---- authenticatorData -------------------------------------------------------
+// Fixed binary layout per the WebAuthn spec: rpIdHash[32] + flags[1] +
+// signCount[4] (big-endian uint32), then IF the AT flag is set,
+// attestedCredentialData: aaguid[16] + credIdLen[2] (big-endian uint16) +
+// credId[credIdLen] + credentialPublicKey (a COSE_Key, CBOR-encoded — the one
+// place CBOR shows up again inside what is otherwise raw bytes). This same
+// parser reads both the registration ceremony's authData (unwrapped from the
+// attestationObject) and the login ceremony's authData (handed over as-is,
+// with AT normally unset since a plain assertion carries no attested data).
+function parseAuthenticatorData(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.length < 37) {
+    throw new Error("authenticatorData is too short");
+  }
+  const rpIdHash = bytes.slice(0, 32);
+  const flagsByte = bytes[32];
+  const flags = {
+    up: !!(flagsByte & 0x01),
+    uv: !!(flagsByte & 0x04),
+    at: !!(flagsByte & 0x40),
+    ed: !!(flagsByte & 0x80)
+  };
+  // >>> 0: the raw bitwise OR is a signed 32-bit int, and a counter this far
+  // into an authenticator's life is a legitimate, if unlikely, value.
+  const signCount = ((bytes[33] << 24) | (bytes[34] << 16) | (bytes[35] << 8) | bytes[36]) >>> 0;
+
+  let credentialId = null;
+  let coseKey = null;
+
+  if (flags.at) {
+    let offset = 37 + 16; // skip aaguid — unused for our narrowed scope
+    if (bytes.length < offset + 2) throw new Error("authenticatorData: truncated credential id length");
+    const credIdLen = (bytes[offset] << 8) | bytes[offset + 1];
+    offset += 2;
+    if (bytes.length < offset + credIdLen) throw new Error("authenticatorData: truncated credential id");
+    credentialId = bytes.slice(offset, offset + credIdLen);
+    offset += credIdLen;
+    coseKey = decodeCbor(bytes, offset).value;
+  }
+
+  return { rpIdHash, flags, signCount, credentialId, coseKey };
+}
+
+// COSE_Key (EC2, RFC 9053 §7.1) -> JWK, for crypto.subtle.importKey. Rejects
+// anything that is not exactly ES256/P-256 — the one algorithm this feature
+// supports end to end.
+function coseEc2KeyToJwk(coseMap) {
+  if (!(coseMap instanceof Map)) throw new Error("COSE key is not a CBOR map");
+  const kty = coseMap.get(1);
+  const alg = coseMap.get(3);
+  const crv = coseMap.get(-1);
+  const x = coseMap.get(-2);
+  const y = coseMap.get(-3);
+  if (kty !== 2) throw new Error("Unsupported COSE key type (expected EC2)");
+  if (alg !== -7) throw new Error("Unsupported COSE algorithm (only ES256 is accepted)");
+  if (crv !== 1) throw new Error("Unsupported COSE curve (only P-256 is accepted)");
+  if (!(x instanceof Uint8Array) || x.length !== 32) throw new Error("Malformed COSE key: x");
+  if (!(y instanceof Uint8Array) || y.length !== 32) throw new Error("Malformed COSE key: y");
+  return { kty: "EC", crv: "P-256", x: bytesToBase64url(x), y: bytesToBase64url(y), ext: true };
+}
+
+// ---- DER -> raw ECDSA signature ---------------------------------------------
+// The one gotcha this feature exists to get right: authenticators sign in
+// ASN.1 DER (SEQUENCE { INTEGER r, INTEGER s }), but crypto.subtle.verify for
+// "ECDSA" takes the raw IEEE P1363 format — r and s concatenated, each a
+// fixed-width big-endian integer (32 bytes apiece for P-256). Passing a DER
+// signature straight to verify() does not error — it just always returns
+// false, which looks exactly like "the signature is wrong" and is easy to
+// chase down the wrong path entirely.
+function readDerLength(bytes, offset) {
+  const first = bytes[offset];
+  if ((first & 0x80) === 0) return { len: first, offset: offset + 1 };
+  const numBytes = first & 0x7f;
+  let len = 0;
+  for (let i = 0; i < numBytes; i++) len = (len << 8) | bytes[offset + 1 + i];
+  return { len, offset: offset + 1 + numBytes };
+}
+
+function readDerInteger(bytes, offset) {
+  if (bytes[offset] !== 0x02) throw new Error("Expected a DER INTEGER");
+  const { len, offset: afterLen } = readDerLength(bytes, offset + 1);
+  return { value: bytes.slice(afterLen, afterLen + len), offset: afterLen + len };
+}
+
+// A DER INTEGER carries a leading 0x00 guard byte whenever the value's high
+// bit would otherwise read as a sign, and drops leading zero bytes otherwise
+// — so it is very rarely exactly 32 bytes. Strip the guard byte, then
+// left-pad with zeros to the curve's fixed width.
+function derIntegerToFixedLength(bytes, size) {
+  let b = bytes;
+  if (b.length > size && b[0] === 0x00) b = b.slice(1);
+  if (b.length > size) throw new Error("DER integer is too large for the curve");
+  if (b.length === size) return b;
+  const out = new Uint8Array(size);
+  out.set(b, size - b.length);
+  return out;
+}
+
+function derSignatureToRaw(der) {
+  if (der[0] !== 0x30) throw new Error("Signature is not a DER SEQUENCE");
+  const { len: seqLen, offset: afterSeqLen } = readDerLength(der, 1);
+  const seqEnd = afterSeqLen + seqLen;
+
+  const r = readDerInteger(der, afterSeqLen);
+  const s = readDerInteger(der, r.offset);
+  if (s.offset !== seqEnd) throw new Error("Signature has trailing bytes");
+
+  return concatBytes(derIntegerToFixedLength(r.value, 32), derIntegerToFixedLength(s.value, 32));
+}
+
+// ---- challenges --------------------------------------------------------------
+// Single-use, short-lived, same shape as processed_events' PRIMARY KEY
+// reservation: the DELETE...RETURNING IS the check, so there is no window
+// between "is this challenge still valid" and "consume it" for a second,
+// concurrent attempt to land in.
+async function issueWebauthnChallenge(purpose, email, env) {
+  const challenge = randomBase64url(32);
+  await env.DB.prepare(
+    "INSERT INTO webauthn_challenges (challenge, email, purpose, created_at) VALUES (?, ?, ?, ?)"
+  ).bind(challenge, email || null, purpose, Date.now()).run();
+
+  // Opportunistic cleanup, no cron — same posture as processed_events and
+  // rate_events: a prompt the user abandoned must not accumulate forever.
+  try {
+    await env.DB.prepare("DELETE FROM webauthn_challenges WHERE created_at < ?")
+      .bind(Date.now() - WEBAUTHN_CHALLENGE_TTL_MS).run();
+  } catch (e) {
+    console.error("webauthn_challenges cleanup failed", e);
+  }
+
+  return challenge;
+}
+
+async function consumeWebauthnChallenge(challenge, purpose, env) {
+  const row = await env.DB.prepare(
+    "DELETE FROM webauthn_challenges WHERE challenge = ? AND purpose = ? RETURNING *"
+  ).bind(challenge, purpose).first();
+  if (!row) return null;
+  // The opportunistic sweep above is best-effort, not a guarantee — a
+  // challenge it hasn't gotten to yet must still be rejected as expired here.
+  if (Date.now() - Number(row.created_at) > WEBAUTHN_CHALLENGE_TTL_MS) return null;
+  return row;
 }

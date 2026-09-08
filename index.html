@@ -18,7 +18,7 @@
        hash extractor would match it instead of the real element.)
        style-src still allows inline styles. The rule in 8.3 is about script;
        the page's stylesheet block carries no injection surface. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-tsoxlMJ4GDrzyjK8d+kXgCQJ3sVllhmkYICRzwS0IVA='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src https://stripe-magiclink.sagradyanfelix.workers.dev; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-ZLAWAMg/YWpAZGewyRYpJXqNGX7SBKCPFqrurNyVaAg='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src https://stripe-magiclink.sagradyanfelix.workers.dev; base-uri 'none'; form-action 'none'">
   <title>Private Client Portal — Spring Renaissance</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -314,6 +314,15 @@
       line-height: 1.5;
     }
 
+    /* Step 2: WebAuthn — offered above the email fallback in the same banner. */
+    .auth-divider {
+      margin: 10px 0;
+      font-size: 9px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
     /* ---------- Views ---------- */
     .view[hidden] { display: none; }
     .view-enter { animation: viewFadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
@@ -476,6 +485,21 @@
 
     .invoice-empty { font-size: 12px; color: var(--text-muted); font-weight: 300; }
 
+    /* Step 4: credits widget headline balance. */
+    .credits-balance-label {
+      font-size: 9px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+    .credits-balance {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 44px;
+      font-weight: 400;
+      line-height: 1.15;
+      margin-bottom: 8px;
+    }
+
     /* ---------- Form controls ---------- */
     .text-input {
       flex: 1 1 160px;
@@ -591,6 +615,16 @@
     .composer-attachments { display: flex; gap: 8px; flex-wrap: wrap; }
     .composer-attachments:not(:empty) { margin-bottom: 8px; }
 
+    /* Step 3: regular-tier monthly consultation counter — VIP never sees this. */
+    .concierge-quota {
+      font-size: 10px;
+      letter-spacing: 0.3px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      text-align: right;
+    }
+    .concierge-quota.limit-reached { color: var(--danger); }
+
     .attachment-chip {
       display: inline-flex;
       align-items: center;
@@ -680,6 +714,10 @@
     <p class="client-line" id="userEmailDisplay">Authenticating secure allocation...</p>
     <div class="session-banner" id="sessionBanner" role="alert">
       <div>Session Expired — request a new secure link to continue</div>
+      <!-- Step 2: offered first when this device supports it — magic link
+           below still works exactly as before either way. -->
+      <button type="button" class="btn btn-secondary" id="webauthnLoginBtn" hidden>Sign in with Face/Touch ID</button>
+      <p class="auth-divider" id="webauthnDivider" hidden>or</p>
       <!-- Step 7: the way back in. Before this, an expired link meant emailing
            the concierge and waiting. -->
       <div class="relink-row">
@@ -737,13 +775,44 @@
           <div class="billing-row"><span>Renewal</span><strong id="renewalStatus">—</strong></div>
           <div class="billing-row"><span>Next billing date</span><strong id="nextBillingDate">—</strong></div>
           <div class="billing-row"><span>Card on file</span><strong id="cardOnFile">—</strong></div>
-          <div class="billing-row"><span>Digital Tokens</span><strong id="tokenBalance">—</strong></div>
         </div>
 
         <div class="membership-actions">
           <button class="btn btn-secondary" id="pauseSubBtn" type="button" hidden>Pause membership</button>
           <button class="btn btn-secondary" id="billingPortalBtn" type="button">Update payment method</button>
           <button class="btn btn-secondary" id="cancelSubBtn" type="button">Cancel Subscription</button>
+        </div>
+      </div>
+
+      <!-- Step 2: VIP tier only. Hidden until tier rides in on the curator
+           poll (see applyTier) — never known from /api/user, which stays a
+           deliberately narrow, unchanged whitelist. -->
+      <div class="card" id="webauthnCard" hidden>
+        <div class="card-tag">
+          <span>Security</span>
+        </div>
+        <h2 class="card-title">Face / Touch ID Sign-In</h2>
+        <p class="card-desc">A VIP perk: sign in instantly on this device, no email link required. Your magic link keeps working exactly as before.</p>
+        <div class="membership-actions">
+          <button class="btn btn-secondary" id="webauthnRegisterBtn" type="button">Enable Face/Touch ID</button>
+        </div>
+        <div class="relink-note" id="webauthnRegisterNote" role="status" aria-live="polite" hidden></div>
+      </div>
+
+      <!-- Step 4: a distinct widget rather than the old plain "Digital
+           Tokens" billing-row — the current balance plus the history of how
+           it got there, same .invoice-row visual pattern as billing history
+           below. No new ledger: this list IS the qualifying invoices, sourced
+           from GET /api/user/credits-history. -->
+      <div class="card">
+        <div class="card-tag">
+          <span>Digital Tokens</span>
+        </div>
+        <div class="credits-balance-label">Current balance</div>
+        <div class="credits-balance" id="tokenBalance">—</div>
+        <p class="card-desc">Credited automatically on each qualifying renewal payment.</p>
+        <div class="invoice-list" id="creditsGrantList" role="status" aria-live="polite">
+          <p class="invoice-empty">Loading…</p>
         </div>
       </div>
 
@@ -769,6 +838,7 @@
       <div class="chat-card">
         <div class="chat-messages" id="curatorMessages" role="log" aria-live="polite" aria-label="Conversation with your curator"></div>
         <form class="chat-composer" id="curatorForm">
+          <div class="concierge-quota" id="conciergeQuota" role="status" aria-live="polite" hidden></div>
           <div class="composer-attachments" id="curatorAttachments"></div>
           <div class="composer-row">
             <label class="icon-btn" id="curatorMediaLabel" title="Attach a photo (max 4 MB)">
@@ -821,6 +891,11 @@
       relinkEmail: document.getElementById('relinkEmail'),
       relinkBtn: document.getElementById('relinkBtn'),
       relinkNote: document.getElementById('relinkNote'),
+      webauthnLoginBtn: document.getElementById('webauthnLoginBtn'),
+      webauthnDivider: document.getElementById('webauthnDivider'),
+      webauthnCard: document.getElementById('webauthnCard'),
+      webauthnRegisterBtn: document.getElementById('webauthnRegisterBtn'),
+      webauthnRegisterNote: document.getElementById('webauthnRegisterNote'),
       statusDot: document.getElementById('statusDot'),
       subStatusText: document.getElementById('subStatusText'),
       capsuleStatusBadge: document.getElementById('capsuleStatusBadge'),
@@ -830,6 +905,7 @@
       pauseSubBtn: document.getElementById('pauseSubBtn'),
       billingPortalBtn: document.getElementById('billingPortalBtn'),
       invoiceList: document.getElementById('invoiceList'),
+      creditsGrantList: document.getElementById('creditsGrantList'),
       renewalStatus: document.getElementById('renewalStatus'),
       nextBillingDate: document.getElementById('nextBillingDate'),
       cardOnFile: document.getElementById('cardOnFile'),
@@ -838,23 +914,48 @@
       curatorForm: document.getElementById('curatorForm'),
       curatorInput: document.getElementById('curatorInput'),
       curatorSendBtn: document.getElementById('curatorSendBtn'),
+      conciergeQuota: document.getElementById('conciergeQuota'),
       curatorMedia: document.getElementById('curatorMedia'),
       curatorMediaLabel: document.getElementById('curatorMediaLabel'),
       curatorAttachments: document.getElementById('curatorAttachments'),
       toast: document.getElementById('toast')
     };
 
-    // ---------- Session token handling (M-11) ----------
+    // ---------- Session token handling (M-11, Step 1) ----------
     // The token arrives as ?auth_token=... . Leaving it in the address bar
     // means it lands in browser history, gets copy-pasted into support
     // tickets, and (absent the no-referrer meta tag) can leak via Referer.
-    // Move it into sessionStorage and scrub the URL immediately — before any
-    // navigation or share action can carry it — while keeping it available
-    // across in-tab reloads. sessionStorage, not localStorage: the token dies
-    // with the tab rather than persisting on a shared machine.
+    // Move it into localStorage and scrub the URL immediately — before any
+    // navigation or share action can carry it.
+    //
+    // localStorage, not a cookie: the frontend (club.springrenaissance.store)
+    // and the Worker (*.workers.dev) are different eTLD+1s, so a cookie set
+    // by either would be a third-party cookie to the other, and Safari/iOS
+    // ITP (increasingly Chrome too) can silently drop those — a session that
+    // works in testing and then logs people out with no visible cause. This
+    // token is already sent as a query/body value on every request rather
+    // than relying on the browser to attach a cookie, so it has none of that
+    // failure mode.
+    //
+    // localStorage, not sessionStorage: the point of this change is that
+    // closing the tab must NOT end the session — reopening the site later
+    // should find the member still logged in. The only way to end a
+    // persistent session now is server-side revocation (magic_revoked_before,
+    // e.g. on cancellation), not tab lifetime.
     let authToken = null;
 
     (function adoptToken() {
+      // One-time migration: a tab open across this change may still be
+      // holding the token under the old sessionStorage key. Pick it up once
+      // so that tab isn't silently logged out by the switch.
+      try {
+        const legacyToken = sessionStorage.getItem('sr_auth_token');
+        if (legacyToken) {
+          try { localStorage.setItem('sr_auth_token', legacyToken); } catch (e) {}
+          sessionStorage.removeItem('sr_auth_token');
+        }
+      } catch (e) { /* storage blocked — nothing to migrate */ }
+
       let tokenFromUrl = null;
       try {
         const urlParams = new URLSearchParams(window.location.search);
@@ -862,7 +963,7 @@
 
         if (tokenFromUrl) {
           try {
-            sessionStorage.setItem('sr_auth_token', tokenFromUrl);
+            localStorage.setItem('sr_auth_token', tokenFromUrl);
           } catch (e) { /* private mode: keep it in memory only */ }
           authToken = tokenFromUrl;
 
@@ -872,7 +973,7 @@
             window.location.pathname + (qs ? '?' + qs : '') + window.location.hash);
         } else {
           try {
-            authToken = sessionStorage.getItem('sr_auth_token');
+            authToken = localStorage.getItem('sr_auth_token');
           } catch (e) {
             authToken = null;
           }
@@ -930,8 +1031,12 @@
     // wrote the bearer token into a key name that survives the tab, the browser
     // restart and the client walking away from a shared machine — and it left a
     // key behind for every link ever opened. The state now lives in
-    // sessionStorage under one constant key: same tab lifetime as the token
-    // itself, nothing token-derived on disk.
+    // sessionStorage under one constant key: it dies with the tab on purpose
+    // (an optimistic UI patch is only ever meant to bridge to the next server
+    // read, not to persist), and nothing token-derived ever touches disk. This
+    // is now shorter-lived than the auth token itself (Step 1 moved that to
+    // localStorage) — that's fine, a fresh tab just re-reads real state from
+    // the server instead of replaying a stale optimistic patch.
     const OVERRIDE_KEY = 'sr_override_state';
     const EMPTY_OVERRIDES = { status: null, skipped: null, timestamp: 0 };
 
@@ -1162,7 +1267,7 @@
           userRetryTimer = null;
         }
         clearOverrides();
-        try { sessionStorage.removeItem('sr_auth_token'); } catch (e) {}
+        try { localStorage.removeItem('sr_auth_token'); } catch (e) {}
       } else if (authToken) {
         // A-9: recovering from a 401 (or booting with a good token) must bring
         // the poll loop back. Without this, one transient 401 killed the timer
@@ -1232,6 +1337,10 @@
         setSessionExpired(false);
         setChatEnabled(true);
         renderUserData(reconcileWithOverrides(payload));
+        // Step 2: tier is not on this response (see applyTier) — fetched here
+        // rather than waiting for the user to open Curator Space, so the
+        // Face/Touch ID card in Membership is correct from the first paint.
+        syncCuratorMessages();
       } catch (e) {
         console.error("Worker sync failed:", e);
         // A network blip is not an expired session — say so, and leave the
@@ -1519,6 +1628,8 @@
         if (!res.ok) return; // transient — the next poll retries
 
         const data = await res.json();
+        applyTier(data.tier);
+        applyConcierge(data.concierge);
         const messages = Array.isArray(data.messages) ? data.messages : [];
 
         if (messages.length === 0) {
@@ -1722,8 +1833,14 @@
         let data = {};
         try { data = await res.json(); } catch (err) { data = {}; }
 
+        // Step 3: every response from this endpoint carries the current
+        // quota (success or the 403 limitReached itself), so the counter
+        // updates immediately rather than waiting for the next poll.
+        if ('concierge' in data) applyConcierge(data.concierge);
+
         if (!res.ok) {
-          // 413 / 415 carry an actionable message; anything else is generic.
+          // 413 / 415 / limitReached carry an actionable message; anything
+          // else is generic.
           showToast((data && data.error) || "Message could not be delivered. Please try again.");
         } else if (data.humanActive || data.degraded) {
           appendChatBubble('Curator Team',
@@ -1908,6 +2025,68 @@
       }
     }
 
+    // ---------- Credits widget (Step 4) ----------
+    // Same .invoice-row visual pattern as billing history above — a
+    // distinct widget, not a new card style. The headline balance
+    // (el.tokenBalance) is set by renderUserData/showDemoState from
+    // /api/user's already-fetched tokens field; this only renders the
+    // grant list below it.
+    function renderCreditsGrantsMessage(text) {
+      el.creditsGrantList.innerHTML = '';
+      const p = document.createElement('p');
+      p.className = 'invoice-empty';
+      p.textContent = text;
+      el.creditsGrantList.appendChild(p);
+    }
+
+    function renderCreditsGrants(grants) {
+      if (!grants.length) {
+        renderCreditsGrantsMessage("No credits granted yet.");
+        return;
+      }
+
+      el.creditsGrantList.innerHTML = '';
+      for (let i = 0; i < grants.length; i++) {
+        const grant = grants[i];
+
+        const row = document.createElement('div');
+        row.className = 'invoice-row';
+
+        const date = document.createElement('span');
+        date.className = 'invoice-date';
+        date.textContent = new Date(grant.date * 1000)
+          .toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+        const amount = document.createElement('span');
+        amount.className = 'invoice-amount';
+        amount.textContent = '+' + grant.tokens + ' tokens';
+
+        row.appendChild(date);
+        row.appendChild(amount);
+        el.creditsGrantList.appendChild(row);
+      }
+    }
+
+    async function loadCreditsHistory() {
+      if (!authToken || sessionInvalid) {
+        renderCreditsGrantsMessage("Credit history unavailable.");
+        return;
+      }
+      try {
+        const res = await fetchWithTimeout(
+          WORKER_URL + '/api/user/credits-history?auth_token=' + encodeURIComponent(authToken));
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        // Newest first, matching renderInvoices' Stripe-provided ordering.
+        const grants = (Array.isArray(data.grants) ? data.grants : [])
+          .slice().sort((a, b) => b.date - a.date);
+        renderCreditsGrants(grants);
+      } catch (e) {
+        console.error("Credit history load failed:", e);
+        renderCreditsGrantsMessage("Credit history unavailable.");
+      }
+    }
+
     // ---------- Re-authentication (Step 7) ----------
     // The message is the same whatever the server did: sent, not sent because
     // the address is unknown, not sent because the membership is cancelled, not
@@ -1966,9 +2145,205 @@
       }
     });
 
+    // ---------- WebAuthn (Step 2, VIP tier only) ----------
+    // Registration is a follow-up action, offered only once tier === 'vip' is
+    // confirmed (see applyTier). Login is tokenless and offered to everyone
+    // on the session-expired banner — if this device has no matching
+    // platform credential, the browser reports that back and the magic-link
+    // fallback right below still works exactly as it always has.
+    const webauthnSupported = !!(window.PublicKeyCredential && navigator.credentials);
+
+    function base64urlToBuffer(b64url) {
+      const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
+      const pad = (4 - (b64.length % 4)) % 4;
+      const bin = atob(b64 + '='.repeat(pad));
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes;
+    }
+
+    function bufferToBase64url(buf) {
+      const bytes = new Uint8Array(buf);
+      let bin = '';
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    // Called from syncCuratorMessages, the only place tier is known — it is
+    // deliberately absent from /api/user's narrow, unchanged whitelist.
+    function applyTier(tier) {
+      if (el.webauthnCard) {
+        el.webauthnCard.hidden = !(webauthnSupported && tier === 'vip');
+      }
+    }
+
+    // Step 3: concierge is null for VIP (no ceiling) and an
+    // {limit,used,remaining} object for regular — same shape both the chat
+    // send response and the poll response carry, so one function handles
+    // both call sites.
+    function applyConcierge(concierge) {
+      if (!el.conciergeQuota) return;
+      if (!concierge) {
+        el.conciergeQuota.hidden = true;
+        return;
+      }
+      el.conciergeQuota.hidden = false;
+      el.conciergeQuota.classList.toggle('limit-reached', concierge.remaining <= 0);
+      el.conciergeQuota.textContent = concierge.remaining > 0
+        ? (concierge.remaining + ' of ' + concierge.limit + ' consultations remaining this month')
+        : "You've reached this month's consultation limit — it renews next month.";
+    }
+
+    function setWebauthnRegisterNote(text) {
+      if (!el.webauthnRegisterNote) return;
+      el.webauthnRegisterNote.textContent = text;
+      el.webauthnRegisterNote.hidden = !text;
+    }
+
+    async function registerWebauthnCredential() {
+      if (!authToken) return;
+      el.webauthnRegisterBtn.disabled = true;
+      const settledLabel = el.webauthnRegisterBtn.textContent;
+      el.webauthnRegisterBtn.textContent = "Requesting...";
+      setWebauthnRegisterNote("");
+
+      try {
+        const optionsRes = await fetchWithTimeout(WORKER_URL + '/api/auth/webauthn/register-options', {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ authToken: authToken })
+        });
+        if (!optionsRes.ok) throw new Error('Unable to start registration');
+        const options = await optionsRes.json();
+
+        const credential = await navigator.credentials.create({
+          publicKey: {
+            challenge: base64urlToBuffer(options.challenge),
+            rp: options.rp,
+            user: {
+              id: base64urlToBuffer(options.user.id),
+              name: options.user.name,
+              displayName: options.user.displayName
+            },
+            pubKeyCredParams: options.pubKeyCredParams,
+            authenticatorSelection: options.authenticatorSelection,
+            attestation: options.attestation,
+            timeout: options.timeout,
+            excludeCredentials: (options.excludeCredentials || []).map(function (c) {
+              return { type: c.type, id: base64urlToBuffer(c.id) };
+            })
+          }
+        });
+        if (!credential) throw new Error('No credential returned');
+
+        const res = await fetchWithTimeout(WORKER_URL + '/api/auth/webauthn/register', {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            authToken: authToken,
+            credentialId: bufferToBase64url(credential.rawId),
+            clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
+            attestationObject: bufferToBase64url(credential.response.attestationObject)
+          })
+        });
+        const body = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(body.error || 'Registration failed');
+
+        el.webauthnRegisterBtn.textContent = "Face/Touch ID enabled";
+        setWebauthnRegisterNote("Face/Touch ID is enabled for this device.");
+      } catch (e) {
+        console.error("WebAuthn registration failed:", e);
+        el.webauthnRegisterBtn.disabled = false;
+        el.webauthnRegisterBtn.textContent = settledLabel;
+        if (e && e.name === 'InvalidStateError') {
+          setWebauthnRegisterNote("Face/Touch ID is already enabled on this device.");
+        } else if (e && e.name === 'NotAllowedError') {
+          setWebauthnRegisterNote("Registration was cancelled.");
+        } else {
+          setWebauthnRegisterNote("Couldn't enable Face/Touch ID on this device. Please try again.");
+        }
+      }
+    }
+
+    if (el.webauthnRegisterBtn) {
+      el.webauthnRegisterBtn.addEventListener('click', registerWebauthnCredential);
+    }
+
+    async function signInWithWebauthn() {
+      if (!webauthnSupported || !el.webauthnLoginBtn) return;
+      el.webauthnLoginBtn.disabled = true;
+      const settledLabel = el.webauthnLoginBtn.textContent;
+      el.webauthnLoginBtn.textContent = "Waiting for Face/Touch ID...";
+
+      try {
+        const optionsRes = await fetchWithTimeout(WORKER_URL + '/api/auth/webauthn/login-options', {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({})
+        });
+        if (!optionsRes.ok) throw new Error('Unable to start sign-in');
+        const options = await optionsRes.json();
+
+        const assertion = await navigator.credentials.get({
+          publicKey: {
+            challenge: base64urlToBuffer(options.challenge),
+            rpId: options.rpId,
+            timeout: options.timeout,
+            userVerification: options.userVerification
+          }
+        });
+        if (!assertion) throw new Error('No assertion returned');
+
+        const loginBody = {
+          credentialId: bufferToBase64url(assertion.rawId),
+          clientDataJSON: bufferToBase64url(assertion.response.clientDataJSON),
+          authenticatorData: bufferToBase64url(assertion.response.authenticatorData),
+          signature: bufferToBase64url(assertion.response.signature)
+        };
+        if (assertion.response.userHandle) {
+          loginBody.userHandle = bufferToBase64url(assertion.response.userHandle);
+        }
+
+        const res = await fetchWithTimeout(WORKER_URL + '/api/auth/webauthn/login', {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(loginBody)
+        });
+        const body = await res.json().catch(function () { return {}; });
+        if (!res.ok || !body.authToken) throw new Error(body.error || 'Sign-in failed');
+
+        // Same session shape a magic-link click produces, persisted the same
+        // way (Step 1: localStorage, so it survives closing the tab).
+        try { localStorage.setItem('sr_auth_token', body.authToken); } catch (e) { /* private mode */ }
+        authToken = body.authToken;
+        setSessionExpired(false);
+        loadUserData();
+        // loadInvoices()/loadCreditsHistory() only ran once at Boot, when
+        // this tab had no token yet — re-run now that it does, or both
+        // stay stuck on "unavailable" until the next full page reload.
+        loadInvoices();
+        loadCreditsHistory();
+      } catch (e) {
+        console.error("WebAuthn sign-in failed:", e);
+        if (!(e && e.name === 'NotAllowedError')) {
+          setRelinkNote("Face/Touch ID sign-in wasn't available on this device. Please use your email link below.");
+        }
+      } finally {
+        el.webauthnLoginBtn.disabled = false;
+        el.webauthnLoginBtn.textContent = settledLabel;
+      }
+    }
+
+    if (el.webauthnLoginBtn) {
+      el.webauthnLoginBtn.hidden = !webauthnSupported;
+      if (el.webauthnDivider) el.webauthnDivider.hidden = !webauthnSupported;
+      el.webauthnLoginBtn.addEventListener('click', signInWithWebauthn);
+    }
+
     // ---------- Boot ----------
     loadUserData();
     loadInvoices();
+    loadCreditsHistory();
     if (authToken) {
       syncCuratorMessages();
       startCuratorPolling();

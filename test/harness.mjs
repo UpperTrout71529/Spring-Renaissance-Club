@@ -226,16 +226,17 @@ export function seedUser(env, row = {}) {
     past_due_at: null,
     canceled_at: null,
     updated_at: Date.now(),
+    tier: 'regular',
     ...row
   };
   env.DB._db.prepare(
     `INSERT OR REPLACE INTO users
        (email, status, credits, skipped, stripe_customer_id, stripe_subscription_id,
-        magic_revoked_before, past_due_at, canceled_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`
+        magic_revoked_before, past_due_at, canceled_at, updated_at, tier)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`
   ).run(
     u.email, u.status, u.credits, u.skipped, u.stripe_customer_id,
-    u.stripe_subscription_id, u.magic_revoked_before, u.past_due_at, u.canceled_at, u.updated_at
+    u.stripe_subscription_id, u.magic_revoked_before, u.past_due_at, u.canceled_at, u.updated_at, u.tier
   );
   return u;
 }
