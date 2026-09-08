@@ -20,7 +20,10 @@ const env0 = (over = {}) => makeEnv({ STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET, ...
 
 test('AC-9 the eleventh chat message in a minute is refused', async () => {
   const env = env0();
-  await seedClient(env);
+  // vip: this test is about the abuse rate limiter specifically, not the
+  // Step 3 monthly concierge entitlement — a regular-tier seed would hit
+  // that unrelated 5-per-month cap first and never reach the 11th message.
+  await seedClient(env, { tier: 'vip' });
 
   const statuses = [];
   for (let i = 0; i < 11; i++) {
@@ -34,7 +37,8 @@ test('AC-9 the eleventh chat message in a minute is refused', async () => {
 
 test('AC-10 fifteen concurrent chat requests let no more than ten through', async () => {
   const env = env0();
-  await seedClient(env);
+  // vip: isolate the abuse rate limiter from the Step 3 monthly cap (see AC-9).
+  await seedClient(env, { tier: 'vip' });
 
   const results = await Promise.all(Array.from({ length: 15 }, (_, i) =>
     worker.fetch(post('/api/curator/chat', { authToken: 'TOK', message: 'x' + i }), env)));
@@ -53,7 +57,8 @@ test('AC-10 fifteen concurrent chat requests let no more than ten through', asyn
 
 test('the window slides: a request outside it is allowed again', async () => {
   const env = env0();
-  await seedClient(env);
+  // vip: isolate the abuse rate limiter from the Step 3 monthly cap (see AC-9).
+  await seedClient(env, { tier: 'vip' });
   for (let i = 0; i < 10; i++) {
     await worker.fetch(post('/api/curator/chat', { authToken: 'TOK', message: 'y' + i }), env);
   }

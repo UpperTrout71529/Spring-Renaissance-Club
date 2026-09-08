@@ -62,6 +62,15 @@ const LINK_RATE_LIMIT_PER_EMAIL = 1;
 const LINK_RATE_LIMIT_PER_IP = 5;
 const LINK_RATE_LIMIT_WINDOW_MS = 120 * 1000;
 
+// Step 3: regular-tier concierge entitlement — a calendar-month allowance,
+// not an abuse guard (that is CHAT_RATE_LIMIT_* above, and the two are never
+// conflated). Calendar month in UTC: a message counts toward whichever
+// month Date.now() falls in at the instant it is sent, with no per-session
+// grandfathering across the boundary — simple and exactly matches what
+// chat_messages already records, at the cost of the month wrapping at a
+// slightly different local moment depending on the client's timezone.
+const CONCIERGE_MONTHLY_LIMIT_REGULAR = 5;
+
 // Step 2: WebAuthn (VIP tier only). Long enough for a Face/Touch ID prompt
 // including a fumbled attempt, short enough that a challenge sitting in a
 // browser history entry or a server log is worthless within minutes.
@@ -528,6 +537,24 @@ export default {
 
         const userMessage = newMessage("You", "user", message || "[photo]");
 
+        // Step 3: regular tier gets 5 consultations per calendar month;
+        // images count toward the same limit since this counts EVERY user
+        // message, attachment or not — no separate budget to keep in sync.
+        // Distinct from the rate limiter above: that one is abuse protection
+        // shared by every tier, this is a membership entitlement, and the two
+        // must never be conflated.
+        //
+        // The guard lives INSIDE the INSERT (see appendChatMessage), not in a
+        // SELECT-COUNT-then-INSERT check here — ADR-005 exists precisely
+        // because that shape lets concurrent callers all observe the same
+        // pre-insert count and all proceed. One statement makes the count and
+        // the insert atomic, so a burst can overshoot by at most the last
+        // statement's own row, never by the whole burst.
+        const isVip = resolved.userData.tier === "vip";
+        const conciergeGuard = isVip
+          ? null
+          : { monthStart: startOfUtcMonth(userMessage.ts), limit: CONCIERGE_MONTHLY_LIMIT_REGULAR };
+
         // A-5: the client's message is an INSERT, so a curator writing at the
         // same instant cannot overwrite it — the two rows simply coexist. This
         // is what the old merge-on-write was approximating.
@@ -537,12 +564,36 @@ export default {
         // landing in between was missed and the AI answered over the curator.
         // P6-4: mirror=false here. Every exit below mirrors exactly once, so
         // this request writes curator_<email> a single time whatever happens.
-        const afterUserMessage = await appendChatMessage(resolved.email, userMessage, env, false);
+        const afterUserMessage = await appendChatMessage(resolved.email, userMessage, env, false, conciergeGuard);
+
+        if (!afterUserMessage.inserted) {
+          // The guard fired: this would have been the sixth this month. Read
+          // the real count back for the response rather than assuming it —
+          // "used" IS chat_messages, so this can never disagree with it.
+          const used = await conciergeMonthlyUsage(resolved.email, env);
+          return json({
+            error: "You've reached this month's consultation limit. Your allocation " +
+              "renews at the start of next month — for anything urgent, please reach " +
+              "out to the concierge team directly.",
+            limitReached: true,
+            concierge: { limit: CONCIERGE_MONTHLY_LIMIT_REGULAR, used, remaining: 0 }
+          }, 403);
+        }
+
+        let concierge = null;
+        if (!isVip) {
+          const usedNow = await conciergeMonthlyUsage(resolved.email, env);
+          concierge = {
+            limit: CONCIERGE_MONTHLY_LIMIT_REGULAR,
+            used: usedNow,
+            remaining: Math.max(0, CONCIERGE_MONTHLY_LIMIT_REGULAR - usedNow)
+          };
+        }
 
         // A human curator has taken over: queue the message, never answer over them.
         if (afterUserMessage.humanActiveUntil && afterUserMessage.humanActiveUntil > Date.now()) {
           await mirrorChatToKv(resolved.email, env);
-          return json({ queued: true, humanActive: true });
+          return json({ queued: true, humanActive: true, concierge });
         }
 
         if (!env.GEMINI_API_KEY) {
@@ -550,7 +601,7 @@ export default {
           // sees it. Losing the message is the worse failure.
           console.error("GEMINI_API_KEY missing");
           await mirrorChatToKv(resolved.email, env);
-          return json({ queued: true, humanActive: false, degraded: true });
+          return json({ queued: true, humanActive: false, degraded: true, concierge });
         }
 
         // The upstream call happens with nothing held open: no read is
@@ -576,10 +627,10 @@ export default {
           // commitAiReply stored nothing, so it did not mirror: the client's
           // own message still needs to reach the rollback mirror.
           await mirrorChatToKv(resolved.email, env);
-          return json({ queued: true, humanActive: true, aiReplySuppressed: true });
+          return json({ queued: true, humanActive: true, aiReplySuppressed: true, concierge });
         }
 
-        return json({ reply: replyText, humanActive: false });
+        return json({ reply: replyText, humanActive: false, concierge });
       }
 
       // ----------------------------------------------------------------
@@ -590,13 +641,29 @@ export default {
         if (!resolved) return json({ error: "Session expired" }, 401);
 
         const convo = await readConversation(resolved.email, env);
+
+        // Step 3: null for VIP (no ceiling) rather than a large `limit` —
+        // the frontend's counter should not exist for VIP at all, not read
+        // as "plenty left".
+        let concierge = null;
+        if (resolved.userData.tier !== "vip") {
+          const used = await conciergeMonthlyUsage(resolved.email, env);
+          concierge = {
+            limit: CONCIERGE_MONTHLY_LIMIT_REGULAR,
+            used,
+            remaining: Math.max(0, CONCIERGE_MONTHLY_LIMIT_REGULAR - used)
+          };
+        }
+
         return json({
           messages: convo.messages,
           humanActive: !!(convo.humanActiveUntil && convo.humanActiveUntil > Date.now()),
           // Step 2/3: this endpoint is already resolved-and-polled on every
-          // session load, so tier rides along here rather than widening
-          // /api/user's whitelisted, exact-shape response for one UI toggle.
-          tier: resolved.userData.tier
+          // session load, so tier and the concierge quota ride along here
+          // rather than widening /api/user's whitelisted, exact-shape
+          // response for two UI toggles.
+          tier: resolved.userData.tier,
+          concierge
         }, 200, { "Cache-Control": "no-store, no-cache, must-revalidate" });
       }
 
@@ -1997,12 +2064,28 @@ async function ensureChatSession(email, env) {
 // Returns the session's human_active_until as it stands AFTER the insert, so
 // callers decide on the state their own write produced (B-2) rather than on a
 // snapshot taken before it.
-async function appendChatMessage(email, msg, env, mirror = true) {
-  await env.DB.batch([
+// conciergeGuard (Step 3): { monthStart, limit } makes the INSERT itself
+// conditional on this month's count, so the check and the write are one
+// statement — the same reasoning as ADR-005's insert-then-count, applied to
+// a guard that lives in a WHERE instead of a follow-up compare. A plain
+// SELECT COUNT before this call would let concurrent callers for the same
+// email all observe the same pre-insert count and all get through.
+async function appendChatMessage(email, msg, env, mirror = true, conciergeGuard = null) {
+  const insertStmt = conciergeGuard
+    ? env.DB.prepare(
+        `INSERT INTO chat_messages (id, email, author, role, text, ts)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6
+          WHERE (
+            SELECT COUNT(*) FROM chat_messages WHERE email = ?2 AND role = 'user' AND ts >= ?7
+          ) < ?8`
+      ).bind(msg.id, email, msg.author, msg.role, msg.text, msg.ts, conciergeGuard.monthStart, conciergeGuard.limit)
+    : env.DB.prepare(
+        "INSERT INTO chat_messages (id, email, author, role, text, ts) VALUES (?, ?, ?, ?, ?, ?)"
+      ).bind(msg.id, email, msg.author, msg.role, msg.text, msg.ts);
+
+  const results = await env.DB.batch([
     await ensureChatSession(email, env),
-    env.DB.prepare(
-      "INSERT INTO chat_messages (id, email, author, role, text, ts) VALUES (?, ?, ?, ?, ?, ?)"
-    ).bind(msg.id, email, msg.author, msg.role, msg.text, msg.ts),
+    insertStmt,
     // M-14: keep only the newest MAX_CURATOR_MESSAGES rows for this client.
     env.DB.prepare(
       `DELETE FROM chat_messages
@@ -2014,6 +2097,8 @@ async function appendChatMessage(email, msg, env, mirror = true) {
     ).bind(email)
   ]);
 
+  const inserted = ((results[1] && results[1].meta && results[1].meta.changes) || 0) > 0;
+
   const session = await env.DB.prepare(
     "SELECT human_active_until FROM chat_sessions WHERE email = ?"
   ).bind(email).first();
@@ -2024,8 +2109,12 @@ async function appendChatMessage(email, msg, env, mirror = true) {
   // second was throttled on EVERY message, not just under burst — the mirror
   // was losing writes in normal use. Callers that will mirror again before
   // responding pass mirror=false.
+  //
+  // A guard that refused the insert still leaves a chat_sessions row from
+  // ensureChatSession's own write — that row is harmless housekeeping, not
+  // a stored message, so it does not warrant skipping the mirror here.
   if (mirror) await mirrorChatToKv(email, env);
-  return { humanActiveUntil };
+  return { humanActiveUntil, inserted };
 }
 
 // A-5 + B-2: the AI reply is inserted under a guard instead of after a second
@@ -2078,6 +2167,22 @@ async function readConversation(email, env) {
     messages: (rows && rows.results) || [],
     humanActiveUntil: Number(session && session.human_active_until) || 0
   };
+}
+
+// Step 3: no new counter or table — chat_messages already logs every
+// message with ts and role, so this IS the real history rather than a
+// separate figure that could drift from it. Rides idx_chat_messages_email_ts.
+function startOfUtcMonth(ts) {
+  const d = new Date(ts);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0);
+}
+
+async function conciergeMonthlyUsage(email, env) {
+  const monthStart = startOfUtcMonth(Date.now());
+  const row = await env.DB.prepare(
+    "SELECT COUNT(*) AS count FROM chat_messages WHERE email = ? AND role = 'user' AND ts >= ?"
+  ).bind(email, monthStart).first();
+  return Number(row && row.count) || 0;
 }
 
 // §7 rollback mirror for the transcript, in the pre-migration KV shape.

@@ -18,7 +18,7 @@
        hash extractor would match it instead of the real element.)
        style-src still allows inline styles. The rule in 8.3 is about script;
        the page's stylesheet block carries no injection surface. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Ra2XQPiF5lJ2+AB2sLj23kBr9UKj4knjWYgQZMB0Dag='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src https://stripe-magiclink.sagradyanfelix.workers.dev; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-viM3BfvnZ7vQLt6NNLCFDGrEX2gQxOWQfH4txlMs2gs='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src https://stripe-magiclink.sagradyanfelix.workers.dev; base-uri 'none'; form-action 'none'">
   <title>Private Client Portal — Spring Renaissance</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -600,6 +600,16 @@
     .composer-attachments { display: flex; gap: 8px; flex-wrap: wrap; }
     .composer-attachments:not(:empty) { margin-bottom: 8px; }
 
+    /* Step 3: regular-tier monthly consultation counter — VIP never sees this. */
+    .concierge-quota {
+      font-size: 10px;
+      letter-spacing: 0.3px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      text-align: right;
+    }
+    .concierge-quota.limit-reached { color: var(--danger); }
+
     .attachment-chip {
       display: inline-flex;
       align-items: center;
@@ -797,6 +807,7 @@
       <div class="chat-card">
         <div class="chat-messages" id="curatorMessages" role="log" aria-live="polite" aria-label="Conversation with your curator"></div>
         <form class="chat-composer" id="curatorForm">
+          <div class="concierge-quota" id="conciergeQuota" role="status" aria-live="polite" hidden></div>
           <div class="composer-attachments" id="curatorAttachments"></div>
           <div class="composer-row">
             <label class="icon-btn" id="curatorMediaLabel" title="Attach a photo (max 4 MB)">
@@ -871,6 +882,7 @@
       curatorForm: document.getElementById('curatorForm'),
       curatorInput: document.getElementById('curatorInput'),
       curatorSendBtn: document.getElementById('curatorSendBtn'),
+      conciergeQuota: document.getElementById('conciergeQuota'),
       curatorMedia: document.getElementById('curatorMedia'),
       curatorMediaLabel: document.getElementById('curatorMediaLabel'),
       curatorAttachments: document.getElementById('curatorAttachments'),
@@ -1585,6 +1597,7 @@
 
         const data = await res.json();
         applyTier(data.tier);
+        applyConcierge(data.concierge);
         const messages = Array.isArray(data.messages) ? data.messages : [];
 
         if (messages.length === 0) {
@@ -1788,8 +1801,14 @@
         let data = {};
         try { data = await res.json(); } catch (err) { data = {}; }
 
+        // Step 3: every response from this endpoint carries the current
+        // quota (success or the 403 limitReached itself), so the counter
+        // updates immediately rather than waiting for the next poll.
+        if ('concierge' in data) applyConcierge(data.concierge);
+
         if (!res.ok) {
-          // 413 / 415 carry an actionable message; anything else is generic.
+          // 413 / 415 / limitReached carry an actionable message; anything
+          // else is generic.
           showToast((data && data.error) || "Message could not be delivered. Please try again.");
         } else if (data.humanActive || data.degraded) {
           appendChatBubble('Curator Team',
@@ -2062,6 +2081,23 @@
       if (el.webauthnCard) {
         el.webauthnCard.hidden = !(webauthnSupported && tier === 'vip');
       }
+    }
+
+    // Step 3: concierge is null for VIP (no ceiling) and an
+    // {limit,used,remaining} object for regular — same shape both the chat
+    // send response and the poll response carry, so one function handles
+    // both call sites.
+    function applyConcierge(concierge) {
+      if (!el.conciergeQuota) return;
+      if (!concierge) {
+        el.conciergeQuota.hidden = true;
+        return;
+      }
+      el.conciergeQuota.hidden = false;
+      el.conciergeQuota.classList.toggle('limit-reached', concierge.remaining <= 0);
+      el.conciergeQuota.textContent = concierge.remaining > 0
+        ? (concierge.remaining + ' of ' + concierge.limit + ' consultations remaining this month')
+        : "You've reached this month's consultation limit — it renews next month.";
     }
 
     function setWebauthnRegisterNote(text) {
