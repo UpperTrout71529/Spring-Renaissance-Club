@@ -7,6 +7,14 @@ name = "stripe-magiclink"
 main = "worker.js"
 compatibility_date = "2025-01-01"
 
+# Step 4: tier defaults from which Stripe Price the client checked out with
+# (see resolveTierFromCheckoutSession in worker.js). Plain vars, not
+# secrets — a Price ID is not sensitive. An unset or unmatched price leaves
+# tier as it already is; /api/admin/set-tier is still the manual override.
+[vars]
+PRICE_ID_REGULAR = "<price-id-for-the-$20-founding-tier>"
+PRICE_ID_VIP = "<price-id-for-the-$50-patron-membership>"
+
 # TODO(deploy): replace with the id of the existing namespace —
 #   wrangler kv namespace list
 kv_namespaces = [

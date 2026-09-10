@@ -168,19 +168,32 @@ export default {
 
         // D-1: this handler used to read the record, mutate it in JS and write
         // the whole thing back, so a renewal landing between the read and the
-        // write was erased. Both rules now live in the UPDATE itself:
+        // write was erased. Every rule below now lives in the UPDATE itself:
         //
-        //   M-12 — the WHERE refuses a canceled membership, so the toggle can
-        //          never reactivate one with no payment behind it. Canceled is
-        //          terminal; re-subscribing goes through Stripe checkout.
-        //   A-3  — the CASE preserves "Past Due", so a failed payment cannot be
-        //          laundered back into "Active" by flipping the skip switch.
+        //   M-12    — the WHERE refuses a canceled membership, so the toggle
+        //             can never reactivate one with no payment behind it.
+        //             Canceled is terminal; re-subscribing goes through
+        //             Stripe checkout.
+        //   Step 4  — the WHERE also refuses a Past Due membership: the
+        //             seasonal capsule allocation is one of the two
+        //             privileges a failed payment withholds without
+        //             revoking VIP outright, same posture as Canceled.
+        //   A-3     — belt-and-suspenders for the same rule the WHERE now
+        //             also enforces: the CASE keeps "Past Due" from being
+        //             laundered into "Active" by this toggle even if that
+        //             guard is ever loosened on its own.
         //
-        // changes === 0 means the guard fired, and it says so without a second
-        // read that could observe yet another state.
+        // changes === 0 means a guard fired, and it says so without a second
+        // read that could observe yet another state — resolved.userData is a
+        // snapshot from just before this call, good enough to pick the
+        // message, not to decide the outcome.
         const applied = await applySkip(resolved.email, skipped, env);
         if (!applied.changed) {
-          return json({ error: "Membership is canceled" }, 409);
+          return json({
+            error: resolved.userData.status === "Past Due"
+              ? "Payment is past due — please update your card to continue"
+              : "Membership is canceled"
+          }, 409);
         }
 
         return json({
@@ -1447,11 +1460,14 @@ export default {
           return json({ received: false, reason: "No email resolved" }, 500);
         }
 
+        const tier = await resolveTierFromCheckoutSession(stripeObj.id, env);
+
         const result = await issuePortalAccess({
           customerEmail,
           customerName: (stripeObj.customer_details && stripeObj.customer_details.name) || "Valued Client",
           stripeCustomerId: typeof stripeObj.customer === "string" ? stripeObj.customer : "cus_guest",
           stripeSubscriptionId: extractSubscriptionId(stripeObj),
+          tier,
           env
         });
 
@@ -1877,6 +1893,41 @@ function isCreditQualifyingInvoice(stripeObj) {
     (Number(stripeObj.amount_paid) || 0) >= RENEWAL_MIN_AMOUNT_CENTS;
 }
 
+// Step 4: tier defaults from the Stripe Price ID paid at checkout, now that
+// a second real price (Patron Membership) exists. The webhook payload for
+// checkout.session.completed does not carry line items — that would need
+// the Dashboard's webhook config to expand them, which this Worker does not
+// control — so this makes one extra Stripe call to fetch them.
+//
+// Returns null (meaning: leave tier as it already is — see
+// upsertFromCheckout) whenever the price cannot be resolved to a known
+// tier: PRICE_ID_REGULAR/PRICE_ID_VIP unset, a legacy or unmapped price, or
+// the lookup itself failing. A resolved tier is a real signal and is
+// applied on both a brand-new signup and a re-checkout; an unresolved one
+// never overwrites a tier /api/admin/set-tier assigned by hand.
+async function resolveTierFromCheckoutSession(sessionId, env) {
+  if (!env.STRIPE_SECRET_KEY || !sessionId) return null;
+  if (!env.PRICE_ID_REGULAR && !env.PRICE_ID_VIP) return null;
+
+  const lineItems = await stripeRequest(
+    `https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}/line_items`,
+    { method: "GET" },
+    env
+  );
+  if (!lineItems.ok) {
+    console.error("Failed to fetch checkout line items for tier mapping", sessionId, lineItems.status);
+    return null;
+  }
+
+  const items = Array.isArray(lineItems.data && lineItems.data.data) ? lineItems.data.data : [];
+  const priceId = items.length > 0 && items[0].price && items[0].price.id;
+  if (!priceId) return null;
+
+  if (priceId === env.PRICE_ID_VIP) return "vip";
+  if (priceId === env.PRICE_ID_REGULAR) return "regular";
+  return null;
+}
+
 // M-13: whitelisted projection sent to the browser. Adding a field here is a
 // deliberate act; spreading the record is not.
 //
@@ -2111,7 +2162,12 @@ async function applySkip(email, skipped, env) {
                            ELSE 'Active' END,
             updated_at = ?2
       WHERE email = ?3
-        AND status != 'Canceled'`
+        AND status != 'Canceled'
+        -- Step 4: a failed payment does not revoke VIP, but it does freeze
+        -- this toggle — the seasonal capsule allocation is one of the two
+        -- privileges withheld during the grace period, same posture as
+        -- Canceled just above (refuse, do not silently reinterpret intent).
+        AND status != 'Past Due'`
   ).bind(skipped ? 1 : 0, Date.now(), email).run();
 
   const changes = (res.meta && res.meta.changes) || 0;
@@ -2213,10 +2269,18 @@ async function markPastDue(email, env) {
 // balance; anyone else is topped up. magic_revoked_before is deliberately NOT
 // reset — the freshly minted token is newer than the stamp, so it resolves,
 // while links from before the cancellation stay dead.
-async function upsertFromCheckout({ email, grant, stripeCustomerId, stripeSubscriptionId, env }) {
+// Step 4: tier is an optional 5th signal, resolved from the checkout
+// session's Price ID by the caller (see resolveTierFromCheckoutSession) —
+// this function itself has no opinion on pricing. Passing null/undefined
+// (the renewal-path caller below, or a checkout whose price didn't resolve
+// to PRICE_ID_REGULAR/PRICE_ID_VIP) leaves the row's tier exactly as it
+// was, via COALESCE on both branches: 'regular' for a brand-new row, or the
+// existing value for a re-checkout — same protection Step 0 always gave a
+// manually-promoted VIP, just no longer assuming there is only one price.
+async function upsertFromCheckout({ email, grant, stripeCustomerId, stripeSubscriptionId, tier, env }) {
   await env.DB.prepare(
     `INSERT INTO users (${USER_COLUMNS})
-     VALUES (?1, 'Active', ?2, 0, ?3, ?4, 0, NULL, NULL, ?5, 'regular')
+     VALUES (?1, 'Active', ?2, 0, ?3, ?4, 0, NULL, NULL, ?5, COALESCE(?6, 'regular'))
      ON CONFLICT(email) DO UPDATE SET
        credits = CASE WHEN users.status = 'Canceled' THEN ?2 ELSE users.credits + ?2 END,
        status = 'Active',
@@ -2225,11 +2289,9 @@ async function upsertFromCheckout({ email, grant, stripeCustomerId, stripeSubscr
        canceled_at = NULL,
        stripe_customer_id = COALESCE(?3, users.stripe_customer_id),
        stripe_subscription_id = COALESCE(?4, users.stripe_subscription_id),
-       updated_at = ?5
-       -- tier deliberately absent: it is not billing-derived (one Stripe price
-       -- funds both tiers today), so a VIP re-checking out must keep their
-       -- tier rather than being reset to the row's 'regular' default.`
-  ).bind(email, grant, stripeCustomerId || null, stripeSubscriptionId || null, Date.now()).run();
+       updated_at = ?5,
+       tier = COALESCE(?6, users.tier)`
+  ).bind(email, grant, stripeCustomerId || null, stripeSubscriptionId || null, Date.now(), tier || null).run();
 
   await mirrorUserToKv(email, env);
 }
@@ -2573,7 +2635,7 @@ function stripClientMessageTags(value) {
 
 // ---- Portal access + email -------------------------------------------------
 
-async function issuePortalAccess({ customerEmail, customerName, stripeCustomerId, stripeSubscriptionId, env }) {
+async function issuePortalAccess({ customerEmail, customerName, stripeCustomerId, stripeSubscriptionId, tier, env }) {
   const magicToken = crypto.randomUUID();
 
   // ADR-003: materialise a legacy client before the upsert, so a re-subscribe
@@ -2594,6 +2656,7 @@ async function issuePortalAccess({ customerEmail, customerName, stripeCustomerId
     grant: RENEWAL_TOKEN_GRANT,
     stripeCustomerId,
     stripeSubscriptionId,
+    tier,
     env
   });
 

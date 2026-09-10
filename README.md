@@ -10,7 +10,7 @@ key stays in **KV**.
 
 | Store | Data | Why |
 |---|---|---|
-| D1 `users` | status, credits, skipped, Stripe ids, revocation stamp, tier | Mutated by two handlers and four webhook branches at once. Every write is a guarded `UPDATE`, so `meta.changes` answers "did it apply" exactly. `tier` is a hand-operated flag (`POST /api/admin/set-tier`), not billing-derived — the club sells one Stripe price today, so there is no signal to compute it from. |
+| D1 `users` | status, credits, skipped, Stripe ids, revocation stamp, tier | Mutated by two handlers and four webhook branches at once. Every write is a guarded `UPDATE`, so `meta.changes` answers "did it apply" exactly. `tier` defaults from the Stripe Price ID paid at checkout (`PRICE_ID_REGULAR`/`PRICE_ID_VIP` in `wrangler.toml`) — an unresolved price (unset vars, a legacy price, a failed lookup) leaves it exactly as it was. `POST /api/admin/set-tier` is still the manual override for anything the price signal does not cover. |
 | D1 `chat_sessions` / `chat_messages` | curator transcript, takeover window | One row per message. An append is an `INSERT`, so a curator and a client writing at the same instant cannot overwrite each other. `chat_messages` also backs the regular-tier monthly concierge quota (5/month, VIP unlimited) — no separate counter, the quota is a `COUNT(*)` over this table. |
 | D1 `processed_events` | webhook idempotency | The `PRIMARY KEY` conflict *is* the "already processed" answer, so check-and-reserve is one atomic statement. |
 | D1 `rate_events` | chat + link rate limits | Sliding window, insert-then-count. Rows expire via a `DELETE` in the same batch — no cron. |
@@ -51,6 +51,13 @@ one code path an unauthenticated caller can reach.
 frontend's real origin (`club.springrenaissance.store`), never this
 Worker's own `*.workers.dev` origin, or every registration and login
 fails closed.
+
+`wrangler.toml`'s `[vars]` block carries `PRICE_ID_REGULAR` and
+`PRICE_ID_VIP` — plain vars, not secrets, since a Price ID is not
+sensitive. Leaving either unset (or both) is a safe, working state: tier
+just stops defaulting from checkout and falls back to whatever it already
+was, with `POST /api/admin/set-tier` as the only way to change it — the
+same behaviour the club ran on with a single price before this existed.
 
 ## Tests
 

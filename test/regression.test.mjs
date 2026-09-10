@@ -375,12 +375,22 @@ test('A-3 a canceled account is not moved to Past Due', async () => {
   assert.equal(userRow(env).status, 'Canceled');
 });
 
-test('A-3 skip cannot launder Past Due back to Active', async () => {
+// A-3's original protection was the CASE that kept a 200 response's status
+// label at "Past Due" no matter what the skip toggle asked for. Step 4
+// tightened this into a WHERE guard (same as the existing Canceled one) that
+// refuses the whole request outright — the capsule allocation is a
+// privilege a failed payment withholds, not just a status label to protect.
+test('Step 4: a Past Due membership cannot toggle skip at all, 409, nothing changes', async () => {
   const env = env0();
-  await seedClient(env, { status: 'Past Due', credits: 20 });
-  const res = await worker.fetch(post('/api/user/skip', { authToken: 'TOK', skipped: false }), env);
-  assert.equal((await res.json()).status, 'Past Due');
-  assert.equal(userRow(env).status, 'Past Due');
+  await seedClient(env, { status: 'Past Due', credits: 20, skipped: 0 });
+  const res = await worker.fetch(post('/api/user/skip', { authToken: 'TOK', skipped: true }), env);
+  const body = await res.json();
+
+  assert.equal(res.status, 409);
+  assert.equal(body.error, 'Payment is past due — please update your card to continue');
+  const row = userRow(env);
+  assert.equal(row.status, 'Past Due', 'laundering into Active must still be impossible');
+  assert.equal(row.skipped, 0, 'the toggle itself must not move while past due');
 });
 
 test('A-3 a successful renewal clears Past Due; a skipped member stays paused', async () => {
