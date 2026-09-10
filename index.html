@@ -18,7 +18,7 @@
        hash extractor would match it instead of the real element.)
        style-src still allows inline styles. The rule in 8.3 is about script;
        the page's stylesheet block carries no injection surface. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-ZLAWAMg/YWpAZGewyRYpJXqNGX7SBKCPFqrurNyVaAg='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src https://stripe-magiclink.sagradyanfelix.workers.dev; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-GtdiuwOtfD4EFME5OTIJNH752q1W9fJOkSvDDBtWlYw='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src https://stripe-magiclink.sagradyanfelix.workers.dev; base-uri 'none'; form-action 'none'">
   <title>Private Client Portal — Spring Renaissance</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -100,6 +100,11 @@
       gap: 14px;
     }
 
+    /* Step: the badge is a real disclosure button, not just a status pill —
+       same toggled-panel interaction weight as the drawer (aria-expanded,
+       Escape, click-outside), just anchored rather than full-screen. */
+    .status-widget { position: relative; }
+
     .sub-status-badge {
       display: inline-flex;
       align-items: center;
@@ -110,6 +115,8 @@
       border-radius: 30px;
       box-shadow: 0 2px 6px rgba(0,0,0,0.02);
       white-space: nowrap;
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
     }
 
     .status-dot {
@@ -127,6 +134,48 @@
       font-size: 11px;
       font-weight: 500;
       letter-spacing: 0.5px;
+      color: var(--text-main);
+    }
+
+    .status-panel {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      min-width: 210px;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      box-shadow: 0 10px 28px rgba(0,0,0,0.08);
+      padding: 12px 16px;
+      opacity: 0;
+      transform: translateY(-6px);
+      pointer-events: none;
+      transition: opacity 0.25s cubic-bezier(0.16,1,0.3,1), transform 0.25s cubic-bezier(0.16,1,0.3,1);
+      z-index: 60;
+    }
+
+    .status-panel.open { opacity: 1; transform: none; pointer-events: auto; }
+
+    .status-panel-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 7px 0;
+      font-size: 10px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .status-panel-row + .status-panel-row { border-top: 1px solid var(--border-color); }
+
+    .status-panel-row strong {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: normal;
+      text-transform: none;
       color: var(--text-main);
     }
 
@@ -168,6 +217,7 @@
       .menu-text { display: none; }
       .brand-mark { font-size: 13px; }
       .sub-status-badge { padding: 5px 10px; }
+      .status-panel { min-width: 180px; padding: 10px 14px; }
     }
 
     /* ---------- Drawer ---------- */
@@ -500,6 +550,44 @@
       margin-bottom: 8px;
     }
 
+    /* Journal-register grant history — a dated entry, not a generic list
+       row, so this stays visually distinct from .invoice-row even though
+       both render one line per date+amount. */
+    .journal-list { display: flex; flex-direction: column; }
+
+    .journal-entry {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 11px 0;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .journal-entry:first-child { border-top: none; }
+
+    .journal-date {
+      font-family: 'Cormorant Garamond', serif;
+      font-style: italic;
+      font-size: 15px;
+      color: var(--text-main);
+    }
+
+    .journal-amount {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+
+    .journal-empty {
+      font-family: 'Cormorant Garamond', serif;
+      font-style: italic;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
     /* ---------- Form controls ---------- */
     .text-input {
       flex: 1 1 160px;
@@ -699,9 +787,22 @@
   <header id="siteHeader">
     <div class="brand-mark">Spring Renaissance</div>
     <div class="header-right">
-      <div class="sub-status-badge">
-        <div class="status-dot" id="statusDot"></div>
-        <span class="sub-status-label">Subscription: <strong id="subStatusText">—</strong></span>
+      <div class="status-widget">
+        <button class="sub-status-badge" id="statusBadgeToggle" type="button"
+                aria-expanded="false" aria-controls="statusPanel">
+          <div class="status-dot" id="statusDot"></div>
+          <span class="sub-status-label">Subscription: <strong id="subStatusText">—</strong></span>
+        </button>
+        <div class="status-panel" id="statusPanel" aria-hidden="true">
+          <div class="status-panel-row">
+            <span>Membership</span>
+            <strong id="statusPanelStatus">—</strong>
+          </div>
+          <div class="status-panel-row">
+            <span>Digital Tokens</span>
+            <strong id="statusPanelTokens">—</strong>
+          </div>
+        </div>
       </div>
       <button class="menu-trigger" id="menuTrigger" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="drawer">
         <span class="menu-text">Menu</span>
@@ -801,9 +902,9 @@
 
       <!-- Step 4: a distinct widget rather than the old plain "Digital
            Tokens" billing-row — the current balance plus the history of how
-           it got there, same .invoice-row visual pattern as billing history
-           below. No new ledger: this list IS the qualifying invoices, sourced
-           from GET /api/user/credits-history. -->
+           it got there, in a journal register (see .journal-entry). No new
+           ledger: this list IS the qualifying invoices, sourced from
+           GET /api/user/credits-history. -->
       <div class="card">
         <div class="card-tag">
           <span>Digital Tokens</span>
@@ -811,8 +912,8 @@
         <div class="credits-balance-label">Current balance</div>
         <div class="credits-balance" id="tokenBalance">—</div>
         <p class="card-desc">Credited automatically on each qualifying renewal payment.</p>
-        <div class="invoice-list" id="creditsGrantList" role="status" aria-live="polite">
-          <p class="invoice-empty">Loading…</p>
+        <div class="journal-list" id="creditsGrantList" role="status" aria-live="polite">
+          <p class="journal-empty">Loading…</p>
         </div>
       </div>
 
@@ -898,6 +999,10 @@
       webauthnRegisterNote: document.getElementById('webauthnRegisterNote'),
       statusDot: document.getElementById('statusDot'),
       subStatusText: document.getElementById('subStatusText'),
+      statusBadgeToggle: document.getElementById('statusBadgeToggle'),
+      statusPanel: document.getElementById('statusPanel'),
+      statusPanelStatus: document.getElementById('statusPanelStatus'),
+      statusPanelTokens: document.getElementById('statusPanelTokens'),
       capsuleStatusBadge: document.getElementById('capsuleStatusBadge'),
       subViewStatusBadge: document.getElementById('subViewStatusBadge'),
       skipBtn: document.getElementById('skipBtn'),
@@ -1170,8 +1275,35 @@
     el.drawerClose.addEventListener('click', closeDrawer);
     el.drawerOverlay.addEventListener('click', closeDrawer);
 
+    // ---------- Status panel ----------
+    // Same toggled-disclosure shape as the drawer above (aria-expanded, an
+    // explicit open/close pair, Escape to dismiss) — anchored to the badge
+    // instead of full-screen, since it is a small detail panel, not navigation.
+    function openStatusPanel() {
+      el.statusPanel.classList.add('open');
+      el.statusBadgeToggle.setAttribute('aria-expanded', 'true');
+      el.statusPanel.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeStatusPanel() {
+      el.statusPanel.classList.remove('open');
+      el.statusBadgeToggle.setAttribute('aria-expanded', 'false');
+      el.statusPanel.setAttribute('aria-hidden', 'true');
+    }
+
+    el.statusBadgeToggle.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (el.statusPanel.classList.contains('open')) closeStatusPanel(); else openStatusPanel();
+    });
+
+    document.addEventListener('click', function (e) {
+      if (el.statusPanel.classList.contains('open') && !el.statusPanel.contains(e.target)) {
+        closeStatusPanel();
+      }
+    });
+
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') closeDrawer();
+      if (e.key === 'Escape') { closeDrawer(); closeStatusPanel(); }
     });
 
     // ---------- View switching ----------
@@ -1220,6 +1352,17 @@
 
       el.subViewStatusBadge.textContent = label;
       el.subViewStatusBadge.classList.toggle('offline', !!isOffline);
+
+      el.statusPanelStatus.textContent = label;
+    }
+
+    // One place for both mirrors (the card's headline number and the header
+    // panel), so a future third place to show the balance is one more line
+    // here rather than another call site to remember.
+    function setTokenBalance(value) {
+      const text = (typeof value === 'number') ? String(value) : '—';
+      el.tokenBalance.textContent = text;
+      el.statusPanelTokens.textContent = text;
     }
 
     function renderUserData(data) {
@@ -1249,7 +1392,7 @@
               : "Active — renews monthly";
       el.nextBillingDate.textContent = data.nextBillingDate || "Managed in Stripe";
       el.cardOnFile.textContent = data.cardLast4 ? ('•••• ' + data.cardLast4) : "Managed in Stripe";
-      el.tokenBalance.textContent = (typeof data.tokens === 'number') ? String(data.tokens) : "—";
+      setTokenBalance(typeof data.tokens === 'number' ? data.tokens : null);
 
       updateButtonAvailability();
     }
@@ -1309,7 +1452,7 @@
       el.renewalStatus.textContent = "Active — renews monthly";
       el.nextBillingDate.textContent = "Managed in Stripe";
       el.cardOnFile.textContent = "Managed in Stripe";
-      el.tokenBalance.textContent = "—";
+      setTokenBalance(null);
       setChatEnabled(false);
     }
 
@@ -1503,7 +1646,7 @@
         if (!res.ok) throw new Error((data && data.error) || ('HTTP ' + res.status));
 
         clearOverrides();
-        el.tokenBalance.textContent = String(typeof data.tokens === 'number' ? data.tokens : 0);
+        setTokenBalance(typeof data.tokens === 'number' ? data.tokens : 0);
         requestInFlight = false;
         applyCanceledState();
 
@@ -2034,7 +2177,7 @@
     function renderCreditsGrantsMessage(text) {
       el.creditsGrantList.innerHTML = '';
       const p = document.createElement('p');
-      p.className = 'invoice-empty';
+      p.className = 'journal-empty';
       p.textContent = text;
       el.creditsGrantList.appendChild(p);
     }
@@ -2050,15 +2193,15 @@
         const grant = grants[i];
 
         const row = document.createElement('div');
-        row.className = 'invoice-row';
+        row.className = 'journal-entry';
 
         const date = document.createElement('span');
-        date.className = 'invoice-date';
+        date.className = 'journal-date';
         date.textContent = new Date(grant.date * 1000)
           .toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
         const amount = document.createElement('span');
-        amount.className = 'invoice-amount';
+        amount.className = 'journal-amount';
         amount.textContent = '+' + grant.tokens + ' tokens';
 
         row.appendChild(date);
