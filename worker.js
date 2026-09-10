@@ -792,6 +792,68 @@ export default {
       }
 
       // ----------------------------------------------------------------
+      // Consumables (beta, VIP tier only) — admin: add/update/deactivate one.
+      //
+      // Config-driven so a new consumable is one authenticated POST, not a
+      // deploy: the client always renders whatever GET /api/consumables
+      // returns. Same auth seam and posture as set-tier and human-reply —
+      // never call this from a page shipped to a browser.
+      // ----------------------------------------------------------------
+      if (url.pathname === "/api/admin/consumables" && request.method === "POST") {
+        if (!authorizeAdmin(request, env)) {
+          return json({ error: "Unauthorized" }, 401);
+        }
+
+        const body = await readJson(request);
+        if (!body) return json({ error: "Invalid request body" }, 400);
+
+        const id = typeof body.id === "string" ? body.id.trim() : "";
+        if (!id) return json({ error: "id is required" }, 400);
+
+        // Every field but id is a partial-update: a call that only wants to
+        // flip `active` must not blank out the name, and vice versa. NULL
+        // here means "leave it as it is", carried through by COALESCE in the
+        // UPDATE below.
+        const nameProvided = typeof body.name === "string" && body.name.trim() !== "";
+        const name = nameProvided ? body.name.trim() : null;
+        const description = typeof body.description === "string" ? body.description : null;
+        const activeProvided = Object.prototype.hasOwnProperty.call(body, "active");
+        const active = activeProvided ? (body.active ? 1 : 0) : null;
+
+        // name is required only to CREATE a consumable — an update omitting
+        // it keeps the existing one. This is a validation read, not a
+        // mutation guard: the write just below is still the one atomic
+        // statement that actually applies.
+        const existing = await env.DB.prepare("SELECT id FROM consumables WHERE id = ?").bind(id).first();
+        if (!existing && !nameProvided) {
+          return json({ error: "name is required to create a new consumable" }, 400);
+        }
+
+        // SQLite validates NOT NULL against the candidate INSERT row before
+        // it knows whether ON CONFLICT will redirect it to the UPDATE branch
+        // below — a bare `?2` here would fail the name column's constraint
+        // on every active-only update, even though that value is never
+        // actually used once the conflict resolves. The subquery fallback
+        // makes the candidate row valid regardless of which branch runs.
+        await env.DB.prepare(
+          `INSERT INTO consumables (id, name, description, active)
+           VALUES (
+             ?1,
+             COALESCE(?2, (SELECT name FROM consumables WHERE id = ?1)),
+             ?3,
+             COALESCE(?4, 1)
+           )
+           ON CONFLICT(id) DO UPDATE SET
+             name = COALESCE(?2, consumables.name),
+             description = COALESCE(?3, consumables.description),
+             active = COALESCE(?4, consumables.active)`
+        ).bind(id, name, description, active).run();
+
+        const row = await env.DB.prepare("SELECT * FROM consumables WHERE id = ?").bind(id).first();
+        return json({ success: true, consumable: row });
+      }
+
+      // ----------------------------------------------------------------
       // Step 2: WebAuthn (VIP tier only) — registration.
       //
       // Registration is a follow-up action for someone already logged in via
@@ -1073,6 +1135,77 @@ export default {
         }), { expirationTtl: MAGIC_TOKEN_TTL_SECONDS });
 
         return json({ success: true, authToken: magicToken, email: credentialRow.email });
+      }
+
+      // ----------------------------------------------------------------
+      // Consumables (beta, VIP tier only) — active list, with this member's
+      // existing choice (if any) for each one.
+      // ----------------------------------------------------------------
+      if (url.pathname === "/api/consumables" && request.method === "GET") {
+        const resolved = await resolveUserByToken(url.searchParams.get("auth_token"), env);
+        if (!resolved) return json({ error: "Session expired" }, 401);
+        if (resolved.userData.tier !== "vip") {
+          return json({ error: "Consumables are a VIP feature" }, 403);
+        }
+
+        const rows = await env.DB.prepare(
+          `SELECT c.id, c.name, c.description, ci.frequency
+             FROM consumables c
+             LEFT JOIN consumable_interest ci ON ci.consumable_id = c.id AND ci.email = ?1
+            WHERE c.active = 1
+            ORDER BY c.id`
+        ).bind(resolved.email).all();
+
+        return json({ consumables: (rows && rows.results) || [] }, 200, { "Cache-Control": "no-store" });
+      }
+
+      // ----------------------------------------------------------------
+      // Consumables — register or update interest. One row per member per
+      // consumable: re-submitting changes `frequency` in the same guarded
+      // upsert rather than adding a second row.
+      // ----------------------------------------------------------------
+      if (url.pathname === "/api/consumables/interest" && request.method === "POST") {
+        const body = await readJson(request);
+        if (!body) return json({ error: "Invalid request body" }, 400);
+
+        const resolved = await resolveUserByToken(body.authToken, env);
+        if (!resolved) return json({ error: "Session expired" }, 401);
+        if (resolved.userData.tier !== "vip") {
+          return json({ error: "Consumables are a VIP feature" }, 403);
+        }
+
+        // Step 4: a failed payment suspends ordering a consumable — VIP
+        // status itself is not revoked, same posture as the Canceled guard
+        // on /api/user/skip below, just a different status and a temporary
+        // rather than terminal one.
+        if (resolved.userData.status === "Past Due") {
+          return json({ error: "Payment is past due — please update your card to continue" }, 409);
+        }
+
+        const consumableId = typeof body.consumableId === "string" ? body.consumableId : "";
+        const frequency = body.frequency;
+        const validFrequencies = ["monthly", "bimonthly", "quarterly"];
+
+        if (!consumableId || !validFrequencies.includes(frequency)) {
+          return json({ error: "consumableId and a valid frequency are required" }, 400);
+        }
+
+        const consumable = await env.DB.prepare(
+          "SELECT id FROM consumables WHERE id = ? AND active = 1"
+        ).bind(consumableId).first();
+        if (!consumable) {
+          return json({ error: "Unknown or inactive consumable" }, 404);
+        }
+
+        await env.DB.prepare(
+          `INSERT INTO consumable_interest (consumable_id, email, frequency, updated_at)
+           VALUES (?1, ?2, ?3, ?4)
+           ON CONFLICT(consumable_id, email) DO UPDATE SET
+             frequency = ?3,
+             updated_at = ?4`
+        ).bind(consumableId, resolved.email, frequency, Date.now()).run();
+
+        return json({ success: true, consumableId, frequency });
       }
 
       // ----------------------------------------------------------------

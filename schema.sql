@@ -112,3 +112,34 @@ CREATE TABLE IF NOT EXISTS webauthn_challenges (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_webauthn_challenges_created ON webauthn_challenges (created_at);
+
+-- Consumables replenishment (beta, VIP tier only). Config-driven so Felix can
+-- add a third item via POST /api/admin/consumables with no deploy — the
+-- client renders whatever GET /api/consumables returns.
+CREATE TABLE IF NOT EXISTS consumables (
+  id          TEXT PRIMARY KEY,          -- slug, admin-supplied
+  name        TEXT NOT NULL,
+  description TEXT,
+  active      INTEGER NOT NULL DEFAULT 1
+);
+-- The two known items at launch. INSERT OR IGNORE: safe to re-apply, and an
+-- admin who has already edited these via POST /api/admin/consumables keeps
+-- their edit rather than having it overwritten on the next deploy.
+INSERT OR IGNORE INTO consumables (id, name, description, active) VALUES
+  ('wax', 'Wax', 'Candle refill for your Le Vase Livre vessel.', 1),
+  ('diffuser-oil', 'Diffuser Oil', 'Refill for the accompanying reed diffuser.', 1);
+
+-- One row per member per consumable: registering interest again changes
+-- `frequency` in place rather than adding a second row, via
+-- `INSERT ... ON CONFLICT(consumable_id, email) DO UPDATE`.
+CREATE TABLE IF NOT EXISTS consumable_interest (
+  consumable_id TEXT NOT NULL,
+  email         TEXT NOT NULL,
+  frequency     TEXT NOT NULL CHECK(frequency IN ('monthly', 'bimonthly', 'quarterly')),
+  updated_at    INTEGER NOT NULL,
+  PRIMARY KEY (consumable_id, email)
+);
+-- GET /api/consumables looks up this member's existing choice for every
+-- active consumable in one pass; the PRIMARY KEY (consumable_id, email)
+-- does not serve a lookup by email alone.
+CREATE INDEX IF NOT EXISTS idx_consumable_interest_email ON consumable_interest (email);

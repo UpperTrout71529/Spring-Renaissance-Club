@@ -18,7 +18,7 @@
        hash extractor would match it instead of the real element.)
        style-src still allows inline styles. The rule in 8.3 is about script;
        the page's stylesheet block carries no injection surface. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-GtdiuwOtfD4EFME5OTIJNH752q1W9fJOkSvDDBtWlYw='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src https://stripe-magiclink.sagradyanfelix.workers.dev; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-HYQkYCw/1gODjl2/Zbo2t6ZCZOXZ4zZcZhdcshHR5Zs='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src https://stripe-magiclink.sagradyanfelix.workers.dev; base-uri 'none'; form-action 'none'">
   <title>Private Client Portal — Spring Renaissance</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -588,6 +588,35 @@
       color: var(--text-muted);
     }
 
+    /* Consumables replenishment (beta). */
+    .consumables-list { display: flex; flex-direction: column; }
+
+    .consumable-row { padding: 14px 0; border-top: 1px solid var(--border-color); }
+    .consumable-row:first-child { padding-top: 0; border-top: none; }
+
+    .consumable-name {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 17px;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+
+    .consumable-desc { font-size: 11px; color: var(--text-muted); margin-bottom: 10px; line-height: 1.5; }
+
+    .consumable-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    /* Double class: .text-input's own `flex` (defined below, so it would
+       otherwise win the cascade tie on source order despite equal
+       specificity) must not govern this element's sizing. */
+    .text-input.consumable-frequency { flex: 1 1 140px; max-width: 220px; }
+
+    @media (max-width: 420px) {
+      .consumable-controls { flex-direction: column; align-items: stretch; }
+      /* flex-grow applies along the main axis, which just became vertical —
+         without pinning this to 0 the select stretches to fill the row's
+         height instead of sizing to its own content. */
+      .text-input.consumable-frequency { flex: 0 1 auto; max-width: none; }
+    }
+
     /* ---------- Form controls ---------- */
     .text-input {
       flex: 1 1 160px;
@@ -900,6 +929,20 @@
         <div class="relink-note" id="webauthnRegisterNote" role="status" aria-live="polite" hidden></div>
       </div>
 
+      <!-- Consumables replenishment (beta, VIP tier only). Config-driven:
+           renders whatever GET /api/consumables returns, so a third item
+           needs no deploy. Hidden/shown the same way as webauthnCard above. -->
+      <div class="card" id="consumablesCard" hidden>
+        <div class="card-tag">
+          <span>Consumables — Beta</span>
+        </div>
+        <h2 class="card-title">Replenishment</h2>
+        <p class="card-desc">Register interest in automatic refills. This is in development — nothing ships and nothing is charged yet.</p>
+        <div class="consumables-list" id="consumablesList">
+          <p class="invoice-empty">Loading…</p>
+        </div>
+      </div>
+
       <!-- Step 4: a distinct widget rather than the old plain "Digital
            Tokens" billing-row — the current balance plus the history of how
            it got there, in a journal register (see .journal-entry). No new
@@ -997,6 +1040,8 @@
       webauthnCard: document.getElementById('webauthnCard'),
       webauthnRegisterBtn: document.getElementById('webauthnRegisterBtn'),
       webauthnRegisterNote: document.getElementById('webauthnRegisterNote'),
+      consumablesCard: document.getElementById('consumablesCard'),
+      consumablesList: document.getElementById('consumablesList'),
       statusDot: document.getElementById('statusDot'),
       subStatusText: document.getElementById('subStatusText'),
       statusBadgeToggle: document.getElementById('statusBadgeToggle'),
@@ -2230,6 +2275,117 @@
       }
     }
 
+    // ---------- Consumables (beta, VIP tier only) ----------
+    const CONSUMABLE_FREQUENCIES = [
+      ['monthly', 'Monthly'],
+      ['bimonthly', 'Every 2 months'],
+      ['quarterly', 'Quarterly']
+    ];
+
+    function renderConsumablesMessage(text) {
+      el.consumablesList.innerHTML = '';
+      const p = document.createElement('p');
+      p.className = 'invoice-empty';
+      p.textContent = text;
+      el.consumablesList.appendChild(p);
+    }
+
+    function renderConsumables(items) {
+      if (!items.length) {
+        renderConsumablesMessage("Nothing available right now.");
+        return;
+      }
+
+      el.consumablesList.innerHTML = '';
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+
+        const row = document.createElement('div');
+        row.className = 'consumable-row';
+
+        const name = document.createElement('div');
+        name.className = 'consumable-name';
+        name.textContent = item.name;
+        row.appendChild(name);
+
+        if (item.description) {
+          const desc = document.createElement('p');
+          desc.className = 'consumable-desc';
+          desc.textContent = item.description;
+          row.appendChild(desc);
+        }
+
+        const controls = document.createElement('div');
+        controls.className = 'consumable-controls';
+
+        const select = document.createElement('select');
+        select.className = 'text-input consumable-frequency';
+        for (let f = 0; f < CONSUMABLE_FREQUENCIES.length; f++) {
+          const opt = document.createElement('option');
+          opt.value = CONSUMABLE_FREQUENCIES[f][0];
+          opt.textContent = CONSUMABLE_FREQUENCIES[f][1];
+          if (item.frequency === opt.value) opt.selected = true;
+          select.appendChild(opt);
+        }
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-secondary';
+        btn.textContent = item.frequency ? 'Update' : "I'm interested";
+        btn.addEventListener('click', function () {
+          registerConsumableInterest(item.id, select.value, btn);
+        });
+
+        controls.appendChild(select);
+        controls.appendChild(btn);
+        row.appendChild(controls);
+        el.consumablesList.appendChild(row);
+      }
+    }
+
+    async function loadConsumables() {
+      if (!authToken || sessionInvalid) {
+        renderConsumablesMessage("Unavailable right now.");
+        return;
+      }
+      try {
+        const res = await fetchWithTimeout(
+          WORKER_URL + '/api/consumables?auth_token=' + encodeURIComponent(authToken));
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        renderConsumables(Array.isArray(data.consumables) ? data.consumables : []);
+      } catch (e) {
+        console.error("Consumables load failed:", e);
+        renderConsumablesMessage("Unavailable right now.");
+      }
+    }
+
+    async function registerConsumableInterest(consumableId, frequency, btn) {
+      if (!authToken) return;
+      btn.disabled = true;
+      const settledLabel = btn.textContent;
+      btn.textContent = 'Saving...';
+
+      try {
+        const res = await fetchWithTimeout(WORKER_URL + '/api/consumables/interest', {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ authToken: authToken, consumableId: consumableId, frequency: frequency })
+        });
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error((data && data.error) || 'Request failed');
+
+        btn.textContent = 'Update';
+        showToast("Saved — thank you.");
+      } catch (e) {
+        console.error("Consumable interest failed:", e);
+        btn.textContent = settledLabel;
+        showToast((e && e.message) || "Couldn't save your preference. Please try again.");
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
     // ---------- Re-authentication (Step 7) ----------
     // The message is the same whatever the server did: sent, not sent because
     // the address is unknown, not sent because the membership is cancelled, not
@@ -2312,11 +2468,22 @@
       return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
 
+    let consumablesLoaded = false;
+
     // Called from syncCuratorMessages, the only place tier is known — it is
     // deliberately absent from /api/user's narrow, unchanged whitelist.
     function applyTier(tier) {
       if (el.webauthnCard) {
         el.webauthnCard.hidden = !(webauthnSupported && tier === 'vip');
+      }
+      if (el.consumablesCard) {
+        el.consumablesCard.hidden = tier !== 'vip';
+        // Fetched once, the first time tier is confirmed VIP — not on every
+        // ~7s poll that calls applyTier.
+        if (tier === 'vip' && !consumablesLoaded) {
+          consumablesLoaded = true;
+          loadConsumables();
+        }
       }
     }
 
