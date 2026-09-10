@@ -15,6 +15,8 @@ key stays in **KV**.
 | D1 `processed_events` | webhook idempotency | The `PRIMARY KEY` conflict *is* the "already processed" answer, so check-and-reserve is one atomic statement. |
 | D1 `rate_events` | chat + link rate limits | Sliding window, insert-then-count. Rows expire via a `DELETE` in the same batch — no cron. |
 | D1 `webauthn_credentials` / `webauthn_challenges` | VIP Face/Touch ID login | One row per registered platform credential; challenges are single-use via `DELETE … RETURNING`, the same PRIMARY-KEY-as-reservation shape `processed_events` uses. |
+| D1 `consumables` / `consumable_interest` | consumables replenishment (beta, VIP) | Config-driven via `POST /api/admin/consumables` — no deploy to add a third item. One `consumable_interest` row per member per consumable; re-registering changes it in place. |
+| D1 `polls` / `poll_votes` | customizable poll (VIP) | Config-driven via `POST /api/admin/polls`; at most one poll is ever active. One `poll_votes` row per member per poll; percentages are computed live from `COUNT(*)`, never stored. Every vote is also mirrored to a Google Sheet — see Known limits. |
 | KV `magic_<token>` | portal sessions | Written once, read by key, never races. KV's TTL is a free and reliable expiry mechanism; reimplementing it in SQL would buy nothing. |
 | KV `cust_<id>` | Stripe customer → email index | Same: write-once, read by key. |
 | KV `user_<email>`, `curator_<email>` | **rollback mirror only** | Not read as the source of truth. See below. |
@@ -164,3 +166,20 @@ running, which double-credits. Both directions have a test.
   toward whichever month `Date.now()` falls in at the instant it is sent;
   a conversation open across midnight UTC on the last day of the month
   simply gets a fresh allowance one second later, like anyone else.
+- **The poll's Google Sheets sync is hand-rolled, like WebAuthn** — no
+  `googleapis`/`google-auth-library` dependency exists for this project's
+  zero-npm posture, so the service-account OAuth2 flow
+  (`getGoogleAccessToken` in `worker.js`) builds and RS256-signs a JWT by
+  hand with `crypto.subtle` and exchanges it at Google's token endpoint.
+  `test/google_sheets.test.mjs` verifies the signature against a real
+  generated key pair rather than trusting the shape alone. The sync is
+  strictly best-effort: D1 is the source of truth for a vote the instant
+  `poll_votes` is written, and every Sheets/token failure is caught and
+  logged, never surfaced to the voter — leaving `GOOGLE_SA_EMAIL` /
+  `GOOGLE_SA_PRIVATE_KEY` / `GOOGLE_SHEET_ID` unset is a safe, working
+  state, not a broken one. The access token is cached in memory per
+  isolate, not across isolates — a cold isolate pays one extra token
+  exchange, not a failure. Upserting a row (so a re-vote replaces the
+  member's existing row instead of appending a new one) costs a Sheets
+  read before the write on every vote; fine at club scale, not something
+  that would hold up under a much larger membership.

@@ -9,7 +9,14 @@
 //   GEMINI_API_KEY         — ProxyAPI bearer token
 //   RESEND_API_KEY         — Resend transactional email key
 //   ADMIN_SECRET           — shared secret for curator takeover (MVP auth)
-// Required binding: CLIENT_KV
+//   PORTAL_ORIGIN          — the frontend's real origin; also WebAuthn's rp.id
+// Optional secrets (poll -> Google Sheets sync; unset is safe, see
+// upsertVoteRowInSheet — voting still works, the sync just stays inert):
+//   GOOGLE_SA_EMAIL         — service account's client_email
+//   GOOGLE_SA_PRIVATE_KEY   — service account's private_key (PEM)
+//   GOOGLE_SHEET_ID         — target spreadsheet id
+// Required binding: CLIENT_KV, DB
+// Vars (wrangler.toml [vars], not secrets): PRICE_ID_REGULAR, PRICE_ID_VIP
 // ============================================================================
 
 const MAGIC_TOKEN_TTL_SECONDS = 35 * 24 * 60 * 60; // survives a full billing cycle
@@ -70,6 +77,14 @@ const LINK_RATE_LIMIT_WINDOW_MS = 120 * 1000;
 // chat_messages already records, at the cost of the month wrapping at a
 // slightly different local moment depending on the client's timezone.
 const CONCIERGE_MONTHLY_LIMIT_REGULAR = 5;
+
+// Feature 1: poll voting (VIP tier only). Reuses withinRateLimit under its
+// own bucket — re-voting is a normal, expected action (reconsidering a
+// choice), not abuse, so this is sized like the chat bucket rather than the
+// much tighter link-request one.
+const POLL_VOTE_RATE_LIMIT_PER_MINUTE = 10;
+const POLL_VOTE_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const MAX_POLL_COMMENT_CHARS = 500;
 
 // Step 2: WebAuthn (VIP tier only). Long enough for a Face/Touch ID prompt
 // including a fumbled attempt, short enough that a challenge sitting in a
@@ -1219,6 +1234,202 @@ export default {
         ).bind(consumableId, resolved.email, frequency, Date.now()).run();
 
         return json({ success: true, consumableId, frequency });
+      }
+
+      // ----------------------------------------------------------------
+      // Poll (VIP tier only) — admin: create/edit a poll with no deploy.
+      //
+      // At most one poll is ever active: setting active:true here
+      // deactivates every other one in the same batch, so
+      // GET /api/polls/active never has to pick among several. A brand-new
+      // poll defaults to INACTIVE (unlike consumables, which default
+      // active) — creating one to draft it must not silently replace
+      // whatever poll is currently live.
+      // ----------------------------------------------------------------
+      if (url.pathname === "/api/admin/polls" && request.method === "POST") {
+        if (!authorizeAdmin(request, env)) {
+          return json({ error: "Unauthorized" }, 401);
+        }
+
+        const body = await readJson(request);
+        if (!body) return json({ error: "Invalid request body" }, 400);
+
+        const id = typeof body.id === "string" ? body.id.trim() : "";
+        if (!id) return json({ error: "id is required" }, 400);
+
+        const questionProvided = typeof body.question === "string" && body.question.trim() !== "";
+        const question = questionProvided ? body.question.trim() : null;
+
+        let optionsProvided = false;
+        let optionsJson = null;
+        if (body.options !== undefined) {
+          const cleaned = Array.isArray(body.options)
+            ? body.options.filter((o) => typeof o === "string" && o.trim() !== "").map((o) => o.trim())
+            : [];
+          if (cleaned.length < 2) {
+            return json({ error: "options must be an array of at least 2 non-empty choices" }, 400);
+          }
+          optionsProvided = true;
+          optionsJson = JSON.stringify(cleaned);
+        }
+
+        const activeProvided = Object.prototype.hasOwnProperty.call(body, "active");
+        const active = activeProvided ? (body.active ? 1 : 0) : null;
+
+        // question/options are required only to CREATE a new poll — see the
+        // identical reasoning on /api/admin/consumables above.
+        const existing = await env.DB.prepare("SELECT id FROM polls WHERE id = ?").bind(id).first();
+        if (!existing && (!questionProvided || !optionsProvided)) {
+          return json({ error: "question and options (2+) are required to create a new poll" }, 400);
+        }
+
+        const statements = [];
+        if (active === 1) {
+          statements.push(
+            env.DB.prepare("UPDATE polls SET active = 0 WHERE active = 1 AND id != ?").bind(id)
+          );
+        }
+        // Same NOT NULL-on-the-candidate-row subquery fallback as
+        // /api/admin/consumables: SQLite validates the INSERT side of an
+        // upsert before it knows ON CONFLICT will redirect it.
+        statements.push(env.DB.prepare(
+          `INSERT INTO polls (id, question, options, active, created_at)
+           VALUES (
+             ?1,
+             COALESCE(?2, (SELECT question FROM polls WHERE id = ?1)),
+             COALESCE(?3, (SELECT options FROM polls WHERE id = ?1)),
+             COALESCE(?4, 0),
+             ?5
+           )
+           ON CONFLICT(id) DO UPDATE SET
+             question = COALESCE(?2, polls.question),
+             options = COALESCE(?3, polls.options),
+             active = COALESCE(?4, polls.active)`
+        ).bind(id, question, optionsJson, active, Date.now()));
+
+        await env.DB.batch(statements);
+
+        const row = await env.DB.prepare("SELECT * FROM polls WHERE id = ?").bind(id).first();
+        return json({ success: true, poll: { ...row, options: JSON.parse(row.options) } });
+      }
+
+      // ----------------------------------------------------------------
+      // Poll — the current active poll, live tallies, and this member's own
+      // prior vote if any. Percentages are computed here, fresh on every
+      // request, from poll_votes directly — never stored, so they can never
+      // disagree with the rows that actually exist.
+      // ----------------------------------------------------------------
+      if (url.pathname === "/api/polls/active" && request.method === "GET") {
+        const resolved = await resolveUserByToken(url.searchParams.get("auth_token"), env);
+        if (!resolved) return json({ error: "Session expired" }, 401);
+        if (resolved.userData.tier !== "vip") {
+          return json({ error: "This poll is a VIP feature" }, 403);
+        }
+
+        const poll = await env.DB.prepare(
+          "SELECT * FROM polls WHERE active = 1 ORDER BY created_at DESC LIMIT 1"
+        ).first();
+        if (!poll) {
+          return json({ poll: null }, 200, { "Cache-Control": "no-store" });
+        }
+
+        let options;
+        try {
+          options = JSON.parse(poll.options);
+        } catch (e) {
+          options = [];
+        }
+
+        const tallyRows = await env.DB.prepare(
+          "SELECT choice, COUNT(*) AS count FROM poll_votes WHERE poll_id = ? GROUP BY choice"
+        ).bind(poll.id).all();
+        const counts = {};
+        for (const r of (tallyRows && tallyRows.results) || []) counts[r.choice] = Number(r.count) || 0;
+        const totalVotes = Object.values(counts).reduce((a, b) => a + b, 0);
+
+        const results = options.map((opt) => {
+          const count = counts[opt] || 0;
+          return { option: opt, count, percent: totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0 };
+        });
+
+        const myVoteRow = await env.DB.prepare(
+          "SELECT choice, comment FROM poll_votes WHERE poll_id = ? AND email = ?"
+        ).bind(poll.id, resolved.email).first();
+
+        return json({
+          poll: { id: poll.id, question: poll.question, options },
+          results,
+          totalVotes,
+          myVote: myVoteRow ? { choice: myVoteRow.choice, comment: myVoteRow.comment } : null
+        }, 200, { "Cache-Control": "no-store" });
+      }
+
+      // ----------------------------------------------------------------
+      // Poll — vote once per poll; voting again changes the answer in the
+      // same guarded upsert (one row per member per poll), not a second row.
+      // ----------------------------------------------------------------
+      if (url.pathname === "/api/polls/vote" && request.method === "POST") {
+        const body = await readJson(request);
+        if (!body) return json({ error: "Invalid request body" }, 400);
+
+        const resolved = await resolveUserByToken(body.authToken, env);
+        if (!resolved) return json({ error: "Session expired" }, 401);
+        if (resolved.userData.tier !== "vip") {
+          return json({ error: "This poll is a VIP feature" }, 403);
+        }
+
+        // Reuses withinRateLimit under its own bucket — this is not the
+        // chat abuse guard, just the same proven mechanism.
+        if (!(await withinRateLimit(
+          "poll_vote", resolved.email, POLL_VOTE_RATE_LIMIT_PER_MINUTE, POLL_VOTE_RATE_LIMIT_WINDOW_MS, env
+        ))) {
+          return json({ error: "Too many requests — please wait a moment." }, 429, { "Retry-After": "60" });
+        }
+
+        const pollId = typeof body.pollId === "string" ? body.pollId : "";
+        const choice = typeof body.choice === "string" ? body.choice : "";
+        const comment = typeof body.comment === "string"
+          ? body.comment.trim().slice(0, MAX_POLL_COMMENT_CHARS) || null
+          : null;
+
+        if (!pollId || !choice) {
+          return json({ error: "pollId and choice are required" }, 400);
+        }
+
+        const poll = await env.DB.prepare(
+          "SELECT * FROM polls WHERE id = ? AND active = 1"
+        ).bind(pollId).first();
+        if (!poll) {
+          return json({ error: "Unknown or inactive poll" }, 404);
+        }
+
+        let options;
+        try {
+          options = JSON.parse(poll.options);
+        } catch (e) {
+          options = [];
+        }
+        if (!Array.isArray(options) || !options.includes(choice)) {
+          return json({ error: "choice is not one of this poll's options" }, 400);
+        }
+
+        await env.DB.prepare(
+          `INSERT INTO poll_votes (poll_id, email, choice, comment, updated_at)
+           VALUES (?1, ?2, ?3, ?4, ?5)
+           ON CONFLICT(poll_id, email) DO UPDATE SET
+             choice = ?3,
+             comment = ?4,
+             updated_at = ?5`
+        ).bind(pollId, resolved.email, choice, comment, Date.now()).run();
+
+        // Best-effort, same posture as sendPortalEmail: the vote itself is
+        // already committed to D1 — the row IS the vote — so a Sheets sync
+        // failure must never be reported back as a failed vote.
+        await upsertVoteRowInSheet({
+          pollId, question: poll.question, choice, comment, email: resolved.email
+        }, env);
+
+        return json({ success: true, pollId, choice });
       }
 
       // ----------------------------------------------------------------
@@ -3045,4 +3256,191 @@ async function consumeWebauthnChallenge(challenge, purpose, env) {
   // challenge it hasn't gotten to yet must still be rejected as expired here.
   if (Date.now() - Number(row.created_at) > WEBAUTHN_CHALLENGE_TTL_MS) return null;
   return row;
+}
+
+// ============================================================================
+// Feature 1: Google Sheets sync for poll votes.
+//
+// No npm dependency (googleapis / google-auth-library) is allowed in this
+// project, so the OAuth2 service-account flow is hand-rolled: build and
+// RS256-sign a JWT with the service account's private key using
+// crypto.subtle, exchange it at Google's token endpoint, and cache the
+// resulting access token in memory for its lifetime — the same posture as
+// the hand-rolled WebAuthn crypto above, applied to a different algorithm
+// (RSASSA-PKCS1-v1_5 instead of ECDSA) for a different purpose.
+//
+// Ships inert, not broken, when GOOGLE_SA_EMAIL / GOOGLE_SA_PRIVATE_KEY /
+// GOOGLE_SHEET_ID are unset: every call site treats a sync failure as
+// best-effort and only logs it. The vote is real the instant it lands in
+// D1; the Sheet is a mirror for Felix's own analysis, never the source of
+// truth, so it must never be able to fail a vote the way it must never be
+// able to double-credit one.
+// ============================================================================
+
+const GOOGLE_SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+// Refresh a little early rather than racing a token that expires mid-request.
+const GOOGLE_TOKEN_SAFETY_MARGIN_MS = 60 * 1000;
+const GOOGLE_SHEET_TAB = "Sheet1";
+// timestamp, poll_id, question, choice, comment, email — see the brief's
+// "Sheet columns" note; the header row itself is Felix's to add once, by
+// hand, in the Sheet — this Worker only ever writes data rows beneath it.
+const GOOGLE_SHEET_DATA_RANGE = `${GOOGLE_SHEET_TAB}!A2:F`;
+
+// Cached per-isolate only — a fresh isolate just exchanges a new token, the
+// same cold-start cost every other per-isolate cache in this file accepts.
+let cachedGoogleToken = null; // { accessToken, expiresAt }
+
+function base64ToBytes(base64) {
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+// A service account's private_key, as it appears in the downloaded JSON
+// key file, is PEM: "-----BEGIN PRIVATE KEY-----\n<base64>\n-----END...".
+// Pasted into a Worker secret it often arrives with literal backslash-n
+// sequences instead of real newlines (a side effect of how JSON-embedded
+// strings get pasted into a shell), so both forms are accepted here.
+function pemPrivateKeyToDer(pem) {
+  const normalized = pem.indexOf("\\n") !== -1 ? pem.replace(/\\n/g, "\n") : pem;
+  const base64 = normalized
+    .replace(/-----BEGIN PRIVATE KEY-----/, "")
+    .replace(/-----END PRIVATE KEY-----/, "")
+    .replace(/\s+/g, "");
+  return base64ToBytes(base64);
+}
+
+async function getGoogleAccessToken(env) {
+  if (!env.GOOGLE_SA_EMAIL || !env.GOOGLE_SA_PRIVATE_KEY) return null;
+
+  const now = Date.now();
+  if (cachedGoogleToken && cachedGoogleToken.expiresAt > now + GOOGLE_TOKEN_SAFETY_MARGIN_MS) {
+    return cachedGoogleToken.accessToken;
+  }
+
+  const nowSeconds = Math.floor(now / 1000);
+  const header = { alg: "RS256", typ: "JWT" };
+  const claims = {
+    iss: env.GOOGLE_SA_EMAIL,
+    scope: GOOGLE_SHEETS_SCOPE,
+    aud: GOOGLE_TOKEN_URL,
+    iat: nowSeconds,
+    exp: nowSeconds + 3600
+  };
+
+  let jwt;
+  try {
+    const encodedHeader = bytesToBase64url(new TextEncoder().encode(JSON.stringify(header)));
+    const encodedClaims = bytesToBase64url(new TextEncoder().encode(JSON.stringify(claims)));
+    const signingInput = `${encodedHeader}.${encodedClaims}`;
+
+    const privateKey = await crypto.subtle.importKey(
+      "pkcs8",
+      pemPrivateKeyToDer(env.GOOGLE_SA_PRIVATE_KEY),
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    const signature = await crypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5", privateKey, new TextEncoder().encode(signingInput)
+    );
+    jwt = `${signingInput}.${bytesToBase64url(new Uint8Array(signature))}`;
+  } catch (e) {
+    console.error("Failed to build/sign the Google service-account JWT", e);
+    return null;
+  }
+
+  let res;
+  try {
+    res = await fetch(GOOGLE_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "grant_type=" + encodeURIComponent("urn:ietf:params:oauth:grant-type:jwt-bearer") +
+        "&assertion=" + encodeURIComponent(jwt)
+    });
+  } catch (e) {
+    console.error("Google OAuth2 token exchange request failed", e);
+    return null;
+  }
+
+  if (!res.ok) {
+    console.error("Google OAuth2 token exchange failed", res.status, await res.text().catch(() => ""));
+    return null;
+  }
+
+  const data = await res.json().catch(() => null);
+  if (!data || typeof data.access_token !== "string") return null;
+
+  cachedGoogleToken = {
+    accessToken: data.access_token,
+    expiresAt: now + (Number(data.expires_in) || 3600) * 1000
+  };
+  return cachedGoogleToken.accessToken;
+}
+
+// Upserts by scanning the sheet's own data for a row already carrying this
+// poll_id + email (columns B and F) and overwriting it in place, or
+// appending a new one when there is none — so the Sheet holds exactly one
+// row per member per poll, mirroring poll_votes' own PRIMARY KEY exactly,
+// rather than growing an entry for every re-vote.
+async function upsertVoteRowInSheet({ pollId, question, choice, comment, email }, env) {
+  if (!env.GOOGLE_SHEET_ID) return;
+
+  try {
+    const accessToken = await getGoogleAccessToken(env);
+    if (!accessToken) return;
+
+    const sheetId = env.GOOGLE_SHEET_ID;
+    const authHeader = { "Authorization": `Bearer ${accessToken}` };
+    const rowValues = [new Date().toISOString(), pollId, question, choice, comment || "", email];
+
+    const getRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}` +
+      `/values/${encodeURIComponent(GOOGLE_SHEET_DATA_RANGE)}`,
+      { headers: authHeader }
+    );
+    if (!getRes.ok) {
+      console.error("Google Sheets read (for upsert) failed", getRes.status, await getRes.text().catch(() => ""));
+      return;
+    }
+    const getData = await getRes.json().catch(() => null);
+    const rows = Array.isArray(getData && getData.values) ? getData.values : [];
+    // Column B (index 1) is poll_id, column F (index 5) is email.
+    const existingIndex = rows.findIndex((r) => r[1] === pollId && r[5] === email);
+
+    if (existingIndex !== -1) {
+      const sheetRow = existingIndex + 2; // data starts at row 2; row 1 is Felix's header
+      const range = `${GOOGLE_SHEET_TAB}!A${sheetRow}:F${sheetRow}`;
+      const updateRes = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}` +
+        `/values/${encodeURIComponent(range)}?valueInputOption=RAW`,
+        {
+          method: "PUT",
+          headers: { ...authHeader, "Content-Type": "application/json" },
+          body: JSON.stringify({ values: [rowValues] })
+        }
+      );
+      if (!updateRes.ok) {
+        console.error("Google Sheets row update failed", updateRes.status, await updateRes.text().catch(() => ""));
+      }
+    } else {
+      const appendRes = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}` +
+        `/values/${encodeURIComponent(GOOGLE_SHEET_DATA_RANGE)}:append` +
+        `?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+        {
+          method: "POST",
+          headers: { ...authHeader, "Content-Type": "application/json" },
+          body: JSON.stringify({ values: [rowValues] })
+        }
+      );
+      if (!appendRes.ok) {
+        console.error("Google Sheets row append failed", appendRes.status, await appendRes.text().catch(() => ""));
+      }
+    }
+  } catch (e) {
+    console.error("Google Sheets sync failed", e);
+  }
 }

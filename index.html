@@ -18,7 +18,7 @@
        hash extractor would match it instead of the real element.)
        style-src still allows inline styles. The rule in 8.3 is about script;
        the page's stylesheet block carries no injection surface. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-HYQkYCw/1gODjl2/Zbo2t6ZCZOXZ4zZcZhdcshHR5Zs='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src https://stripe-magiclink.sagradyanfelix.workers.dev; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-t4vAWaV9C+C+plukVeZ1TWdKU450So1p5BGQmXNePH0='; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.shopify.com; connect-src https://stripe-magiclink.sagradyanfelix.workers.dev; base-uri 'none'; form-action 'none'">
   <title>Private Client Portal — Spring Renaissance</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -617,6 +617,49 @@
       .text-input.consumable-frequency { flex: 0 1 auto; max-width: none; }
     }
 
+    /* Poll (VIP tier only). */
+    .poll-form { display: flex; flex-direction: column; gap: 14px; margin-top: 12px; }
+
+    .poll-option {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0;
+      border-top: 1px solid var(--border-color);
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .poll-option:first-child { padding-top: 0; border-top: none; }
+    .poll-option input[type="radio"] { accent-color: var(--accent); width: 16px; height: 16px; flex-shrink: 0; }
+
+    .poll-comment {
+      width: 100%;
+      min-height: 64px;
+      resize: vertical;
+      font-family: 'Inter', sans-serif;
+    }
+
+    .poll-results-heading {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-color);
+      font-size: 9px;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .poll-result-row { padding: 10px 0; }
+    .poll-result-label { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; margin-bottom: 6px; }
+    .poll-result-label strong { font-family: 'Cormorant Garamond', serif; font-size: 14px; }
+    .poll-result-track { background: var(--wash); border-radius: 4px; height: 8px; overflow: hidden; }
+    .poll-result-fill {
+      background: var(--accent);
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
     /* ---------- Form controls ---------- */
     .text-input {
       flex: 1 1 160px;
@@ -810,6 +853,8 @@
       <li><button class="drawer-link active" type="button" data-view="capsules">Seasonal Capsules</button></li>
       <li><button class="drawer-link" type="button" data-view="subscriptions">Subscriptions</button></li>
       <li><button class="drawer-link" type="button" data-view="curator">Curator Space</button></li>
+      <!-- VIP tier only, gated the same way as webauthnCard/consumablesCard — see applyTier. -->
+      <li id="voteDrawerLinkItem" hidden><button class="drawer-link" type="button" data-view="vote">Vote</button></li>
     </ul>
   </nav>
 
@@ -997,6 +1042,22 @@
       </div>
     </section>
 
+    <!-- View 4: VOTE (VIP tier only). Fully config-driven — this section
+         renders whatever GET /api/polls/active returns; there is no
+         per-poll markup to write by hand. -->
+    <section class="view" data-view="vote" id="view-vote" hidden>
+      <div class="view-header">
+        <div class="view-eyebrow">VIP</div>
+        <h1 class="view-title">Vote</h1>
+      </div>
+
+      <div class="card">
+        <div id="voteContent">
+          <p class="invoice-empty">Loading…</p>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <footer>
@@ -1042,6 +1103,8 @@
       webauthnRegisterNote: document.getElementById('webauthnRegisterNote'),
       consumablesCard: document.getElementById('consumablesCard'),
       consumablesList: document.getElementById('consumablesList'),
+      voteDrawerLinkItem: document.getElementById('voteDrawerLinkItem'),
+      voteContent: document.getElementById('voteContent'),
       statusDot: document.getElementById('statusDot'),
       subStatusText: document.getElementById('subStatusText'),
       statusBadgeToggle: document.getElementById('statusBadgeToggle'),
@@ -2386,6 +2449,162 @@
       }
     }
 
+    // ---------- Poll (VIP tier only) ----------
+    // Fully config-driven: everything here renders whatever
+    // GET /api/polls/active returns, so a new poll needs no page changes.
+    // Results are shown once this member has a recorded vote (either from a
+    // fresh submit or from a prior visit); the voting form stays visible
+    // either way, pre-filled with their current choice, so changing a vote
+    // is just picking a different option and submitting again.
+    function renderPollResults(container, results, totalVotes) {
+      const heading = document.createElement('div');
+      heading.className = 'poll-results-heading';
+      heading.textContent = totalVotes === 1 ? '1 vote so far' : (totalVotes + ' votes so far');
+      container.appendChild(heading);
+
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+
+        const row = document.createElement('div');
+        row.className = 'poll-result-row';
+
+        const label = document.createElement('div');
+        label.className = 'poll-result-label';
+        const name = document.createElement('span');
+        name.textContent = r.option;
+        const pct = document.createElement('strong');
+        pct.textContent = r.percent + '%';
+        label.appendChild(name);
+        label.appendChild(pct);
+
+        const track = document.createElement('div');
+        track.className = 'poll-result-track';
+        const fill = document.createElement('div');
+        fill.className = 'poll-result-fill';
+        // The one property that must be inline: a per-option fill width has
+        // no fixed CSS class to express it — everything else about this bar
+        // (color, radius, transition) stays in the stylesheet.
+        fill.style.width = r.percent + '%';
+        track.appendChild(fill);
+
+        row.appendChild(label);
+        row.appendChild(track);
+        container.appendChild(row);
+      }
+    }
+
+    function renderPollContent(data) {
+      el.voteContent.innerHTML = '';
+
+      if (!data.poll) {
+        const p = document.createElement('p');
+        p.className = 'invoice-empty';
+        p.textContent = 'No poll is open right now.';
+        el.voteContent.appendChild(p);
+        return;
+      }
+
+      const question = document.createElement('h2');
+      question.className = 'card-title';
+      question.textContent = data.poll.question;
+      el.voteContent.appendChild(question);
+
+      const form = document.createElement('form');
+      form.className = 'poll-form';
+
+      for (let i = 0; i < data.poll.options.length; i++) {
+        const opt = data.poll.options[i];
+
+        const row = document.createElement('label');
+        row.className = 'poll-option';
+
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'poll-choice';
+        radio.value = opt;
+        if (data.myVote && data.myVote.choice === opt) radio.checked = true;
+
+        const span = document.createElement('span');
+        span.textContent = opt;
+
+        row.appendChild(radio);
+        row.appendChild(span);
+        form.appendChild(row);
+      }
+
+      const commentField = document.createElement('textarea');
+      commentField.className = 'text-input poll-comment';
+      commentField.placeholder = 'Add a short comment (optional)';
+      commentField.maxLength = 500;
+      if (data.myVote && data.myVote.comment) commentField.value = data.myVote.comment;
+      form.appendChild(commentField);
+
+      const submitBtn = document.createElement('button');
+      submitBtn.type = 'submit';
+      submitBtn.className = 'btn btn-secondary';
+      submitBtn.textContent = data.myVote ? 'Update vote' : 'Submit vote';
+      form.appendChild(submitBtn);
+
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        const selected = form.querySelector('input[name="poll-choice"]:checked');
+        if (!selected) {
+          showToast('Please choose an option.');
+          return;
+        }
+        submitVote(data.poll.id, selected.value, commentField.value, submitBtn);
+      });
+
+      el.voteContent.appendChild(form);
+
+      if (data.myVote) {
+        renderPollResults(el.voteContent, data.results, data.totalVotes);
+      }
+    }
+
+    async function loadPoll() {
+      if (!authToken || sessionInvalid) return;
+      try {
+        const res = await fetchWithTimeout(
+          WORKER_URL + '/api/polls/active?auth_token=' + encodeURIComponent(authToken));
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        renderPollContent(data);
+      } catch (e) {
+        console.error("Poll load failed:", e);
+        el.voteContent.innerHTML = '';
+        const p = document.createElement('p');
+        p.className = 'invoice-empty';
+        p.textContent = 'Unavailable right now.';
+        el.voteContent.appendChild(p);
+      }
+    }
+
+    async function submitVote(pollId, choice, comment, btn) {
+      if (!authToken) return;
+      btn.disabled = true;
+      const settledLabel = btn.textContent;
+      btn.textContent = 'Saving...';
+
+      try {
+        const res = await fetchWithTimeout(WORKER_URL + '/api/polls/vote', {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ authToken: authToken, pollId: pollId, choice: choice, comment: comment })
+        });
+        const data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error((data && data.error) || 'Vote could not be recorded');
+
+        showToast("Thank you — your vote has been recorded.");
+        await loadPoll();
+      } catch (e) {
+        console.error("Poll vote failed:", e);
+        btn.disabled = false;
+        btn.textContent = settledLabel;
+        showToast((e && e.message) || "Couldn't record your vote. Please try again.");
+      }
+    }
+
     // ---------- Re-authentication (Step 7) ----------
     // The message is the same whatever the server did: sent, not sent because
     // the address is unknown, not sent because the membership is cancelled, not
@@ -2469,6 +2688,7 @@
     }
 
     let consumablesLoaded = false;
+    let pollLoaded = false;
 
     // Called from syncCuratorMessages, the only place tier is known — it is
     // deliberately absent from /api/user's narrow, unchanged whitelist.
@@ -2483,6 +2703,16 @@
         if (tier === 'vip' && !consumablesLoaded) {
           consumablesLoaded = true;
           loadConsumables();
+        }
+      }
+      if (el.voteDrawerLinkItem) {
+        el.voteDrawerLinkItem.hidden = tier !== 'vip';
+        // "Poll" here is Feature 1's survey, unrelated to the curator chat's
+        // own short-polling (startCuratorPolling) — fetched once per the
+        // same first-confirmed-VIP rule as consumables above.
+        if (tier === 'vip' && !pollLoaded) {
+          pollLoaded = true;
+          loadPoll();
         }
       }
     }

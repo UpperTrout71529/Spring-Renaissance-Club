@@ -1,7 +1,14 @@
 # Secrets are NOT configured here — only via `wrangler secret put`:
 #   STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, GEMINI_API_KEY,
-#   RESEND_API_KEY, ADMIN_SECRET, PORTAL_ORIGIN
+#   RESEND_API_KEY, ADMIN_SECRET, PORTAL_ORIGIN,
+#   GOOGLE_SA_EMAIL, GOOGLE_SA_PRIVATE_KEY, GOOGLE_SHEET_ID
 # The same list is documented in the worker.js header; keep them in sync.
+#
+# The three GOOGLE_* secrets are all-or-nothing for the poll's Sheets sync
+# (Feature 1): leaving any of them unset is a safe, working state — voting
+# still works, the sync just stays inert and logs why. GOOGLE_SA_PRIVATE_KEY
+# is the "private_key" field straight out of the service account's
+# downloaded JSON key file, PEM included.
 
 name = "stripe-magiclink"
 main = "worker.js"

@@ -143,3 +143,32 @@ CREATE TABLE IF NOT EXISTS consumable_interest (
 -- active consumable in one pass; the PRIMARY KEY (consumable_id, email)
 -- does not serve a lookup by email alone.
 CREATE INDEX IF NOT EXISTS idx_consumable_interest_email ON consumable_interest (email);
+
+-- Customizable poll (VIP tier only). Felix creates/edits a poll without
+-- touching code via POST /api/admin/polls. At most one poll is ever active —
+-- activating one deactivates every other in the same batch — so
+-- GET /api/polls/active has no "which one" ambiguity to resolve.
+CREATE TABLE IF NOT EXISTS polls (
+  id         TEXT PRIMARY KEY,          -- short slug, admin-supplied
+  question   TEXT NOT NULL,
+  options    TEXT NOT NULL,             -- JSON array of strings
+  active     INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+
+-- One row per member per poll: re-voting changes `choice`/`comment` in place
+-- via `INSERT ... ON CONFLICT(poll_id, email) DO UPDATE`, the same shape as
+-- consumable_interest above. Percentages are never stored here — GET
+-- /api/polls/active computes them live with COUNT(*)/GROUP BY on read, so
+-- they can never go stale relative to the rows that actually exist.
+CREATE TABLE IF NOT EXISTS poll_votes (
+  poll_id    TEXT NOT NULL,
+  email      TEXT NOT NULL,
+  choice     TEXT NOT NULL,
+  comment    TEXT,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (poll_id, email)
+);
+-- The live tally on every GET /api/polls/active is GROUP BY choice for one
+-- poll_id; this index carries both the filter and the group.
+CREATE INDEX IF NOT EXISTS idx_poll_votes_poll_choice ON poll_votes (poll_id, choice);
