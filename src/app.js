@@ -14,13 +14,18 @@ import { loadSession } from "./auth/session.js";
 import { ulid } from "./lib/ulid.js";
 import { health } from "./routes/health.js";
 import { getMe } from "./routes/me.js";
+import { logout, requestMagicLink, verifyMagicLink } from "./routes/auth.js";
 
 // Route options:
 //   auth: "session"   — 401 without a live session; ctx.session is set
+//   auth: "optional"  — ctx.session is set when there is one
 //   crossSite: true   — skip the Origin / X-SR-Client check (server-to-server
 //                       callers such as webhooks, which send neither)
 export const ROUTES = [
   { method: "GET", path: "/health", handler: health },
+  { method: "POST", path: "/api/auth/magic-link", handler: requestMagicLink },
+  { method: "POST", path: "/api/auth/verify", handler: verifyMagicLink },
+  { method: "POST", path: "/api/auth/logout", handler: logout, auth: "optional" },
   { method: "GET", path: "/api/me", handler: getMe, auth: "session" },
 ];
 
@@ -31,12 +36,14 @@ const SECURITY_HEADERS = {
   "Cache-Control": "no-store",
 };
 
-// now and randomBytes are injected so tests control time and IDs.
+// now, randomBytes and fetch are injected so tests control time, tokens, IDs
+// and every outbound call (Resend, Turnstile, Shopify).
 export function createApp({
   routes = ROUTES,
   legacy = legacyWorker,
   now = () => Date.now(),
   randomBytes,
+  fetch: fetchImpl = (...args) => globalThis.fetch(...args),
 } = {}) {
   const router = createRouter(routes);
 
@@ -48,10 +55,23 @@ export function createApp({
 
       const origin = request.headers.get("Origin");
       const baseHeaders = { ...SECURITY_HEADERS, ...corsHeaders(origin, env) };
+      const cookies = [];
+
+      // Every response leaving an owned route gets the base headers (unless
+      // the handler set its own) and any cookies queued during the request —
+      // error responses included, so a refreshed session survives a 4xx.
+      const finalize = (response) => {
+        const res = new Response(response.body, response);
+        for (const [k, v] of Object.entries(baseHeaders)) {
+          if (!res.headers.has(k)) res.headers.set(k, v);
+        }
+        for (const c of cookies) res.headers.append("Set-Cookie", c);
+        return res;
+      };
       const json = (body, status = 200, headers = {}) =>
         new Response(JSON.stringify(body), {
           status,
-          headers: { ...baseHeaders, "Content-Type": "application/json", ...headers },
+          headers: { "Content-Type": "application/json", ...headers },
         });
 
       try {
@@ -77,27 +97,36 @@ export function createApp({
         const ctx = {
           request,
           env,
-          executionCtx,
           url,
           params: match.params,
           json,
+          fetch: fetchImpl,
+          randomBytes,
           now: () => nowMs,
           nowIso: () => new Date(nowMs).toISOString(),
           newId: () => ulid(nowMs, randomBytes),
+          setCookie: (c) => cookies.push(c),
+          // Work that must outlive the response (email, Shopify). Without a
+          // runtime context (tests that pass none) it simply runs detached.
+          waitUntil: (p) => {
+            const guarded = Promise.resolve(p).catch((e) => console.error("background task failed", e && e.name));
+            if (executionCtx && typeof executionCtx.waitUntil === "function") executionCtx.waitUntil(guarded);
+          },
           session: null,
         };
 
-        if (route.auth === "session") {
-          ctx.session = await loadSession(request, env, ctx.nowIso());
-          if (!ctx.session) throw unauthenticated();
+        if (route.auth === "session" || route.auth === "optional") {
+          ctx.session = await loadSession(request, env, nowMs);
+          if (!ctx.session && route.auth === "session") throw unauthenticated();
+          if (ctx.session && ctx.session.cookie) cookies.push(ctx.session.cookie);
         }
 
-        return await route.handler(ctx);
+        return finalize(await route.handler(ctx));
       } catch (e) {
-        if (e instanceof HttpError) return json(errorBody(e.code, e.message), e.status, e.headers);
+        if (e instanceof HttpError) return finalize(json(errorBody(e.code, e.message), e.status, e.headers));
         // No request data in the log line: it can carry personal data.
         console.error("unhandled error", url.pathname, e && e.name, e && e.message);
-        return json(errorBody("internal_error", "Something went wrong. Please try again."), 500);
+        return finalize(json(errorBody("internal_error", "Something went wrong. Please try again."), 500));
       }
     },
   };

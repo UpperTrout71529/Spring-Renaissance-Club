@@ -1,0 +1,24 @@
+# Local development secrets for `wrangler dev`. Copy to .dev.vars (git-ignored)
+# and fill in. Never commit real values; production secrets are set only with
+# `wrangler secret put <NAME>`.
+
+# Portal API (src/)
+SESSION_PEPPER=
+# Cloudflare's published always-pass test secret works locally.
+TURNSTILE_SECRET=
+RESEND_API_KEY=
+# Shopify Admin API ("Claude Sync"). SHOPIFY_SHOP is the *.myshopify.com domain.
+SHOPIFY_SHOP=
+SHOPIFY_ADMIN_TOKEN=
+# Optional
+# SHOPIFY_API_VERSION=2026-07
+# SESSION_IDLE_DAYS=14
+# PORTAL_URL=https://club.springrenaissance.store
+# ALLOWED_ORIGINS=http://localhost:5173,https://club.springrenaissance.store
+
+# Legacy worker.js
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+GEMINI_API_KEY=
+ADMIN_SECRET=
+PORTAL_ORIGIN=

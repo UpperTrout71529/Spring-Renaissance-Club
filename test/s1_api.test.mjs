@@ -27,6 +27,7 @@ function env(overrides = {}) {
 async function seedSession(e, {
   token = TOKEN, userId = '01USER', email = 'clara@example.com',
   idleExpires = NOW + 14 * DAY, absoluteExpires = NOW + 90 * DAY, revokedAt = null, deletedAt = null,
+  lastSeen = NOW - DAY,
 } = {}) {
   e.DB._db.prepare(
     'INSERT OR IGNORE INTO users (id, email, first_name, created_at, deleted_at) VALUES (?, ?, ?, ?, ?)'
@@ -34,7 +35,7 @@ async function seedSession(e, {
   e.DB._db.prepare(
     `INSERT INTO sessions (id_hash, user_id, created_at, last_seen_at, idle_expires_at, absolute_expires_at, auth_method, revoked_at)
      VALUES (?, ?, ?, ?, ?, ?, 'magic_link', ?)`
-  ).run(await hashSessionToken(token, PEPPER), userId, iso(NOW - DAY), iso(NOW - DAY), iso(idleExpires), iso(absoluteExpires), revokedAt);
+  ).run(await hashSessionToken(token, PEPPER), userId, iso(NOW - DAY), iso(lastSeen), iso(idleExpires), iso(absoluteExpires), revokedAt);
 }
 
 const withSession = (token = TOKEN) => ({ Cookie: `other=1; ${SESSION_COOKIE}=${token}` });
@@ -129,7 +130,8 @@ test('S1-A5: idle-expired, absolute-expired, revoked, deleted-user and unknown s
 
 test('S1-A6: the injected clock decides session expiry', async () => {
   const e = env();
-  await seedSession(e, { idleExpires: NOW + 1000 });
+  // Seen a minute ago, so the first request does not slide the window.
+  await seedSession(e, { idleExpires: NOW + 1000, lastSeen: NOW - 60 * 1000 });
   const before = await app().fetch(get('/api/me', withSession()), e);
   assert.equal(before.status, 200);
   const after = await createApp({ now: () => NOW + 1000 }).fetch(get('/api/me', withSession()), e);

@@ -56,7 +56,8 @@ one code path an unauthenticated caller can reach.
 `wrangler.toml` carries the bindings. Secrets are set only with
 `wrangler secret put`: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
 `GEMINI_API_KEY`, `RESEND_API_KEY`, `ADMIN_SECRET`, `PORTAL_ORIGIN`,
-`SESSION_PEPPER`.
+`SESSION_PEPPER`, `TURNSTILE_SECRET`, `SHOPIFY_ADMIN_TOKEN`. Plain vars:
+`SHOPIFY_SHOP` and the optional ones in `.dev.vars.example`.
 
 ## Portal API (`src/`)
 
@@ -69,6 +70,16 @@ with `ALLOWED_ORIGINS`), requires `Origin` from that list plus
 `__Host-sr_session` cookie against D1 `sessions`, and answers errors as
 `{ "error": { "code", "message" } }`. Every other path goes to `worker.js`
 unchanged, including its catch-all Stripe webhook.
+
+Sign-in (S2): `POST /api/auth/magic-link` answers `202` for every well-formed
+address (the same link signs in or creates the account) after Turnstile and
+the §10.6 limits; the link `https://club.springrenaissance.store/auth#t=…`
+lives 15 minutes and works once (D1 `magic_links`, hash only).
+`POST /api/auth/verify` spends it and sets
+`__Host-sr_session` (14 days sliding, 90 days absolute); a first sign-in finds
+or creates the Shopify customer and tags it `sr-club` in the background.
+`POST /api/auth/logout` revokes the session. Outbound calls (Resend,
+Turnstile, Shopify) go through the injected `fetch`, so tests run offline.
 
 ## Tests
 
