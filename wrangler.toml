@@ -1,20 +1,24 @@
 # Secrets are NOT configured here — only via `wrangler secret put`:
 #   STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, GEMINI_API_KEY,
-#   RESEND_API_KEY, ADMIN_SECRET, PORTAL_ORIGIN
-# The same list is documented in the worker.js header; keep them in sync.
+#   RESEND_API_KEY, ADMIN_SECRET, PORTAL_ORIGIN   (legacy worker.js)
+#   SESSION_PEPPER                                 (portal API, src/)
+# The same list is documented in the worker.js header and README; keep them in sync.
+#
+# Optional var ALLOWED_ORIGINS (comma-separated) replaces the portal API's
+# default CORS allowlist (club. and the storefront).
 
 name = "stripe-magiclink"
-main = "worker.js"
+# src/index.js routes the portal API (spec §8) and hands every other path to
+# the legacy worker.js unchanged.
+main = "src/index.js"
 compatibility_date = "2025-01-01"
 
-# TODO(deploy): replace with the id of the existing namespace —
-#   wrangler kv namespace list
 kv_namespaces = [
-  { binding = "CLIENT_KV", id = "<existing-client-kv-id>" }
+  { binding = "CLIENT_KV", id = "804fd8ed9cb84f229077272239bcb138" }
 ]
 
-# TODO(deploy): replace with the id printed by `wrangler d1 create spring-renaissance`
 [[d1_databases]]
 binding = "DB"
 database_name = "spring-renaissance"
-database_id = "<id-from-wrangler-d1-create>"
+database_id = "88e830cc-fc14-4ab6-ab69-e91a37698e28"
+migrations_dir = "migrations"

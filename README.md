@@ -51,7 +51,20 @@ one code path an unauthenticated caller can reach.
 
 `wrangler.toml` carries the bindings. Secrets are set only with
 `wrangler secret put`: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
-`GEMINI_API_KEY`, `RESEND_API_KEY`, `ADMIN_SECRET`, `PORTAL_ORIGIN`.
+`GEMINI_API_KEY`, `RESEND_API_KEY`, `ADMIN_SECRET`, `PORTAL_ORIGIN`,
+`SESSION_PEPPER`.
+
+## Portal API (`src/`)
+
+`src/index.js` is the Worker entry. `src/app.js` owns the portal API routes
+(spec §8): `GET /health`, `GET /api/me`, and the ones later tasks add. For
+those paths it applies CORS for exactly `https://club.springrenaissance.store`
+and `https://springrenaissance.store` (with credentials, never `*`; override
+with `ALLOWED_ORIGINS`), requires `Origin` from that list plus
+`X-SR-Client: portal` on every state-changing request, resolves the
+`__Host-sr_session` cookie against D1 `sessions`, and answers errors as
+`{ "error": { "code", "message" } }`. Every other path goes to `worker.js`
+unchanged, including its catch-all Stripe webhook.
 
 ## Tests
 
