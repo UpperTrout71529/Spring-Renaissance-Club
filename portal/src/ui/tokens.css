@@ -1,0 +1,47 @@
+/* Design tokens (spec §6.1). Colours come from the storefront theme
+   (WORK 4, config/settings_data.json): background #fbfbf9, foreground #000000,
+   color4 #e6e6e6 (lines), color12 #5e4638 (accent), badge #edeae4. Fonts: headings
+   DM Serif Display, body = the theme's system "serif" stack, accent Chivo 700.
+   --ink-muted, --danger and --success are not in the theme: chosen for ≥ 4.5:1
+   contrast on --bg and marked "my call" in the PR. */
+
+:root {
+  --bg: #FBFBF9;
+  --surface: #EDEAE4;
+  --ink: #000000;
+  --ink-muted: #5C5B58;
+  --line: #E6E6E6;
+  --accent: #5E4638;
+  --danger: #8E3B30;
+  --success: #3D5A3A;
+  --focus: #5E4638;
+
+  --font-heading: "DM Serif Display", "Iowan Old Style", "Times New Roman", serif;
+  --font-body: "Iowan Old Style", "Apple Garamond", Baskerville, "Times New Roman", "Droid Serif", Times, "Source Serif Pro", serif;
+  --font-accent: "Chivo", "Helvetica Neue", Arial, sans-serif;
+
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-6: 48px;
+
+  --gutter: 16px;
+  --tabbar-height: 64px;
+  --sidebar-width: 240px;
+  --content-max: 720px;
+
+  --radius: 0;
+  --motion-duration: 200ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  color-scheme: light;
+}
+
+@media (min-width: 768px) {
+  :root { --gutter: 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --motion-duration: 0ms; }
+}
