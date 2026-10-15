@@ -1,9 +1,10 @@
 name: worker-ci
 
-# Worker test suite (legacy worker.js + portal API in src/) on every push and PR.
+# Worker test suite (legacy worker.js + portal API in src/). Pull requests and
+# manual runs only, to keep Actions minutes down.
 on:
-  push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
