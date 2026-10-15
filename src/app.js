@@ -19,6 +19,7 @@ import {
   deletePasskey, listPasskeys, loginOptions, loginVerify, registerOptions, registerVerify, stepUpPasskeyOptions,
 } from "./routes/passkeys.js";
 import { sendStepUpCode, verifyStepUp } from "./routes/step-up.js";
+import { getOrder, listOrders } from "./routes/orders.js";
 
 // Route options:
 //   auth: "session"   — 401 without a live session; ctx.session is set
@@ -40,6 +41,8 @@ export const ROUTES = [
   { method: "GET", path: "/api/passkeys", handler: listPasskeys, auth: "session" },
   { method: "DELETE", path: "/api/passkeys/:credential_id", handler: deletePasskey, auth: "session" },
   { method: "GET", path: "/api/me", handler: getMe, auth: "session" },
+  { method: "GET", path: "/api/orders", handler: listOrders, auth: "session" },
+  { method: "GET", path: "/api/orders/:id", handler: getOrder, auth: "session" },
 ];
 
 const SECURITY_HEADERS = {
