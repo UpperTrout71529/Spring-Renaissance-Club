@@ -17,4 +17,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24   # node:sqlite backs the D1 emulation
-      - run: node --test test/*.test.mjs
+          cache: npm
+      - run: npm ci
+      - run: npm audit --omit=dev
+      - run: npm test

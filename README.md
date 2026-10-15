@@ -81,10 +81,21 @@ or creates the Shopify customer and tags it `sr-club` in the background.
 `POST /api/auth/logout` revokes the session. Outbound calls (Resend,
 Turnstile, Shopify) go through the injected `fetch`, so tests run offline.
 
+Passkeys and step-up (S4), with `@simplewebauthn/server` (pinned in
+`package.json`; `npm ci` before `npm test`): register
+(`/api/auth/passkey/register/{options,verify}`, session), sign in without an
+email (`/api/auth/passkey/login/{options,verify}`, discoverable credentials),
+`GET /api/passkeys`, `DELETE /api/passkeys/:id` (step-up). Step-up
+(`/api/auth/step-up/{email-code,passkey/options,verify}`) is a passkey or a
+6-digit email code (10 minutes, 5 attempts) and stays fresh for 15 minutes.
+Challenges and codes are single-use rows in D1 (migration 0004). Tests use a
+software authenticator (`test/soft-authenticator.mjs`) whose responses go
+through the library's real verification.
+
 ## Tests
 
 ```bash
-node --test test/*.test.mjs                       # everything
+npm ci && npm test                                 # everything
 for i in $(seq 1 20); do node --test test/atomicity.test.mjs || break; done
 ```
 

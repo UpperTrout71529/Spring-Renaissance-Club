@@ -1,4 +1,7 @@
-# S1 rollout: migrations 0000–0003 + Worker `src/index.js`
+# Portal API rollout: migrations 0000–0004 + Worker `src/index.js`
+
+(Written for S1; S4 added `0004_auth_challenges.sql` and the secrets for
+passkeys. The order and the rollback below cover both.)
 
 **Nothing here has been run against production. Every step below happens
 only after Felix's explicit "yes".**
@@ -32,7 +35,7 @@ in every table on 2026-10-15, so there is no data at risk in the gap.
 2. `wrangler secret put SESSION_PEPPER` — a new random value (32+ bytes).
    Without it, any request with a session cookie gets 503 `auth_unavailable`.
 3. `wrangler d1 migrations apply spring-renaissance --remote` — lists
-   0000–0003 as pending; 0000 is a no-op on the existing tables.
+   0000–0004 as pending; 0000 is a no-op on the existing tables.
 4. **Immediately** `wrangler deploy`.
 5. Smoke checks:
    - `GET https://api.springrenaissance.store/health` → `200 {"status":"ok"}`

@@ -25,6 +25,8 @@ jobs:
           cache: npm
           cache-dependency-path: portal/package-lock.json
       - run: npm ci
+        working-directory: .   # the e2e server runs the Worker code from ../src
+      - run: npm ci
       - run: npm audit --omit=dev
       - run: npm run build
       - run: npm test

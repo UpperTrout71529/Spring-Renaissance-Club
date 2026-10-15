@@ -11,6 +11,10 @@ RESEND_API_KEY=
 SHOPIFY_SHOP=
 SHOPIFY_ADMIN_TOKEN=
 # Optional
+# Passkeys default to rpID springrenaissance.store and origin
+# https://club.springrenaissance.store; override for local development.
+# PASSKEY_RP_ID=localhost
+# PASSKEY_ORIGINS=http://localhost:5173
 # SHOPIFY_API_VERSION=2026-07
 # SESSION_IDLE_DAYS=14
 # PORTAL_URL=https://club.springrenaissance.store

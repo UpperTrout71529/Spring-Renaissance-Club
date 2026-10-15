@@ -10,6 +10,7 @@ const SPEC_TABLES = [
   'users', 'sessions', 'passkeys', 'oauth_identities', 'consents', 'magic_links',
   'wishlist_items', 'holds',
   'webhook_events', 'email_log', 'events', 'admin_audit',
+  'webauthn_challenges', 'step_up_codes',
 ];
 const LEGACY_TABLES = ['legacy_users', 'chat_sessions', 'chat_messages', 'processed_events', 'rate_events'];
 

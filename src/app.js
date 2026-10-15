@@ -15,6 +15,10 @@ import { ulid } from "./lib/ulid.js";
 import { health } from "./routes/health.js";
 import { getMe } from "./routes/me.js";
 import { logout, requestMagicLink, verifyMagicLink } from "./routes/auth.js";
+import {
+  deletePasskey, listPasskeys, loginOptions, loginVerify, registerOptions, registerVerify, stepUpPasskeyOptions,
+} from "./routes/passkeys.js";
+import { sendStepUpCode, verifyStepUp } from "./routes/step-up.js";
 
 // Route options:
 //   auth: "session"   — 401 without a live session; ctx.session is set
@@ -26,6 +30,15 @@ export const ROUTES = [
   { method: "POST", path: "/api/auth/magic-link", handler: requestMagicLink },
   { method: "POST", path: "/api/auth/verify", handler: verifyMagicLink },
   { method: "POST", path: "/api/auth/logout", handler: logout, auth: "optional" },
+  { method: "POST", path: "/api/auth/passkey/register/options", handler: registerOptions, auth: "session" },
+  { method: "POST", path: "/api/auth/passkey/register/verify", handler: registerVerify, auth: "session" },
+  { method: "POST", path: "/api/auth/passkey/login/options", handler: loginOptions },
+  { method: "POST", path: "/api/auth/passkey/login/verify", handler: loginVerify },
+  { method: "POST", path: "/api/auth/step-up/email-code", handler: sendStepUpCode, auth: "session" },
+  { method: "POST", path: "/api/auth/step-up/passkey/options", handler: stepUpPasskeyOptions, auth: "session" },
+  { method: "POST", path: "/api/auth/step-up/verify", handler: verifyStepUp, auth: "session" },
+  { method: "GET", path: "/api/passkeys", handler: listPasskeys, auth: "session" },
+  { method: "DELETE", path: "/api/passkeys/:credential_id", handler: deletePasskey, auth: "session" },
   { method: "GET", path: "/api/me", handler: getMe, auth: "session" },
 ];
 
