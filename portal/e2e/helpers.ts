@@ -54,3 +54,24 @@ export async function lastStepUpCode(request: APIRequestContext, email: string):
   const res = await request.get(`/__e2e/last-code?email=${encodeURIComponent(email)}`);
   return (await res.json()).code;
 }
+
+// Mocks /api/orders (list, paged by "cursor") and /api/orders/:id.
+export async function mockOrders(page: Page, { pages = [] as unknown[][], details = {} as Record<string, unknown>, status = 200 } = {}) {
+  await page.route("**/api/orders**", (route) => {
+    const url = new URL(route.request().url());
+    if (status !== 200) {
+      return route.fulfill({ status, contentType: "application/json", body: JSON.stringify({ error: { code: "orders_unavailable", message: "We couldn't load your orders right now. Please try again in a moment." } }) });
+    }
+    const m = /\/api\/orders\/([^/?]+)/.exec(url.pathname);
+    if (m) {
+      const order = details[m[1]];
+      return order
+        ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ order }) })
+        : route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ error: { code: "not_found", message: "Not found." } }) });
+    }
+    const i = Number(url.searchParams.get("cursor") || 0);
+    const orders = pages[i] ?? [];
+    const next = i + 1 < pages.length ? String(i + 1) : null;
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ orders, next_cursor: next }) });
+  });
+}

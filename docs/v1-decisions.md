@@ -20,6 +20,11 @@ Running list for PR review (Felix). Spec: "ЛК — ТЗ v1.1" (2026-10-15).
    `read_assigned_fulfillment_orders`, `read_merchant_managed_fulfillment_orders`,
    `read_third_party_fulfillment_orders`, `read_marketplace_fulfillment_orders`.
 
+3. **Date and money format (§6.9).** Formatted with `Intl` by the browser's
+   language, as the spec says. A visitor whose browser is set to Russian sees
+   "Placed 2 окт. 2026 г." and "1 234,50 $" inside English copy. Alternative:
+   always `en-US` until a second language exists. Current behaviour = spec.
+
 ## Decisions (my calls)
 
 ### S1 — API foundation
@@ -110,3 +115,17 @@ Running list for PR review (Felix). Spec: "ЛК — ТЗ v1.1" (2026-10-15).
 
 ### Account screen
 - "Sign-in & security", "Sign out"
+
+### Orders (spec copy used verbatim: "No orders yet", the empty-state body and
+"Explore the collections", status labels Processing / Pre-order · in
+production / Shipped / Delivered / Refunded, "Load more", "Track with
+{Carrier}", "Need help with this order?", "We'll email you when it ships.")
+- Card: "+{n}" more items (spec: "+N")
+- Detail: back link "Orders" (screen readers: "Back to orders"); "Placed
+  {date}"; sections "Items" and "Shipments"; "Qty {n}"; "Total"; "Shipping to
+  {city}"; "Tracking number {n}"; "Shipped {date}"; "Delivered {date}";
+  "Arrives {date}" (only when Shopify has an estimate); "Track parcel" when the
+  carrier is unknown; "Pre-order" tag on a line
+- 404: "Order not found" / "This order isn't on your account. Orders placed
+  with a different email won't show here."
+- 503: "We couldn't load your orders right now. Please try again in a moment."

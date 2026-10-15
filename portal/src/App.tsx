@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api, ApiError, type Me, type User } from "./api";
 import { copy } from "./copy/en";
-import { matchPath, navigate, STOREFRONT_COLLECTIONS, STOREFRONT_ORIGIN, useLocation, type RouteName } from "./router";
+import { matchPath, navigate, STOREFRONT_ORIGIN, useLocation, type RouteName } from "./router";
 import { PublicLayout, Shell } from "./ui/Shell";
 import { EmptyState, ErrorState, Skeleton } from "./ui/states";
 import { Login } from "./screens/Login";
@@ -9,6 +9,7 @@ import { Auth } from "./screens/Auth";
 import { NotFound, SectionHeading } from "./screens/Placeholder";
 import { Account } from "./screens/Account";
 import { Security } from "./screens/Security";
+import { OrderDetail, Orders } from "./screens/Orders";
 
 type Session =
   | { status: "loading" }
@@ -110,27 +111,19 @@ export function App() {
 
   return (
     <Shell route={match.name} email={session.user.email} circleBadge={session.circleBadge} onSignOut={signOut}>
-      <Screen route={match.name} email={session.user.email} onSignOut={signOut} />
+      <Screen route={match.name} params={match.params} email={session.user.email} onSignOut={signOut} />
     </Shell>
   );
 }
 
-function Screen({ route, email, onSignOut }: { route: RouteName; email: string; onSignOut: () => void }) {
+type ScreenProps = { route: RouteName; params: Record<string, string>; email: string; onSignOut: () => void };
+
+function Screen({ route, params, email, onSignOut }: ScreenProps) {
   switch (route) {
     case "home": return <SectionHeading title={copy.home.welcomeBack} />;
-    // Empty states until the data arrives with S5 (orders) and S7 (saved).
-    case "orders":
-      return (
-        <>
-          <SectionHeading eyebrow={copy.eyebrows.orders} title={copy.nav.orders} />
-          <EmptyState
-            title={copy.orders.emptyTitle}
-            body={copy.orders.emptyBody}
-            action={<a class="button button-secondary" href={STOREFRONT_COLLECTIONS}>{copy.orders.emptyAction}</a>}
-          />
-        </>
-      );
-    case "order": return <SectionHeading eyebrow={copy.eyebrows.orders} title={copy.nav.orders} />;
+    case "orders": return <Orders />;
+    case "order": return <OrderDetail id={params.id} />;
+    // Empty state until the data arrives with S7.
     case "saved":
       return (
         <>

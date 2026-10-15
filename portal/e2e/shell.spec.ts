@@ -2,7 +2,7 @@
 // background, reduced motion, route guards and deep links.
 
 import { expect, test } from "@playwright/test";
-import { isMobile, mockSignedIn, mockSignedOut } from "./helpers";
+import { isMobile, mockOrders, mockSignedIn, mockSignedOut } from "./helpers";
 
 test("navigation follows §5.4 on this viewport", async ({ page }) => {
   await mockSignedIn(page);
@@ -58,6 +58,7 @@ test("the page background is #FBFBF9 everywhere", async ({ page }) => {
 
   await page.unrouteAll();
   await mockSignedIn(page);
+  await mockOrders(page, { pages: [[]] });
   await page.goto("/orders");
   await expect(page.getByRole("heading", { level: 1, name: "Orders" })).toBeVisible();
   expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgb(251, 251, 249)");
@@ -93,13 +94,16 @@ test("static routes are real pages with HTTP 200, not the 404 fallback", async (
 
 test("deep links survive the GitHub Pages 404 fallback", async ({ page }) => {
   await mockSignedIn(page);
+  await mockOrders(page, { details: {} });
   const res = await page.goto("/orders/1042");
   expect(res!.status()).toBe(404); // served by 404.html, as on Pages
-  await expect(page.getByRole("heading", { level: 1, name: "Orders" })).toBeVisible();
+  // The client router took over and asked the API for order 1042.
+  await expect(page.getByRole("heading", { name: "Order not found" })).toBeVisible();
 });
 
 test("empty Orders and Saved show the spec's empty states", async ({ page }) => {
   await mockSignedIn(page);
+  await mockOrders(page, { pages: [[]] });
   await page.goto("/orders");
   await expect(page.getByRole("heading", { level: 2, name: "No orders yet" })).toBeVisible();
   await expect(page.getByText("When you place an order with this email, it will appear here — with tracking.")).toBeVisible();
