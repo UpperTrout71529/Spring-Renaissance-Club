@@ -98,6 +98,19 @@ test("deep links survive the GitHub Pages 404 fallback", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1, name: "Orders" })).toBeVisible();
 });
 
+test("empty Orders and Saved show the spec's empty states", async ({ page }) => {
+  await mockSignedIn(page);
+  await page.goto("/orders");
+  await expect(page.getByRole("heading", { level: 2, name: "No orders yet" })).toBeVisible();
+  await expect(page.getByText("When you place an order with this email, it will appear here — with tracking.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Explore the collections" })).toHaveAttribute("href", "https://springrenaissance.store/collections/all");
+
+  await page.getByRole("link", { name: "Saved" }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Nothing saved yet" })).toBeVisible();
+  await expect(page.getByText("Tap ♡ on any piece in the store to keep it here.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Browse the store" })).toHaveAttribute("href", "https://springrenaissance.store");
+});
+
 test("an unknown path shows Page not found inside the shell", async ({ page }) => {
   await mockSignedIn(page);
   await page.goto("/nope");

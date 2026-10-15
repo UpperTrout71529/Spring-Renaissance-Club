@@ -86,6 +86,8 @@ export function safeReturnPath(value: string | null | undefined): string | null 
 }
 
 export const STOREFRONT_ORIGIN = "https://springrenaissance.store";
+// The theme's own "continue shopping" target (settings_data.json empty_cart_button_link).
+export const STOREFRONT_COLLECTIONS = `${STOREFRONT_ORIGIN}/collections/all`;
 
 export function isStorefrontUrl(value: string | null | undefined): boolean {
   if (!value) return false;

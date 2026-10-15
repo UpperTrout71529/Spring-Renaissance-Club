@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api, ApiError, type Me, type User } from "./api";
 import { copy } from "./copy/en";
-import { matchPath, navigate, useLocation, type RouteName } from "./router";
+import { matchPath, navigate, STOREFRONT_COLLECTIONS, STOREFRONT_ORIGIN, useLocation, type RouteName } from "./router";
 import { PublicLayout, Shell } from "./ui/Shell";
-import { ErrorState, Skeleton } from "./ui/states";
+import { EmptyState, ErrorState, Skeleton } from "./ui/states";
 import { Login } from "./screens/Login";
 import { Auth } from "./screens/Auth";
 import { NotFound, SectionHeading } from "./screens/Placeholder";
@@ -112,9 +112,30 @@ export function App() {
 function Screen({ route }: { route: RouteName }) {
   switch (route) {
     case "home": return <SectionHeading title={copy.home.welcomeBack} />;
+    // Empty states until the data arrives with S5 (orders) and S7 (saved).
     case "orders":
+      return (
+        <>
+          <SectionHeading eyebrow={copy.eyebrows.orders} title={copy.nav.orders} />
+          <EmptyState
+            title={copy.orders.emptyTitle}
+            body={copy.orders.emptyBody}
+            action={<a class="button button-secondary" href={STOREFRONT_COLLECTIONS}>{copy.orders.emptyAction}</a>}
+          />
+        </>
+      );
     case "order": return <SectionHeading eyebrow={copy.eyebrows.orders} title={copy.nav.orders} />;
-    case "saved": return <SectionHeading eyebrow={copy.eyebrows.saved} title={copy.nav.saved} />;
+    case "saved":
+      return (
+        <>
+          <SectionHeading eyebrow={copy.eyebrows.saved} title={copy.nav.saved} />
+          <EmptyState
+            title={copy.saved.emptyTitle}
+            body={copy.saved.emptyBody}
+            action={<a class="button button-secondary" href={STOREFRONT_ORIGIN}>{copy.saved.emptyAction}</a>}
+          />
+        </>
+      );
     case "circle": return <SectionHeading eyebrow={copy.eyebrows.circle} title={copy.nav.circle} />;
     case "account":
     case "accountSecurity":

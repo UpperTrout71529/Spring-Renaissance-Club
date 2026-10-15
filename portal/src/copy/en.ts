@@ -55,4 +55,15 @@ export const copy = {
   home: {
     welcomeBack: "Welcome back",
   },
+  // Spec §6.4 and §6.5, verbatim.
+  orders: {
+    emptyTitle: "No orders yet",
+    emptyBody: "When you place an order with this email, it will appear here — with tracking.",
+    emptyAction: "Explore the collections",
+  },
+  saved: {
+    emptyTitle: "Nothing saved yet",
+    emptyBody: "Tap ♡ on any piece in the store to keep it here.",
+    emptyAction: "Browse the store",
+  },
 };
