@@ -55,6 +55,8 @@ const env = makeEnv({
   RESEND_API_KEY: "e2e-resend",
   ALLOWED_ORIGINS: ORIGIN,
   PORTAL_URL: ORIGIN,
+  PASSKEY_RP_ID: "localhost",
+  PASSKEY_ORIGINS: ORIGIN,
 });
 const app = createApp({ fetch: outside });
 
@@ -91,6 +93,14 @@ async function body(req) {
 const server = createServer(certificate(), async (req, res) => {
   const url = new URL(req.url, ORIGIN);
   try {
+    if (url.pathname === "/__e2e/last-code") {
+      const to = url.searchParams.get("email");
+      const mail = [...emails].reverse().find((m) => m.to.includes(to) && m.subject === "Your confirmation code");
+      const code = mail ? /\b(\d{6})\b/.exec(mail.text)[1] : null;
+      res.writeHead(code ? 200 : 404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ code }));
+      return;
+    }
     if (url.pathname === "/__e2e/last-link") {
       const to = url.searchParams.get("email");
       const mail = [...emails].reverse().find((m) => m.to.includes(to));
@@ -104,6 +114,10 @@ const server = createServer(certificate(), async (req, res) => {
       for (const [k, v] of Object.entries(req.headers)) {
         if (typeof v === "string") headers.set(k, v);
       }
+      // Cloudflare sets the client address at the edge. Give each connection
+      // its own, so parallel tests do not share the §10.6 per-IP limits.
+      const port = req.socket.remotePort || 0;
+      headers.set("CF-Connecting-IP", `198.18.${(port >> 8) & 255}.${port & 255}`);
       const request = new Request(url, {
         method: req.method,
         headers,

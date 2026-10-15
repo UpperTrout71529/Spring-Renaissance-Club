@@ -7,6 +7,8 @@ import { EmptyState, ErrorState, Skeleton } from "./ui/states";
 import { Login } from "./screens/Login";
 import { Auth } from "./screens/Auth";
 import { NotFound, SectionHeading } from "./screens/Placeholder";
+import { Account } from "./screens/Account";
+import { Security } from "./screens/Security";
 
 type Session =
   | { status: "loading" }
@@ -22,7 +24,7 @@ const TITLES: Partial<Record<RouteName, string>> = {
   saved: copy.nav.saved,
   circle: copy.nav.circle,
   account: copy.nav.account,
-  accountSecurity: copy.nav.account,
+  accountSecurity: copy.security.title,
   accountPrivacy: copy.nav.account,
   notFound: copy.notFound.title,
 };
@@ -92,7 +94,11 @@ export function App() {
     if (session.status === "loading" || session.status === "signed-in") {
       return <PublicLayout><Skeleton lines={3} label={copy.login.title} /></PublicLayout>;
     }
-    return <PublicLayout><Login returnTo={returnTo} /></PublicLayout>;
+    return (
+      <PublicLayout>
+        <Login returnTo={returnTo} onSignedIn={(user) => setSession({ status: "signed-in", user, circleBadge: false })} />
+      </PublicLayout>
+    );
   }
 
   if (session.status === "error") {
@@ -104,12 +110,12 @@ export function App() {
 
   return (
     <Shell route={match.name} email={session.user.email} circleBadge={session.circleBadge} onSignOut={signOut}>
-      <Screen route={match.name} />
+      <Screen route={match.name} email={session.user.email} onSignOut={signOut} />
     </Shell>
   );
 }
 
-function Screen({ route }: { route: RouteName }) {
+function Screen({ route, email, onSignOut }: { route: RouteName; email: string; onSignOut: () => void }) {
   switch (route) {
     case "home": return <SectionHeading title={copy.home.welcomeBack} />;
     // Empty states until the data arrives with S5 (orders) and S7 (saved).
@@ -137,8 +143,8 @@ function Screen({ route }: { route: RouteName }) {
         </>
       );
     case "circle": return <SectionHeading eyebrow={copy.eyebrows.circle} title={copy.nav.circle} />;
-    case "account":
-    case "accountSecurity":
+    case "account": return <Account email={email} onSignOut={onSignOut} />;
+    case "accountSecurity": return <Security email={email} />;
     case "accountPrivacy": return <SectionHeading title={copy.nav.account} />;
     default: return <NotFound />;
   }

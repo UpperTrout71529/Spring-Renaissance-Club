@@ -32,6 +32,10 @@ export const copy = {
     resend: "Resend link",
     resendIn: (seconds: number) => `Resend link in ${seconds} s`,
     resent: "We sent a fresh link.",
+    or: "or",
+    // §6.2: "Face ID" (iOS), "Touch ID" (Mac), "your device" otherwise.
+    passkey: (name: string | null) => `Sign in with ${name ?? "your device"}`,
+    passkeyFailed: "We couldn't sign you in with this passkey. Try again, or use a sign-in link.",
   },
   auth: {
     signingIn: "Signing you in…",
@@ -54,6 +58,38 @@ export const copy = {
   },
   home: {
     welcomeBack: "Welcome back",
+  },
+  account: {
+    security: "Sign-in & security",
+  },
+  security: {
+    title: "Sign-in & security",
+    passkeysTitle: "Passkeys",
+    passkeysBody: "Sign in with your face, fingerprint or screen lock instead of an email link.",
+    emptyTitle: "No passkeys yet",
+    emptyBody: (name: string | null) => `Sign in faster next time with ${name ?? "a passkey"}.`,
+    add: (name: string | null) => (name ? `Add ${name}` : "Add a passkey"),
+    adding: "Waiting for your device…",
+    unnamed: "Passkey",
+    added: (date: string) => `Added ${date}`,
+    lastUsed: (date: string) => `Last used ${date}`,
+    neverUsed: "Not used yet",
+    remove: "Remove",
+    removeLabel: (label: string) => `Remove ${label}`,
+    addFailed: "We couldn't add this passkey. Please try again.",
+    loading: "Loading your passkeys",
+  },
+  stepUp: {
+    title: "Confirm it's you",
+    body: "For your security, please confirm before making this change.",
+    usePasskey: (name: string | null) => `Confirm with ${name ?? "your device"}`,
+    emailCode: "Email me a code",
+    codeSent: (email: string) => `We sent a 6-digit code to ${email}. It works for 10 minutes.`,
+    codeLabel: "Confirmation code",
+    confirm: "Confirm",
+    resend: "Send a new code",
+    cancel: "Cancel",
+    passkeyFailed: "We couldn't confirm with this passkey. You can use a code instead.",
   },
   // Spec §6.4 and §6.5, verbatim.
   orders: {

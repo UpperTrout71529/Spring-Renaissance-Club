@@ -1,15 +1,20 @@
 // /login (spec §6.2): one form for sign-in and sign-up; email → link.
 
 import { useEffect, useRef, useState } from "preact/hooks";
-import { api, ApiError } from "../api";
+import { api, ApiError, type User } from "../api";
 import { copy } from "../copy/en";
 import { getTurnstileToken } from "../turnstile";
+import { isStorefrontUrl, navigate, safeReturnPath } from "../router";
+import {
+  browserSupportsWebAuthn, browserSupportsWebAuthnAutofill, cancelPendingCeremony, deviceAuthName, isCancelled,
+  signInWithPasskey,
+} from "../passkeys";
 import "./login.css";
 
 const RESEND_AFTER_S = 30;
 const EMAIL_RE = /^[^\s@"\\]+@[^\s@."\\]+(\.[^\s@."\\]+)+$/;
 
-export function Login({ returnTo }: { returnTo: string | null }) {
+export function Login({ returnTo, onSignedIn }: { returnTo: string | null; onSignedIn: (user: User) => void }) {
   const [email, setEmail] = useState("");
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [error, setError] = useState<{ message: string; field: boolean } | null>(null);
@@ -19,6 +24,45 @@ export function Login({ returnTo }: { returnTo: string | null }) {
   const turnstileBox = useRef<HTMLDivElement>(null);
   const emailInput = useRef<HTMLInputElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
+  const passkeys = browserSupportsWebAuthn();
+
+  function finish(user: User) {
+    if (isStorefrontUrl(returnTo)) {
+      location.assign(returnTo!);
+      return;
+    }
+    navigate(safeReturnPath(returnTo) ?? "/", { replace: true });
+    onSignedIn(user);
+  }
+
+  // Conditional UI (§10.3): saved passkeys appear in the email field's
+  // autofill; picking one signs in without a link.
+  useEffect(() => {
+    if (sentTo) return;
+    let active = true;
+    void browserSupportsWebAuthnAutofill().then((ok) => {
+      if (!ok || !active) return;
+      signInWithPasskey({ autofill: true }).then((user) => active && finish(user)).catch(() => {
+        // Cancelled or replaced by the button: nothing to report.
+      });
+    });
+    return () => {
+      active = false;
+      cancelPendingCeremony();
+    };
+  }, [sentTo]);
+
+  async function onPasskey() {
+    setBusy(true);
+    setError(null);
+    try {
+      finish(await signInWithPasskey());
+    } catch (e) {
+      if (!isCancelled(e)) setError({ message: copy.login.passkeyFailed, field: false });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (resendIn <= 0) return;
@@ -101,7 +145,7 @@ export function Login({ returnTo }: { returnTo: string | null }) {
             name="email"
             type="email"
             inputMode="email"
-            autoComplete="email"
+            autoComplete="username webauthn"
             autoCapitalize="off"
             spellcheck={false}
             required
@@ -117,6 +161,14 @@ export function Login({ returnTo }: { returnTo: string | null }) {
         </button>
         <div ref={turnstileBox} class="turnstile" />
       </form>
+      {passkeys && (
+        <>
+          <p class="login-or" aria-hidden="true"><span>{copy.login.or}</span></p>
+          <button type="button" class="button button-secondary button-block" disabled={busy} onClick={onPasskey}>
+            {copy.login.passkey(deviceAuthName())}
+          </button>
+        </>
+      )}
       <p class="small">{copy.login.newHere}</p>
     </div>
   );
