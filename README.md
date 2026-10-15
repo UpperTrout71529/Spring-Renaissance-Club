@@ -44,6 +44,10 @@ there. `0001_users.sql` renames the pre-portal subscriber table `users` to
 `legacy_users` (the legacy code in `worker.js` uses that name) and creates the
 portal's `users`. Never edit an applied migration; add a new one.
 
+Migrations that rename tables the legacy code reads must ship together with
+the Worker that reads the new names — see `docs/rollout-s1.md` for the order
+and the rollback.
+
 **Order matters on every deploy that changes the schema.** The rate limiter's
 cleanups depend on `idx_rate_events_created` and `idx_processed_events_at`; ship
 the worker before the indexes and the first request full-scans live data, on the

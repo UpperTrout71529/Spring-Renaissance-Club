@@ -83,3 +83,27 @@ test('S1-M5: sessions and magic links reference users and enforce their enums', 
     `INSERT INTO magic_links (token_hash, email, purpose, expires_at, created_at) VALUES ('t', 'a@b.com', 'other', ?1, ?1)`
   ).run(now), /CHECK/);
 });
+
+test('S1-M6: scripts/rollback/s1_down.sql restores the baseline shape and keeps legacy rows', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { REPO_ROOT } = await import('./harness.mjs');
+  const db = new DatabaseSync(':memory:');
+  // wrangler's bookkeeping table, which the rollback edits.
+  db.exec('CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TEXT)');
+  applyMigrations(db, MIGRATIONS.slice(0, 1));
+  db.prepare("INSERT INTO users (email, credits, updated_at) VALUES ('legacy@b.com', 40, 1)").run();
+  applyMigrations(db, MIGRATIONS.slice(1));
+  for (const m of MIGRATIONS) db.prepare('INSERT INTO d1_migrations (name) VALUES (?)').run(m.name);
+
+  db.exec(readFileSync(join(REPO_ROOT, 'scripts', 'rollback', 's1_down.sql'), 'utf8'));
+
+  assert.deepEqual(tables(db), ['chat_messages', 'chat_sessions', 'd1_migrations', 'processed_events', 'rate_events', 'users']);
+  assert.equal(db.prepare('SELECT credits FROM users WHERE email = ?').get('legacy@b.com').credits, 40);
+  assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'idx_users_customer'").get());
+  assert.deepEqual(db.prepare('SELECT name FROM d1_migrations').all().map((r) => r.name), ['0000_baseline.sql']);
+
+  // And forward again.
+  applyMigrations(db, MIGRATIONS.slice(1));
+  assert.equal(db.prepare('SELECT credits FROM legacy_users').get().credits, 40);
+});
