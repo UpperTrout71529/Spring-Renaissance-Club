@@ -1,0 +1,33 @@
+name: portal-ci
+
+# Portal: type-check + build, unit tests, e2e (Chromium + WebKit at 375 and
+# 1280, axe, real-Worker sign-in) and Lighthouse accessibility ≥ 95.
+on:
+  push:
+    paths: ["portal/**", "src/**", "worker.js", "migrations/**", "test/harness.mjs", ".github/workflows/portal-ci.yml"]
+  pull_request:
+    paths: ["portal/**", "src/**", "worker.js", "migrations/**", "test/harness.mjs", ".github/workflows/portal-ci.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  portal:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: portal/package-lock.json
+      - run: npm ci
+      - run: npm audit --omit=dev
+      - run: npm run build
+      - run: npm test
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run e2e
+      - run: npm run lighthouse

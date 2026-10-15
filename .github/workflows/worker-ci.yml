@@ -1,0 +1,19 @@
+name: worker-ci
+
+# Worker test suite (legacy worker.js + portal API in src/) on every push and PR.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24   # node:sqlite backs the D1 emulation
+      - run: node --test test/*.test.mjs

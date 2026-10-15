@@ -1,0 +1,55 @@
+name: pages
+
+# Builds portal/ and publishes it to GitHub Pages (club.springrenaissance.store).
+#
+# Manual only, on purpose: today Pages serves the single-file index.html from
+# the main branch. Publishing from this workflow requires switching the repo's
+# Pages source to "GitHub Actions" and replaces that portal — Felix's call,
+# together with the Worker rollout (docs/rollout-s1.md).
+#
+# Repository variables (Settings → Variables): VITE_TURNSTILE_SITE_KEY,
+# VITE_CF_BEACON_TOKEN (Cloudflare Web Analytics). Neither is a secret.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: portal/package-lock.json
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_TURNSTILE_SITE_KEY: ${{ vars.VITE_TURNSTILE_SITE_KEY }}
+          VITE_CF_BEACON_TOKEN: ${{ vars.VITE_CF_BEACON_TOKEN }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: portal/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
