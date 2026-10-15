@@ -7,19 +7,30 @@
 //   prepare(sql).bind(...).all()   -> { results: [...] }
 //   batch([stmt, ...])             -> results array, all-or-nothing
 //
-// It applies the repository's own schema.sql rather than a private copy, so a
-// schema that drifts from the code fails the suite instead of passing quietly.
+// It applies the repository's own migrations/*.sql, in order, rather than a
+// private copy, so a schema that drifts from the code fails the suite instead
+// of passing quietly.
 // Same principle as the client suite reading the real index.html.
 // ============================================================================
 
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = join(HERE, '..');
-const SCHEMA_SQL = readFileSync(join(REPO_ROOT, 'schema.sql'), 'utf8');
+const MIGRATIONS_DIR = join(REPO_ROOT, 'migrations');
+
+// Same order wrangler applies them in: by file name.
+export const MIGRATIONS = readdirSync(MIGRATIONS_DIR)
+  .filter((f) => f.endsWith('.sql'))
+  .sort()
+  .map((name) => ({ name, sql: readFileSync(join(MIGRATIONS_DIR, name), 'utf8') }));
+
+export function applyMigrations(db, migrations = MIGRATIONS) {
+  for (const m of migrations) db.exec(m.sql);
+}
 
 // Forces a full macrotask turn before a statement runs. Without it, this
 // emulator is too well-behaved to expose a lost update: everything resolves on
@@ -95,8 +106,13 @@ function normalizeBindValue(v) {
 // it uses runSync and never yields mid-transaction, matching D1's guarantee.
 export function makeDB({ interleave = false } = {}) {
   const db = new DatabaseSync(':memory:');
-  db.exec(SCHEMA_SQL);
+  applyMigrations(db);
+  return wrapDB(db, { interleave });
+}
 
+// Wraps an existing connection, so a test can build a database at an older
+// migration, seed it, and migrate it forward.
+export function wrapDB(db, { interleave = false } = {}) {
   return {
     _db: db,
     prepare(sql) {
@@ -229,7 +245,7 @@ export function seedUser(env, row = {}) {
     ...row
   };
   env.DB._db.prepare(
-    `INSERT OR REPLACE INTO users
+    `INSERT OR REPLACE INTO legacy_users
        (email, status, credits, skipped, stripe_customer_id, stripe_subscription_id,
         magic_revoked_before, past_due_at, canceled_at, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?)`
@@ -254,7 +270,7 @@ export async function seedClient(env, { token = 'TOK', ...row } = {}) {
 }
 
 export function userRow(env, email = 'a@b.com') {
-  return env.DB._row('SELECT * FROM users WHERE email = ?', email);
+  return env.DB._row('SELECT * FROM legacy_users WHERE email = ?', email);
 }
 
 export function chatMessages(env, email = 'a@b.com') {

@@ -1,17 +1,21 @@
 -- ============================================================================
--- Spring Renaissance — D1 schema.
+-- Spring Renaissance — D1 migration 0000: baseline.
+--
+-- The former schema.sql of feat/d1-state @ 0849b7f, verbatim — the schema
+-- production D1 holds today. Every statement is IF NOT EXISTS, so on the
+-- existing database this is a no-op and on a clean one it recreates the same
+-- starting point. Do not edit; add a new migration instead.
 --
 -- Everything that is mutated concurrently lives here (ADR-001). Sessions
 -- (magic_<token>) and the customer index (cust_<id>) stay in KV: they are
 -- written once and read by key, and KV's TTL is a free, reliable expiry
 -- mechanism there is no reason to reimplement in SQL.
 --
--- Apply with:
---   wrangler d1 execute spring-renaissance --local  --file=./schema.sql
---   wrangler d1 execute spring-renaissance --remote --file=./schema.sql
+-- Apply all migrations with:
+--   wrangler d1 migrations apply spring-renaissance --local
 --
--- Every statement is idempotent, so re-applying is safe. The test harness
--- applies THIS file rather than a copy, so schema drift fails the suite.
+-- The test harness applies migrations/*.sql in order rather than a copy, so
+-- schema drift fails the suite.
 -- ============================================================================
 
 -- Client state. The single source of truth after migration.

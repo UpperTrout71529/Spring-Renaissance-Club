@@ -32,13 +32,19 @@ never a read-modify-write in JS.
 ## Setup
 
 ```bash
-wrangler d1 create spring-renaissance      # put the id into wrangler.toml
-wrangler d1 execute spring-renaissance --local  --file=./schema.sql
-wrangler d1 execute spring-renaissance --remote --file=./schema.sql
-wrangler deploy                            # schema FIRST, then the worker
+wrangler d1 migrations apply spring-renaissance --local    # try locally first
+wrangler d1 migrations apply spring-renaissance --remote   # production: only with Felix's go-ahead
+wrangler deploy                                            # migrations FIRST, then the worker
 ```
 
-**Order matters on every deploy that changes `schema.sql`.** The rate limiter's
+The schema lives in `migrations/`, applied in file-name order.
+`0000_baseline.sql` is the former `schema.sql` — exactly what production D1
+held before migrations existed; it is all `IF NOT EXISTS`, so it is a no-op
+there. `0001_users.sql` renames the pre-portal subscriber table `users` to
+`legacy_users` (the legacy code in `worker.js` uses that name) and creates the
+portal's `users`. Never edit an applied migration; add a new one.
+
+**Order matters on every deploy that changes the schema.** The rate limiter's
 cleanups depend on `idx_rate_events_created` and `idx_processed_events_at`; ship
 the worker before the indexes and the first request full-scans live data, on the
 one code path an unauthenticated caller can reach.
@@ -55,7 +61,7 @@ for i in $(seq 1 20); do node --test test/atomicity.test.mjs || break; done
 ```
 
 The suite runs against a D1 emulation over `node:sqlite` that applies this
-repository's own `schema.sql`, so schema drift fails the tests rather than
+repository's own `migrations/*.sql` in order, so schema drift fails the tests rather than
 passing quietly. The `interleave` variants in `atomicity.test.mjs` force a
 macrotask turn before every statement; without that the emulator is too
 well-behaved to expose a lost update, and a read-modify-write would pass a
