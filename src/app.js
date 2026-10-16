@@ -36,6 +36,8 @@ import { getCircle, getCredits } from "./routes/circle-member.js";
 import { listRedemptions, postRedeem, postReturn } from "./routes/credits.js";
 import { billingRetry, cancelConfirm, cancelKeep, cancelStart, cancelUndo } from "./routes/circle-cancel.js";
 import { getMembershipBilling, postBillingPortal } from "./routes/account-membership.js";
+import { getWelcome, postWelcome } from "./routes/circle-welcome.js";
+import { assignGift, createGiftOption, createGiftOrder, getGiftQueue, listGiftOptions, patchGiftOption } from "./routes/admin-gifts.js";
 import { getEconomics, listCosts, postCatalogSync, putCost, putEconomics, putPriceList } from "./routes/admin-economics.js";
 
 // Route options:
@@ -89,6 +91,8 @@ export const ROUTES = [
   { method: "POST", path: "/api/circle/billing/retry", handler: billingRetry, auth: "session" },
   { method: "GET", path: "/api/account/membership", handler: getMembershipBilling, auth: "session" },
   { method: "POST", path: "/api/account/membership/portal", handler: postBillingPortal, auth: "session" },
+  { method: "GET", path: "/api/circle/welcome", handler: getWelcome, auth: "session" },
+  { method: "POST", path: "/api/circle/welcome", handler: postWelcome, auth: "session" },
   { method: "GET", path: "/api/circle/join", handler: getJoin, auth: "session" },
   { method: "POST", path: "/api/circle/checkout", handler: postCheckout, auth: "session" },
   { method: "POST", path: "/api/circle/rejoin", handler: postRejoin, auth: "session" },
@@ -109,6 +113,12 @@ export const ROUTES = [
   { method: "PUT", path: "/api/admin/costs", handler: putCost, auth: "admin" },
   { method: "PUT", path: "/api/admin/circle-price/list", handler: putPriceList, auth: "admin" },
   { method: "POST", path: "/api/admin/catalog/sync", handler: postCatalogSync, auth: "admin" },
+  { method: "GET", path: "/api/admin/gift-options", handler: listGiftOptions, auth: "admin" },
+  { method: "POST", path: "/api/admin/gift-options", handler: createGiftOption, auth: "admin" },
+  { method: "PATCH", path: "/api/admin/gift-options/:id", handler: patchGiftOption, auth: "admin" },
+  { method: "GET", path: "/api/admin/gift-queue", handler: getGiftQueue, auth: "admin" },
+  { method: "POST", path: "/api/admin/gift-queue/:id/assign", handler: assignGift, auth: "admin" },
+  { method: "POST", path: "/api/admin/gift-queue/:id/create-order", handler: createGiftOrder, auth: "admin" },
   { method: "GET", path: "/admin", handler: serveAdmin, auth: "admin" },
   { method: "GET", path: "/admin/:file", handler: serveAdmin, auth: "admin" },
 ];
@@ -222,7 +232,11 @@ export function createApp({
 
         return finalize(await route.handler(ctx));
       } catch (e) {
-        if (e instanceof HttpError) return finalize(json(errorBody(e.code, e.message), e.status, e.headers));
+        if (e instanceof HttpError) {
+          const payload = errorBody(e.code, e.message);
+          if (e.explanation) payload.explanation = e.explanation;
+          return finalize(json(payload, e.status, e.headers));
+        }
         // No request data in the log line: it can carry personal data.
         console.error("unhandled error", url.pathname, e && e.name, e && e.message);
         return finalize(json(errorBody("internal_error", "Something went wrong. Please try again."), 500));
