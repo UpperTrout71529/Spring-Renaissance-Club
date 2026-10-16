@@ -16,6 +16,7 @@ import { removeCustomerTags, shopifyConfigured, updateCustomer } from "../shopif
 import { portalUrl } from "./auth.js";
 import { WAITLIST_TAG } from "./circle.js";
 import { closeCircleForDeletion } from "../circle/account-delete.js";
+import { circleExport } from "../circle/account-data.js";
 import { PAST_TAG, VIP_TAG } from "../circle/effects.js";
 
 const HOUR = 60 * 60 * 1000;
@@ -186,6 +187,8 @@ export async function exportAccount(ctx) {
     sessions: await all(
       "SELECT auth_method, ua_summary, geo_city, created_at, last_seen_at, revoked_at FROM sessions WHERE user_id = ?1 ORDER BY created_at"),
   };
+  const circle = await circleExport(env, id);
+  if (circle) data.circle = circle;
   const day = ctx.nowIso().slice(0, 10);
   return new Response(JSON.stringify(data, null, 2), {
     status: 200,

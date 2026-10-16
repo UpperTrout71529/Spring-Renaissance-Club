@@ -43,6 +43,7 @@ import { getMeStorefront, getStorefrontCirclePrice } from "./routes/storefront.j
 import { assignAnniversary, createAnniversaryOrder, getAnniversary, postAnniversary } from "./circle/anniversary.js";
 import { registerCircle } from "./circle/register.js";
 import { decideInvitation, getInvite, listInvitations } from "./circle/invitations.js";
+import { adminRoomImage, deleteRoom, getConcierge, getRoomImage, getThread, listRooms, listThreads, postConcierge, replyThread, uploadRoom } from "./circle/concierge.js";
 import { claimCapsule, createCapsule, deleteSkip, getCapsules, listCapsulesAdmin, listSkips, patchCapsule, postSkip } from "./circle/capsules.js";
 import { closeRelease, createRelease, getObject, getReleaseGuard, listReleases, openReleaseNow, patchRelease, postObjectClaim } from "./routes/member-object.js";
 
@@ -111,6 +112,12 @@ export const ROUTES = [
   { method: "GET", path: "/api/circle/skips", handler: listSkips, auth: "session" },
   { method: "POST", path: "/api/circle/skips", handler: postSkip, auth: "session" },
   { method: "DELETE", path: "/api/circle/skips/:capsule_id", handler: deleteSkip, auth: "session" },
+  { method: "GET", path: "/api/circle/concierge", handler: getConcierge, auth: "session" },
+  { method: "POST", path: "/api/circle/concierge", handler: postConcierge, auth: "session" },
+  { method: "GET", path: "/api/circle/rooms", handler: listRooms, auth: "session" },
+  { method: "PUT", path: "/api/circle/rooms", handler: uploadRoom, auth: "session" },
+  { method: "GET", path: "/api/circle/rooms/:id/image", handler: getRoomImage, auth: "session" },
+  { method: "DELETE", path: "/api/circle/rooms/:id", handler: deleteRoom, auth: "session" },
   { method: "GET", path: "/api/circle/join", handler: getJoin, auth: "session" },
   { method: "POST", path: "/api/circle/checkout", handler: postCheckout, auth: "session" },
   { method: "POST", path: "/api/circle/rejoin", handler: postRejoin, auth: "session" },
@@ -152,6 +159,10 @@ export const ROUTES = [
   { method: "GET", path: "/api/admin/capsules", handler: listCapsulesAdmin, auth: "admin" },
   { method: "POST", path: "/api/admin/capsules", handler: createCapsule, auth: "admin" },
   { method: "PATCH", path: "/api/admin/capsules/:id", handler: patchCapsule, auth: "admin" },
+  { method: "GET", path: "/api/admin/concierge", handler: listThreads, auth: "admin" },
+  { method: "GET", path: "/api/admin/concierge/:id", handler: getThread, auth: "admin" },
+  { method: "POST", path: "/api/admin/concierge/:id/reply", handler: replyThread, auth: "admin" },
+  { method: "GET", path: "/api/admin/rooms/:id/image", handler: adminRoomImage, auth: "admin" },
   { method: "GET", path: "/admin", handler: serveAdmin, auth: "admin" },
   { method: "GET", path: "/admin/:file", handler: serveAdmin, auth: "admin" },
 ];

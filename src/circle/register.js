@@ -8,6 +8,8 @@ import { giftQueues } from "../routes/admin-gifts.js";
 import { memberSections } from "../routes/circle-member.js";
 import { invitations } from "../routes/circle-join.js";
 import * as inv from "./invitations.js";
+import { deletionClosers } from "./account-delete.js";
+import { circleDeletion } from "./account-data.js";
 
 let done = false;
 export function registerCircle() {
@@ -23,6 +25,7 @@ export function registerCircle() {
   invitations.describe = inv.describeInvitation;
   invitations.forCheckout = inv.invitationForCheckout;
   giftQueues.push(anniversaryQueue);
+  deletionClosers.push(circleDeletion);
   memberSections.push(async (ctx, { userId }) => {
     const g = await ctx.env.DB.prepare(
       "SELECT status FROM anniversary_gifts WHERE user_id = ?1 AND status = 'awaiting_address' LIMIT 1"
