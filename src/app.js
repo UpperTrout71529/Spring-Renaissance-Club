@@ -30,6 +30,7 @@ import { getMember, getMetrics, listAudit, listEmails, listMembers, listWebhooks
 import { verifyAdmin } from "./admin/access.js";
 import { postEvent } from "./routes/events.js";
 import { shopifyWebhook } from "./routes/webhooks-shopify.js";
+import { getJoin, postCheckout, postRejoin } from "./routes/circle-join.js";
 import { getEconomics, listCosts, postCatalogSync, putCost, putEconomics, putPriceList } from "./routes/admin-economics.js";
 
 // Route options:
@@ -71,6 +72,9 @@ export const ROUTES = [
   { method: "DELETE", path: "/api/account", handler: deleteAccount, auth: "session" },
   { method: "GET", path: "/api/circle/teaser", handler: getTeaser, auth: "session" },
   { method: "POST", path: "/api/circle/waitlist", handler: joinWaitlist, auth: "session" },
+  { method: "GET", path: "/api/circle/join", handler: getJoin, auth: "session" },
+  { method: "POST", path: "/api/circle/checkout", handler: postCheckout, auth: "session" },
+  { method: "POST", path: "/api/circle/rejoin", handler: postRejoin, auth: "session" },
   { method: "GET", path: "/api/orders", handler: listOrders, auth: "session" },
   { method: "GET", path: "/api/orders/:id", handler: getOrder, auth: "session" },
   { method: "POST", path: "/webhooks/shopify", handler: shopifyWebhook, crossSite: true },

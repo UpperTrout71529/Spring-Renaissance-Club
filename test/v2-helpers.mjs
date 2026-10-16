@@ -112,3 +112,41 @@ export function serveCatalog(world, products, pageSize = 2) {
     return { products: { pageInfo: { hasNextPage: end < products.length, endCursor: String(end) }, nodes } };
   };
 }
+
+// ---- Stripe basics: catalog, customers, Checkout --------------------------------
+
+export const PRICES = {
+  monthly: { id: 'price_monthly', lookup_key: 'circle_monthly_usd', unit_amount: 2000, currency: 'usd', active: true, product: 'prod_membership', recurring: { interval: 'month' } },
+  joining: { id: 'price_joining', lookup_key: 'circle_joining_usd', unit_amount: 3000, currency: 'usd', active: true, product: 'prod_joining', recurring: null },
+};
+
+export function stripeBasics(world) {
+  world.stripe = { customers: [], sessions: [] };
+  world.stripeOn('GET', '/v1/prices', () => ({ data: [PRICES.monthly, PRICES.joining] }));
+  world.stripeOn('POST', '/v1/customers', (call) => {
+    const c = { id: `cus_${world.stripe.customers.length + 1}`, email: call.params.email, metadata: { user_id: call.params['metadata[user_id]'] } };
+    world.stripe.customers.push(c);
+    return c;
+  });
+  world.stripeOn('POST', '/v1/checkout/sessions', (call) => {
+    const s = { id: `cs_test_${world.stripe.sessions.length + 1}`, url: `https://checkout.stripe.com/c/pay/cs_test_${world.stripe.sessions.length + 1}`, params: call.params };
+    world.stripe.sessions.push(s);
+    return { id: s.id, url: s.url };
+  });
+  return world;
+}
+
+export const STRIPE_ENV = { STRIPE_SECRET_KEY: 'sk_test_fake', CIRCLE_JOIN_OPEN: 'on', PORTAL_URL: 'https://club.springrenaissance.store' };
+
+// Two active welcome pieces and exact shipping for class S, so the join gate opens.
+export function seedWelcomeSet(t, { shippingCents = 600 } = {}) {
+  const db = t.env.DB._db;
+  db.prepare(`INSERT INTO economics_settings (key, value_json, version, updated_by, updated_at) VALUES ('shipping', ?, 1, 'test', 'x')
+    ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`).run(JSON.stringify({
+    S: { cents: shippingCents, estimate: false }, M: { cents: null, estimate: true }, L: { cents: null, estimate: true },
+  }));
+  for (const [id, cost] of [['gw1', 1500], ['gw2', 1800]]) {
+    db.prepare(`INSERT INTO gift_options (id, kind, title, blurb, shopify_variant_gid, image_url, landed_cost_cents, shipping_class, active, sort, created_at, updated_at)
+      VALUES (?, 'welcome', ?, 'A sealed piece.', ?, NULL, ?, 'S', 1, 0, 'x', 'x')`).run(id, `Piece ${id}`, `gid://shopify/ProductVariant/9${id.slice(2)}`, cost);
+  }
+}
