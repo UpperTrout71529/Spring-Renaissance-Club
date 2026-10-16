@@ -9,7 +9,7 @@
 import legacyWorker from "../worker.js";
 import { createRouter } from "./http/router.js";
 import { HttpError, errorBody, forbidden, unauthenticated } from "./http/errors.js";
-import { assertTrustedMutation, corsHeaders, isAllowedOrigin, preflightHeaders } from "./http/cors.js";
+import { assertAdminMutation, assertTrustedMutation, corsHeaders, isAllowedOrigin, preflightHeaders } from "./http/cors.js";
 import { loadSession } from "./auth/session.js";
 import { ulid } from "./lib/ulid.js";
 import { health } from "./routes/health.js";
@@ -30,6 +30,7 @@ import { getMember, getMetrics, listAudit, listEmails, listMembers, listWebhooks
 import { verifyAdmin } from "./admin/access.js";
 import { postEvent } from "./routes/events.js";
 import { shopifyWebhook } from "./routes/webhooks-shopify.js";
+import { getEconomics, listCosts, postCatalogSync, putCost, putEconomics, putPriceList } from "./routes/admin-economics.js";
 
 // Route options:
 //   auth: "session"   — 401 without a live session; ctx.session is set
@@ -80,6 +81,12 @@ export const ROUTES = [
   { method: "GET", path: "/api/admin/webhooks", handler: listWebhooks, auth: "admin" },
   { method: "GET", path: "/api/admin/emails", handler: listEmails, auth: "admin" },
   { method: "GET", path: "/api/admin/audit", handler: listAudit, auth: "admin" },
+  { method: "GET", path: "/api/admin/economics", handler: getEconomics, auth: "admin" },
+  { method: "PUT", path: "/api/admin/economics", handler: putEconomics, auth: "admin" },
+  { method: "GET", path: "/api/admin/costs", handler: listCosts, auth: "admin" },
+  { method: "PUT", path: "/api/admin/costs", handler: putCost, auth: "admin" },
+  { method: "PUT", path: "/api/admin/circle-price/list", handler: putPriceList, auth: "admin" },
+  { method: "POST", path: "/api/admin/catalog/sync", handler: postCatalogSync, auth: "admin" },
   { method: "GET", path: "/admin", handler: serveAdmin, auth: "admin" },
   { method: "GET", path: "/admin/:file", handler: serveAdmin, auth: "admin" },
 ];
@@ -157,7 +164,8 @@ export function createApp({
           });
         }
         const route = match.route;
-        if (!route.crossSite) assertTrustedMutation(request, env);
+        if (route.auth === "admin") assertAdminMutation(request, url);
+        else if (!route.crossSite) assertTrustedMutation(request, env);
 
         const nowMs = now();
         const ctx = {

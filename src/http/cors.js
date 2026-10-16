@@ -59,3 +59,16 @@ export function assertTrustedMutation(request, env) {
     throw forbidden("client_header_missing", "This request is not allowed from here.");
   }
 }
+
+// Admin writes (V2): the admin page is served from the API's own origin
+// (/admin), so a write must come from exactly that origin and carry
+// X-SR-Client: admin — on top of the Cloudflare Access JWT.
+export function assertAdminMutation(request, url) {
+  if (isSafeMethod(request.method)) return;
+  if (request.headers.get("Origin") !== url.origin) {
+    throw forbidden("origin_not_allowed", "This request is not allowed from here.");
+  }
+  if (request.headers.get("X-SR-Client") !== "admin") {
+    throw forbidden("client_header_missing", "This request is not allowed from here.");
+  }
+}
