@@ -35,7 +35,7 @@ reviews — empty field + "needs data from Felix".
 - **Seasonal capsules** with Skip (Skip does not stop billing — §16.2 v1).
 - **Concierge** — Felix answers, no AI. **Your rooms** (Spatial Profile).
 - **Early access, 48 hours,** and first right to numbered editions. Δ Neither
-  spec v1.1 nor the brief defines how this works; see §1.4.
+  spec v1.1 nor the brief defines how this works; see §1.3.
 - **Refills** — shown as "coming" on the benefits page only; no dates, no
   prices, no mechanism.
 
@@ -48,7 +48,7 @@ reviews — empty field + "needs data from Felix".
 - **H. Invite a friend** — once a season, friend gets money off the joining
   fee, member gets credits after the friend's second paid month (§11).
 
-### 1.4 Early access — mechanism to decide
+### 1.3 Early access — mechanism to decide
 Shopify cannot show a product to members 48 hours before everyone else
 without Plus features. Proposal: during the 48-hour window the new piece stays
 unpublished and members buy it through the same portal draft-order path as the
@@ -57,7 +57,7 @@ piece is eligible; at the end of the window Felix publishes it. Until Felix
 chooses, the benefits page does not list early access (only working benefits
 are shown).
 
-### 1.3 Rejected (do not build)
+### 1.4 Rejected (do not build)
 Numbered membership card; holds without payment; lifetime care (maybe later);
 certificate and registry.
 
@@ -650,7 +650,7 @@ Benefits page `/circle` (Club):
   - The concierge — write to us, and a person answers.
   - Your rooms — share photos of your rooms so we can suggest pieces.
   - Early access — 48 hours before anyone else, and first right to numbered
-    editions. (Shown only once §1.4 is decided and built.)
+    editions. (Shown only once §1.3 is decided and built.)
   - The members' object — once a year, a piece offered only to members.
   - An anniversary gift — each year of membership.
   - Invite a friend — once a season.
@@ -717,7 +717,7 @@ Each task: TDD, staging, report in Russian, skills listed.
 | **T17** Invite a friend (H) | §11 | credit only after the friend's 2nd paid invoice; self-invite (email, same card) refused; second credited invitation in a season → not counted; refund/dispute on friend's 1st/2nd charge → reversed; rule 3 failure → not counted |
 | **T18** Admin v2 & dashboard | spec T15 + §3.3 screens | spec T15 |
 | **T19** Benefits copy & storefront | §16 copy in the portal and the draft theme; Members' object page | only working benefits shown; Refills "coming"; no object names; no testimonials |
-| **T21** Early access (if approved) | §1.4 — release window, member purchase via draft order, publish at window end (Felix) | non-members cannot buy during the window (same bypass tests as T15); members get their price; window end is Felix's action |
+| **T21** Early access (if approved) | §1.3 — release window, member purchase via draft order, publish at window end (Felix) | non-members cannot buy during the window (same bypass tests as T15); members get their price; window end is Felix's action |
 | **T20** Launch gate | spec T16 + B/C/G/H checks | spec T16; legacy R1/R2 done; Felix's test purchase → refund → reversal correct |
 
 ---
@@ -761,5 +761,5 @@ Each task: TDD, staging, report in Russian, skills listed.
    `circle-vip` was an example; the price no longer depends on the tag.
 10. Guard profile for rule 2: worst case (premium + international cards) —
     recommended.
-11. Early access 48 h: approve the draft-order window (§1.4), or keep it off
+11. Early access 48 h: approve the draft-order window (§1.3), or keep it off
     the benefits list for now.
