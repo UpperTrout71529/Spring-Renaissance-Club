@@ -1,0 +1,4 @@
+# Reviewed false positives only (security pass S11, 16 Oct 2026).
+# claude/audit-* branch, worker.js: a comment describing the PEM format of a
+# Google service-account key; no key material in the commit.
+3b460451f7cea50365fc38cc6eb39792df271b4b:worker.js:private-key:3302

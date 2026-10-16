@@ -1,20 +1,93 @@
 # Secrets are NOT configured here — only via `wrangler secret put`:
 #   STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, GEMINI_API_KEY,
-#   RESEND_API_KEY, ADMIN_SECRET, PORTAL_ORIGIN
-# The same list is documented in the worker.js header; keep them in sync.
+#   RESEND_API_KEY, ADMIN_SECRET, PORTAL_ORIGIN   (legacy worker.js)
+#   SESSION_PEPPER, TURNSTILE_SECRET,
+#   SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET   (portal API, src/; "Claude Sync"
+#   gets a 24-hour token from these — src/shopify/admin.js)
+#   SHOPIFY_WEBHOOK_SECRET   (POST /webhooks/shopify HMAC; for a subscription
+#   made by the Claude Sync app it is that app's client secret)
+# Admin vars (not secret, S10): ACCESS_TEAM_DOMAIN (https://<team>.cloudflareaccess.com),
+#   ACCESS_AUD (the "SR Admin" Access application's AUD tag), ADMIN_EMAILS
+#   (comma-separated). Missing any of them → every admin request is 403.
+# Portal vars (not secret): SHOPIFY_SHOP (*.myshopify.com), and optionally
+#   SHOPIFY_API_VERSION, SESSION_IDLE_DAYS, PORTAL_URL. See .dev.vars.example.
+# The same list is documented in the worker.js header and README; keep them in sync.
+#
+# Optional var ALLOWED_ORIGINS (comma-separated) replaces the portal API's
+# default CORS allowlist (club. and the storefront).
 
 name = "stripe-magiclink"
-main = "worker.js"
+# src/index.js routes the portal API (spec §8) and hands every other path to
+# the legacy worker.js unchanged.
+main = "src/index.js"
 compatibility_date = "2025-01-01"
 
-# TODO(deploy): replace with the id of the existing namespace —
-#   wrangler kv namespace list
 kv_namespaces = [
-  { binding = "CLIENT_KV", id = "<existing-client-kv-id>" }
+  { binding = "CLIENT_KV", id = "804fd8ed9cb84f229077272239bcb138" }
 ]
 
-# TODO(deploy): replace with the id printed by `wrangler d1 create spring-renaissance`
 [[d1_databases]]
 binding = "DB"
 database_name = "spring-renaissance"
-database_id = "<id-from-wrangler-d1-create>"
+database_id = "88e830cc-fc14-4ab6-ab69-e91a37698e28"
+migrations_dir = "migrations"
+
+# Daily data retention (spec §13.2; src/cron/retention.js). V2's credit
+# expiry (§9.4, the same 03:15 UTC slot) joins this trigger.
+[triggers]
+crons = ["15 3 * * *"]
+
+# Plain (non-secret) configuration of the portal API.
+[vars]
+SHOPIFY_SHOP = "qyziv4-0c.myshopify.com"
+
+# Admin page (spec §12): public/admin/ via Workers Static Assets. Every
+# request runs the Worker first, so nothing under public/ is served without
+# the Cloudflare Access check in src/admin/access.js.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+html_handling = "none"
+run_worker_first = true
+
+# ---------------------------------------------------------------------------
+# Staging (S11): its own Worker, D1 and KV; nothing shared with production.
+# Deploy: wrangler deploy --env staging. Bindings and vars are not inherited
+# from the top level, so everything is repeated here.
+# Shopify is deliberately NOT configured on staging (no SHOPIFY_SHOP): a
+# staging sign-in must not create customers or tags in the live store.
+# Same-site cookies need the API and the portal on one registrable domain, so
+# staging uses api-staging. and club-staging. (custom domains = DNS records;
+# added only with Felix's "yes" — until then the Worker is on workers.dev).
+# Secrets (wrangler secret put --env staging): SESSION_PEPPER, RESEND_API_KEY,
+# TURNSTILE_SECRET (Cloudflare's always-pass test secret is fine here).
+[env.staging]
+name = "stripe-magiclink-staging"
+# Custom domain (Felix's yes, 16 Oct 2026): wrangler creates the DNS record.
+routes = [{ pattern = "api-staging.springrenaissance.store", custom_domain = true }]
+
+[env.staging.triggers]
+crons = ["15 3 * * *"]
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "spring-renaissance-staging"
+database_id = "cf5418bc-d6ad-4b14-bf82-09701f6fb996"
+migrations_dir = "migrations"
+
+[[env.staging.kv_namespaces]]
+binding = "CLIENT_KV"
+# CLIENT_KV_STORE_STAGING (created by Felix, 16 Oct 2026)
+id = "040632c868394ca1a5b273703c1a6660"
+
+[env.staging.vars]
+PORTAL_URL = "https://club-staging.springrenaissance.store"
+ALLOWED_ORIGINS = "https://club-staging.springrenaissance.store"
+PASSKEY_RP_ID = "springrenaissance.store"
+PASSKEY_ORIGINS = "https://club-staging.springrenaissance.store"
+
+[env.staging.assets]
+directory = "./public"
+binding = "ASSETS"
+html_handling = "none"
+run_worker_first = true

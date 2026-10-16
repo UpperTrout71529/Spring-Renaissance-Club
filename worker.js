@@ -69,6 +69,9 @@ const securityHeaders = {
   "Referrer-Policy": "no-referrer",
 };
 
+// §13.1: logs carry no personal data; emails are masked (c***@gmail.com).
+import { maskEmail } from "./src/lib/email-address.js";
+
 export default {
   async fetch(request, env) {
     const corsHeaders = {
@@ -341,7 +344,7 @@ export default {
           ? resolved.userData.stripe_subscription_id
           : "";
         if (!subscriptionId) {
-          console.error("No subscription on file for", url.pathname, resolved.email);
+          console.error("No subscription on file for", url.pathname, maskEmail(resolved.email));
           return json({ error: "Billing changes are temporarily unavailable" }, 503);
         }
 
@@ -399,7 +402,7 @@ export default {
         // cus_guest is the placeholder written for a checkout that carried no
         // customer; Stripe has no portal for it.
         if (!customerId || customerId === "cus_guest") {
-          console.error("No Stripe customer on file for billing portal", resolved.email);
+          console.error("No Stripe customer on file for billing portal", maskEmail(resolved.email));
           return json({ error: "The billing portal is temporarily unavailable" }, 503);
         }
 
@@ -945,7 +948,7 @@ export default {
         const subscriptionId = extractSubscriptionId(stripeObj);
         if (subscriptionId || stripeCustomerId) {
           await env.DB.prepare(
-            `UPDATE users
+            `UPDATE legacy_users
                 SET stripe_customer_id = COALESCE(?1, stripe_customer_id),
                     stripe_subscription_id = COALESCE(?2, stripe_subscription_id)
               WHERE email = ?3`
@@ -1082,7 +1085,8 @@ async function withinRateLimit(bucket, subject, limit, windowMs, env) {
       // /api/auth/request-link takes no session, so every probe used to buy
       // two permanent D1 writes for the price of one HTTP request.
       await withdrawRateEvent(insert, bucket, subject, env);
-      console.error("Rate limit hit:", bucket, subject);
+      // §13.1: no email or IP in logs — the subject is one of them.
+      console.error("Rate limit hit:", bucket);
       // P6-2: sweep here as well. The sweep used to run only on the admitted
       // path, and a sustained attacker is almost entirely refused — so the one
       // thing that removes expired rows for subjects that never come back
@@ -1431,7 +1435,7 @@ const USER_COLUMNS = `email, status, credits, skipped, stripe_customer_id,
 // alongside a skip toggle lost one of the two. Reads are now plain SELECTs and
 // every write is a guarded UPDATE, so the interleaving cannot lose anything.
 async function getUser(email, env) {
-  const row = await env.DB.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE email = ?`)
+  const row = await env.DB.prepare(`SELECT ${USER_COLUMNS} FROM legacy_users WHERE email = ?`)
     .bind(email).first();
   if (row) return row;
   return migrateUserFromKv(email, env);
@@ -1452,7 +1456,7 @@ async function migrateUserFromKv(email, env) {
   if (!legacy) return null;
 
   await env.DB.prepare(
-    `INSERT OR IGNORE INTO users (${USER_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?)`
+    `INSERT OR IGNORE INTO legacy_users (${USER_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?)`
   ).bind(
     email,
     typeof legacy.status === "string" ? legacy.status : "Active",
@@ -1466,7 +1470,7 @@ async function migrateUserFromKv(email, env) {
     Number(legacy.updatedAt) || 0
   ).run();
 
-  return env.DB.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE email = ?`).bind(email).first();
+  return env.DB.prepare(`SELECT ${USER_COLUMNS} FROM legacy_users WHERE email = ?`).bind(email).first();
 }
 
 // §7 rollback mirror: every mutation is projected back into the KV record in
@@ -1475,7 +1479,7 @@ async function migrateUserFromKv(email, env) {
 // been the source of truth for a week.
 async function mirrorUserToKv(email, env) {
   try {
-    const row = await env.DB.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE email = ?`)
+    const row = await env.DB.prepare(`SELECT ${USER_COLUMNS} FROM legacy_users WHERE email = ?`)
       .bind(email).first();
     if (!row) return;
     await env.CLIENT_KV.put(`user_${email}`, JSON.stringify({
@@ -1502,7 +1506,7 @@ async function mirrorUserToKv(email, env) {
 // back into "Active" by a skip toggle. changes === 0 means the guard fired.
 async function applySkip(email, skipped, env) {
   const res = await env.DB.prepare(
-    `UPDATE users
+    `UPDATE legacy_users
         SET skipped = ?1,
             status  = CASE WHEN status = 'Past Due' THEN 'Past Due'
                            -- Same rule as 'Past Due', for the same reason:
@@ -1521,7 +1525,7 @@ async function applySkip(email, skipped, env) {
   const changes = (res.meta && res.meta.changes) || 0;
   if (changes === 0) return { changed: false, row: null };
   await mirrorUserToKv(email, env);
-  const row = await env.DB.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE email = ?`)
+  const row = await env.DB.prepare(`SELECT ${USER_COLUMNS} FROM legacy_users WHERE email = ?`)
     .bind(email).first();
   return { changed: true, row };
 }
@@ -1531,7 +1535,7 @@ async function applySkip(email, skipped, env) {
 // when the row actually moved — the same shape as every other mutation here.
 async function applyMembershipStatus(email, status, env) {
   const res = await env.DB.prepare(
-    `UPDATE users
+    `UPDATE legacy_users
         SET status = ?1,
             updated_at = ?2
       WHERE email = ?3
@@ -1549,7 +1553,7 @@ async function applyMembershipStatus(email, status, env) {
 async function applyCancel(email, env) {
   const now = Date.now();
   const res = await env.DB.prepare(
-    `UPDATE users
+    `UPDATE legacy_users
         SET status = 'Canceled',
             credits = 0,
             skipped = 0,
@@ -1570,7 +1574,7 @@ async function applyCancel(email, env) {
 // payment also clears Past Due; a skipped member stays paused.
 async function creditTokens(email, amount, env) {
   const res = await env.DB.prepare(
-    `UPDATE users
+    `UPDATE legacy_users
         SET credits = credits + ?1,
             status  = CASE WHEN skipped = 1 THEN 'Paused (Offline)' ELSE 'Active' END,
             past_due_at = NULL,
@@ -1589,7 +1593,7 @@ async function creditTokens(email, amount, env) {
 async function markPastDue(email, env) {
   const now = Date.now();
   const res = await env.DB.prepare(
-    `UPDATE users
+    `UPDATE legacy_users
         SET status = 'Past Due',
             past_due_at = ?1,
             updated_at = ?1
@@ -1608,16 +1612,16 @@ async function markPastDue(email, env) {
 // while links from before the cancellation stay dead.
 async function upsertFromCheckout({ email, grant, stripeCustomerId, stripeSubscriptionId, env }) {
   await env.DB.prepare(
-    `INSERT INTO users (${USER_COLUMNS})
+    `INSERT INTO legacy_users (${USER_COLUMNS})
      VALUES (?1, 'Active', ?2, 0, ?3, ?4, 0, NULL, NULL, ?5)
      ON CONFLICT(email) DO UPDATE SET
-       credits = CASE WHEN users.status = 'Canceled' THEN ?2 ELSE users.credits + ?2 END,
+       credits = CASE WHEN legacy_users.status = 'Canceled' THEN ?2 ELSE legacy_users.credits + ?2 END,
        status = 'Active',
        skipped = 0,
        past_due_at = NULL,
        canceled_at = NULL,
-       stripe_customer_id = COALESCE(?3, users.stripe_customer_id),
-       stripe_subscription_id = COALESCE(?4, users.stripe_subscription_id),
+       stripe_customer_id = COALESCE(?3, legacy_users.stripe_customer_id),
+       stripe_subscription_id = COALESCE(?4, legacy_users.stripe_subscription_id),
        updated_at = ?5`
   ).bind(email, grant, stripeCustomerId || null, stripeSubscriptionId || null, Date.now()).run();
 

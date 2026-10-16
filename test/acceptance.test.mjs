@@ -232,7 +232,7 @@ test('AC-16 two concurrent first-touches create exactly one row', async () => {
   ]);
   assert.equal(a.status, 200);
   assert.equal(b.status, 200);
-  assert.equal(env.DB._rows('SELECT * FROM users WHERE email = ?', 'legacy@b.com').length, 1);
+  assert.equal(env.DB._rows('SELECT * FROM legacy_users WHERE email = ?', 'legacy@b.com').length, 1);
 });
 
 test('AC-17 a client in neither store is 401 and creates no row', async () => {
@@ -242,7 +242,7 @@ test('AC-17 a client in neither store is 401 and creates no row', async () => {
   const res = await worker.fetch(get('/api/user?auth_token=GHOST'), env);
   assert.equal(res.status, 401);
   assert.equal(userRow(env, 'ghost@b.com'), null);
-  assert.equal(env.DB._rows('SELECT * FROM users').length, 0);
+  assert.equal(env.DB._rows('SELECT * FROM legacy_users').length, 0);
 });
 
 test('a webhook migrates a legacy client who never opened the portal', async () => {

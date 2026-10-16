@@ -1,0 +1,43 @@
+@import "./orders.css";
+
+.segments {
+  display: grid; grid-template-columns: 1fr 1fr;
+  margin: var(--space-3) 0; border: 1px solid var(--ink);
+}
+.segments [role="tab"] {
+  min-height: 44px; border: 0; background: transparent; color: var(--ink);
+  font: inherit; cursor: pointer;
+}
+.segments [role="tab"][aria-selected="true"] { background: var(--ink); color: var(--bg); }
+
+.saved-grid {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3) var(--space-2);
+}
+.saved-card { position: relative; display: grid; gap: 4px; align-content: start; }
+.saved-link { display: grid; gap: var(--space-1); color: inherit; text-decoration: none; }
+.saved-image { display: block; aspect-ratio: 1 / 1; background: var(--surface); overflow: hidden; }
+.saved-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.saved-title { font-size: 15px; line-height: 20px; }
+.saved-card.is-unavailable .saved-image { opacity: 0.45; filter: grayscale(1); }
+.saved-card.is-unavailable .saved-title { color: var(--ink-muted); }
+.saved-remove {
+  position: absolute; top: 4px; right: 4px;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; border: 0; background: rgba(251, 251, 249, 0.85); color: var(--ink); cursor: pointer;
+}
+.is-filled-heart { fill: currentColor; }
+
+.held-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.held-item { display: flex; gap: var(--space-2); padding: var(--space-2) 0; border-bottom: 1px solid var(--line); }
+.held-meta { display: grid; gap: 2px; }
+
+.home-strip { display: grid; gap: var(--space-2); }
+.home-strip-head { display: flex; justify-content: space-between; align-items: baseline; }
+.saved-ribbon {
+  list-style: none; margin: 0; padding: 0 0 var(--space-1);
+  display: grid; grid-auto-flow: column; grid-auto-columns: 40%; gap: var(--space-2);
+  overflow-x: auto; scroll-snap-type: x mandatory;
+}
+.saved-ribbon li { scroll-snap-align: start; }
+@media (min-width: 768px) { .saved-ribbon { grid-auto-columns: 30%; } }

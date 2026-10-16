@@ -1,0 +1,38 @@
+name: portal-ci
+
+# Portal: type-check + build, unit tests, e2e (Chromium + WebKit at 375 and
+# 1280, axe, real-Worker sign-in) and Lighthouse accessibility ≥ 95.
+# Pull requests touching the portal or the API, and manual runs only.
+on:
+  pull_request:
+    paths: ["portal/**", "src/**", "worker.js", "migrations/**", "test/harness.mjs", "package.json", "package-lock.json", ".github/workflows/portal-ci.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portal:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: portal/package-lock.json
+      - run: npm ci
+        working-directory: .   # the e2e server runs the Worker code from ../src
+      - run: npm ci
+      - run: npm audit --omit=dev
+      - run: npm run build
+      # The Circle FAQ is pending legal review: it must not ship in a
+      # production build (VITE_CIRCLE_FAQ unset).
+      - run: "! grep -q 'What are credits' dist/assets/*.js"
+      - run: npm test
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run e2e
+      - run: npm run lighthouse

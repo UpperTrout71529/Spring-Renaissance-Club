@@ -1,0 +1,16 @@
+{%- comment -%} SR: no double-tap zoom, no text selection / copy callout on taps (all pages) {%- endcomment -%}
+<style>
+  html{touch-action:manipulation;-webkit-text-size-adjust:100%}
+  body{overflow-x:clip}
+  main{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  main input,main textarea,main select,main [contenteditable]{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+  a,button,[role="button"],label,summary,canvas,svg{-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+  img,video{-webkit-touch-callout:none;-webkit-user-drag:none}
+  @media (pointer:coarse){main input,main textarea,main select{font-size:16px!important}}
+  /* SR: checkout is open for everyone now; hide the old "only Circle members may check out" note in the cart */
+  .sr-cart-summary__locked-note:not([data-sr-locked-note]){display:none!important}
+</style>
+{%- comment -%} SR: pre-order counter / Ember waitlist on product pages (see sr-preorder) {%- endcomment -%}
+{% render 'sr-preorder' %}
+{%- comment -%} SR (8 Oct): Renaissance Circle — email reservation only, no purchase (see sr-circle-hold) {%- endcomment -%}
+{% render 'sr-circle-hold' %}

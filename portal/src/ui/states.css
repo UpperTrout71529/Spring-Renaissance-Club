@@ -1,0 +1,24 @@
+.skeleton { display: grid; gap: var(--space-2); padding: var(--space-2) 0; }
+.skeleton-line {
+  height: 16px;
+  background: linear-gradient(90deg, var(--surface) 0%, var(--bg) 50%, var(--surface) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+.skeleton-line:nth-child(3n + 2) { width: 80%; }
+.skeleton-line:nth-child(3n + 3) { width: 55%; }
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-line { animation: none; background: var(--surface); }
+}
+
+.state { display: grid; gap: var(--space-2); padding: var(--space-4) 0; }
+.state p { color: var(--ink-muted); }
+.state-action { padding-top: var(--space-1); }
+
+.offline {
+  display: flex; align-items: center; gap: var(--space-1);
+  padding: var(--space-1) var(--gutter);
+  background: var(--surface); border-bottom: 1px solid var(--line);
+  font-size: 13px; line-height: 18px;
+}

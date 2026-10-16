@@ -1,0 +1,23 @@
+name: worker-ci
+
+# Worker test suite (legacy worker.js + portal API in src/). Pull requests and
+# manual runs only, to keep Actions minutes down.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24   # node:sqlite backs the D1 emulation
+          cache: npm
+      - run: npm ci
+      - run: npm audit --omit=dev
+      - run: npm test

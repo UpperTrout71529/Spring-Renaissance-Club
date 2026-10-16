@@ -330,7 +330,7 @@ test('a cancellation landing mid-flight beats the pause write', async () => {
 
   const res = await withFetch(async () => {
     // The client cancels in another tab while Stripe is being called.
-    env.DB._db.prepare("UPDATE users SET status = 'Canceled', credits = 0 WHERE email = ?")
+    env.DB._db.prepare("UPDATE legacy_users SET status = 'Canceled', credits = 0 WHERE email = ?")
       .run('a@b.com');
     return new Response(JSON.stringify({ id: 'sub_1', status: 'active' }), { status: 200 });
   }, () => worker.fetch(post('/api/user/pause', { authToken: 'TOK' }), env));

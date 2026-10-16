@@ -32,30 +32,86 @@ never a read-modify-write in JS.
 ## Setup
 
 ```bash
-wrangler d1 create spring-renaissance      # put the id into wrangler.toml
-wrangler d1 execute spring-renaissance --local  --file=./schema.sql
-wrangler d1 execute spring-renaissance --remote --file=./schema.sql
-wrangler deploy                            # schema FIRST, then the worker
+wrangler d1 migrations apply spring-renaissance --local    # try locally first
+wrangler d1 migrations apply spring-renaissance --remote   # production: only with Felix's go-ahead
+wrangler deploy                                            # migrations FIRST, then the worker
 ```
 
-**Order matters on every deploy that changes `schema.sql`.** The rate limiter's
+The schema lives in `migrations/`, applied in file-name order.
+`0000_baseline.sql` is the former `schema.sql` — exactly what production D1
+held before migrations existed; it is all `IF NOT EXISTS`, so it is a no-op
+there. `0001_users.sql` renames the pre-portal subscriber table `users` to
+`legacy_users` (the legacy code in `worker.js` uses that name) and creates the
+portal's `users`. Never edit an applied migration; add a new one.
+
+Migrations that rename tables the legacy code reads must ship together with
+the Worker that reads the new names — see `docs/rollout-s1.md` for the order
+and the rollback.
+
+**Order matters on every deploy that changes the schema.** The rate limiter's
 cleanups depend on `idx_rate_events_created` and `idx_processed_events_at`; ship
 the worker before the indexes and the first request full-scans live data, on the
 one code path an unauthenticated caller can reach.
 
 `wrangler.toml` carries the bindings. Secrets are set only with
 `wrangler secret put`: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
-`GEMINI_API_KEY`, `RESEND_API_KEY`, `ADMIN_SECRET`, `PORTAL_ORIGIN`.
+`GEMINI_API_KEY`, `RESEND_API_KEY`, `ADMIN_SECRET`, `PORTAL_ORIGIN`,
+`SESSION_PEPPER`, `TURNSTILE_SECRET`, `SHOPIFY_CLIENT_ID`,
+`SHOPIFY_CLIENT_SECRET`, `SHOPIFY_WEBHOOK_SECRET`. Plain vars: `SHOPIFY_SHOP` (in
+`wrangler.toml`), the admin's `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` and
+`ADMIN_EMAILS` (see `docs/rollout-s10-admin.md`), and the optional ones in
+`.dev.vars.example`. The admin page lives in `public/admin/` (Workers Static
+Assets; the Worker runs first on every request).
+
+Shopify access: "Claude Sync" is a Dev Dashboard app with no permanent token.
+`src/shopify/admin.js` exchanges the client ID and secret for an access token
+(client credentials grant, `POST https://{shop}/admin/oauth/access_token`,
+24 hours), keeps it in memory and in KV (`shopify_token:v1`), refreshes it 5
+minutes before expiry and once more on a 401. A permanent
+`SHOPIFY_ADMIN_TOKEN` is still honoured if set instead.
+
+## Portal API (`src/`)
+
+`src/index.js` is the Worker entry. `src/app.js` owns the portal API routes
+(spec §8): `GET /health`, `GET /api/me`, and the ones later tasks add. For
+those paths it applies CORS for exactly `https://club.springrenaissance.store`
+and `https://springrenaissance.store` (with credentials, never `*`; override
+with `ALLOWED_ORIGINS`), requires `Origin` from that list plus
+`X-SR-Client: portal` on every state-changing request, resolves the
+`__Host-sr_session` cookie against D1 `sessions`, and answers errors as
+`{ "error": { "code", "message" } }`. Every other path goes to `worker.js`
+unchanged, including its catch-all Stripe webhook.
+
+Sign-in (S2): `POST /api/auth/magic-link` answers `202` for every well-formed
+address (the same link signs in or creates the account) after Turnstile and
+the §10.6 limits; the link `https://club.springrenaissance.store/auth#t=…`
+lives 15 minutes and works once (D1 `magic_links`, hash only).
+`POST /api/auth/verify` spends it and sets
+`__Host-sr_session` (14 days sliding, 90 days absolute); a first sign-in finds
+or creates the Shopify customer and tags it `sr-club` in the background.
+`POST /api/auth/logout` revokes the session. Outbound calls (Resend,
+Turnstile, Shopify) go through the injected `fetch`, so tests run offline.
+
+Passkeys and step-up (S4), with `@simplewebauthn/server` (pinned in
+`package.json`; `npm ci` before `npm test`): register
+(`/api/auth/passkey/register/{options,verify}`, session), sign in without an
+email (`/api/auth/passkey/login/{options,verify}`, discoverable credentials),
+`GET /api/passkeys`, `DELETE /api/passkeys/:id` (step-up). Step-up
+(`/api/auth/step-up/{email-code,passkey/options,verify}`) is a passkey or a
+6-digit email code (10 minutes, 5 attempts) and stays fresh for 15 minutes.
+Challenges and codes are single-use rows in D1 (migration 0004). Tests use a
+software authenticator (`test/soft-authenticator.mjs`) whose responses go
+through the library's real verification.
 
 ## Tests
 
 ```bash
-node --test test/*.test.mjs                       # everything
+npm ci && npm test                                 # everything
 for i in $(seq 1 20); do node --test test/atomicity.test.mjs || break; done
 ```
 
 The suite runs against a D1 emulation over `node:sqlite` that applies this
-repository's own `schema.sql`, so schema drift fails the tests rather than
+repository's own `migrations/*.sql` in order, so schema drift fails the tests rather than
 passing quietly. The `interleave` variants in `atomicity.test.mjs` force a
 macrotask turn before every statement; without that the emulator is too
 well-behaved to expose a lost update, and a read-modify-write would pass a

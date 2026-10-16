@@ -1,0 +1,39 @@
+# Local development secrets for `wrangler dev`. Copy to .dev.vars (git-ignored)
+# and fill in. Never commit real values; production secrets are set only with
+# `wrangler secret put <NAME>`.
+
+# Portal API (src/)
+SESSION_PEPPER=
+# Cloudflare's published always-pass test secret works locally.
+TURNSTILE_SECRET=
+RESEND_API_KEY=
+# Shopify Admin API ("Claude Sync", a Dev Dashboard app): the Worker exchanges
+# the client ID and secret for a 24-hour token by itself. SHOPIFY_ADMIN_TOKEN
+# is only for a permanent token, if one is ever issued.
+SHOPIFY_SHOP=qyziv4-0c.myshopify.com
+SHOPIFY_CLIENT_ID=
+SHOPIFY_CLIENT_SECRET=
+# SHOPIFY_ADMIN_TOKEN=
+# POST /webhooks/shopify HMAC (S10). For an app subscription: the client secret.
+SHOPIFY_WEBHOOK_SECRET=
+# Admin behind Cloudflare Access (S10, plain vars). Without all three every
+# admin request is 403. See docs/rollout-s10-admin.md.
+# ACCESS_TEAM_DOMAIN=https://<team>.cloudflareaccess.com
+# ACCESS_AUD=
+# ADMIN_EMAILS=
+# Optional
+# Passkeys default to rpID springrenaissance.store and origin
+# https://club.springrenaissance.store; override for local development.
+# PASSKEY_RP_ID=localhost
+# PASSKEY_ORIGINS=http://localhost:5173
+# SHOPIFY_API_VERSION=2026-07
+# SESSION_IDLE_DAYS=14
+# PORTAL_URL=https://club.springrenaissance.store
+# ALLOWED_ORIGINS=http://localhost:5173,https://club.springrenaissance.store
+
+# Legacy worker.js
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+GEMINI_API_KEY=
+ADMIN_SECRET=
+PORTAL_ORIGIN=
