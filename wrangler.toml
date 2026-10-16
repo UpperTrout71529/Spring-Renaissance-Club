@@ -63,6 +63,8 @@ run_worker_first = true
 # TURNSTILE_SECRET (Cloudflare's always-pass test secret is fine here).
 [env.staging]
 name = "stripe-magiclink-staging"
+# Custom domain (Felix's yes, 16 Oct 2026): wrangler creates the DNS record.
+routes = [{ pattern = "api-staging.springrenaissance.store", custom_domain = true }]
 
 [env.staging.triggers]
 crons = ["15 3 * * *"]
@@ -75,9 +77,8 @@ migrations_dir = "migrations"
 
 [[env.staging.kv_namespaces]]
 binding = "CLIENT_KV"
-# TODO(S11): the staging KV namespace "CLIENT_KV_STORE_STAGING" is not created
-# yet (needs Felix's OK); replace with its id.
-id = "00000000000000000000000000000000"
+# CLIENT_KV_STORE_STAGING (created by Felix, 16 Oct 2026)
+id = "040632c868394ca1a5b273703c1a6660"
 
 [env.staging.vars]
 PORTAL_URL = "https://club-staging.springrenaissance.store"
