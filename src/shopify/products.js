@@ -9,7 +9,8 @@ import { cached } from "../lib/kv-cache.js";
 const PRODUCT_TTL_SECONDS = 10 * 60;
 
 const FRAGMENT = `fragment SavedProduct on Product {
-  id handle title status onlineStoreUrl
+  id handle title status onlineStoreUrl isGiftCard tags
+  collections(first: 20) { nodes { handle } }
   featuredMedia { preview { image { url } } }
   priceRangeV2 { minVariantPrice { amount currencyCode } }
   variants(first: 20) { nodes { availableForSale } }
@@ -23,12 +24,31 @@ query ProductsByIds($ids: [ID!]!) { nodes(ids: $ids) { ... on Product { ...Saved
 
 export const HANDLE_RE = /^[a-z0-9][a-z0-9-]{0,254}$/;
 
+// Spec §9.2.5: the 25% member price applies to everything except the
+// catalog (Small Pleasures — collection or tag "catalog"), gift cards,
+// capsules (tag "capsule") and the membership product.
+export const MEMBER_DISCOUNT_PERCENT = 25;
+
+export function memberPriceEligible(p) {
+  if (!p) return false;
+  const collections = ((p.collections && p.collections.nodes) || []).map((c) => c.handle);
+  const tags = p.tags || [];
+  return !p.isGiftCard && !collections.includes("catalog") && !tags.includes("catalog")
+    && !tags.includes("capsule") && p.handle !== "patron-membership";
+}
+
+// Integer cents, rounded half up: 8800 → 6600, 4999 → 3749.
+export function memberPriceCents(priceCents) {
+  return Math.round((priceCents * (100 - MEMBER_DISCOUNT_PERCENT)) / 100);
+}
+
 // "No longer available" (§6.5) when the product is not active, not on the
 // online store, or no variant can be bought.
 export function shapeProduct(p) {
   if (!p || !p.id) return null;
   const variants = (p.variants && p.variants.nodes) || [];
   return {
+    member_price_eligible: memberPriceEligible(p),
     id: p.id,
     handle: p.handle,
     title: p.title,
@@ -41,7 +61,7 @@ export function shapeProduct(p) {
 }
 
 export async function productByHandle(env, fetchImpl, handle) {
-  const p = await cached(env, `product_by_handle:v1:${handle}`, async () => {
+  const p = await cached(env, `product_by_handle:v2:${handle}`, async () => {
     const data = await shopifyGraphql(env, fetchImpl, BY_HANDLE, { handle });
     return shapeProduct(data.productByIdentifier) || { missing: true };
   }, PRODUCT_TTL_SECONDS);
@@ -54,7 +74,7 @@ export async function productsByIds(env, fetchImpl, ids) {
   const missing = [];
   for (const id of ids) {
     try {
-      const hit = await env.CLIENT_KV.get(`product:v1:${id}`, { type: "json" });
+      const hit = await env.CLIENT_KV.get(`product:v2:${id}`, { type: "json" });
       if (hit) { out.set(id, hit.missing ? null : hit); continue; }
     } catch (e) {
       console.error("product cache read failed", e && e.name);
@@ -67,7 +87,7 @@ export async function productsByIds(env, fetchImpl, ids) {
     batch.forEach((id, j) => {
       const shaped = shapeProduct(data.nodes && data.nodes[j]);
       out.set(id, shaped);
-      env.CLIENT_KV.put(`product:v1:${id}`, JSON.stringify(shaped || { missing: true }), { expirationTtl: PRODUCT_TTL_SECONDS })
+      env.CLIENT_KV.put(`product:v2:${id}`, JSON.stringify(shaped || { missing: true }), { expirationTtl: PRODUCT_TTL_SECONDS })
         .catch((e) => console.error("product cache write failed", e && e.name));
     });
   }

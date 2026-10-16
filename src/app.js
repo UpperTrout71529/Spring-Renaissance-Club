@@ -22,6 +22,7 @@ import { sendStepUpCode, verifyStepUp } from "./routes/step-up.js";
 import { getOrder, listOrders } from "./routes/orders.js";
 import { listGiftCards } from "./routes/gift-cards.js";
 import { addHold, addToWishlist, listHolds, listWishlist, removeFromWishlist, wishlistHandles } from "./routes/saved.js";
+import { getTeaser, joinWaitlist } from "./routes/circle.js";
 
 // Route options:
 //   auth: "session"   — 401 without a live session; ctx.session is set
@@ -51,6 +52,8 @@ export const ROUTES = [
   { method: "DELETE", path: "/api/wishlist/:product_handle", handler: removeFromWishlist, auth: "session" },
   { method: "GET", path: "/api/holds", handler: listHolds, auth: "session" },
   { method: "POST", path: "/api/holds", handler: addHold, auth: "session" },
+  { method: "GET", path: "/api/circle/teaser", handler: getTeaser, auth: "session" },
+  { method: "POST", path: "/api/circle/waitlist", handler: joinWaitlist, auth: "session" },
   { method: "GET", path: "/api/orders", handler: listOrders, auth: "session" },
   { method: "GET", path: "/api/orders/:id", handler: getOrder, auth: "session" },
 ];

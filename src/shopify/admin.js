@@ -164,6 +164,12 @@ export async function findOrCreateClubCustomer(env, fetchImpl, email) {
 
 const CUSTOMER_TAGS = `query CustomerTags($id: ID!) { customer(id: $id) { id tags } }`;
 
+export async function addCustomerTags(env, fetchImpl, customerId, tags) {
+  const data = await shopifyGraphql(env, fetchImpl, TAG_CUSTOMER, { id: customerId, tags });
+  const errors = (data.tagsAdd && data.tagsAdd.userErrors) || [];
+  if (errors.length) throw new Error("shopify tagsAdd failed");
+}
+
 export async function customerTags(env, fetchImpl, customerId) {
   const data = await shopifyGraphql(env, fetchImpl, CUSTOMER_TAGS, { id: customerId });
   return (data.customer && data.customer.tags) || [];

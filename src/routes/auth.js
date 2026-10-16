@@ -12,6 +12,7 @@ import { sendEmail } from "../email/send.js";
 import { signInLinkEmail } from "../email/templates/sign-in-link.js";
 import { customerTags, findOrCreateClubCustomer, shopifyConfigured } from "../shopify/admin.js";
 import { importReserveHolds } from "../shopify/reserve-import.js";
+import { syncWaitlistTag } from "./circle.js";
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
@@ -188,6 +189,7 @@ export function afterSignIn(ctx, { user, isFirst, nowIso }) {
       try {
         const tags = await customerTags(ctx.env, ctx.fetch, user.shopify_customer_id);
         await importReserveHolds({ env: ctx.env, fetchImpl: ctx.fetch, newId: ctx.newId, nowIso }, user.id, tags);
+        await syncWaitlistTag(ctx.env, ctx.fetch, user.id, user.shopify_customer_id, tags);
       } catch (e) {
         console.error("reserve import failed", e && e.message);
       }
@@ -210,6 +212,7 @@ async function linkShopifyCustomer(ctx, { userId, email, isFirst, nowIso }) {
         "UPDATE users SET shopify_customer_id = ?1 WHERE id = ?2 AND shopify_customer_id IS NULL"
       ).bind(customer.id, userId).run();
       await importReserveHolds({ env, fetchImpl: ctx.fetch, newId: ctx.newId, nowIso }, userId, customer.tags);
+      await syncWaitlistTag(env, ctx.fetch, userId, customer.id, customer.tags);
     }
   } catch (e) {
     console.error("shopify link failed", e && e.message, maskEmail(email));

@@ -104,7 +104,7 @@ test('S7-3: the list carries Shopify data; archived, sold out and deleted pieces
     await t.call(post('/api/wishlist', { product_handle: handle }, { ...trusted, ...h }));
   }
   world.products = world.products.filter((p) => p.handle !== 'the-gourd'); // deleted from Shopify
-  await t.env.CLIENT_KV.delete('product:v1:gid://shopify/Product/2');
+  await t.env.CLIENT_KV.delete('product:v2:gid://shopify/Product/2');
   const { items } = await body(await t.call(get('/api/wishlist', h)));
   const by = Object.fromEntries(items.map((i) => [i.product_handle, i]));
   assert.deepEqual(
@@ -202,8 +202,8 @@ test('S7-11: Shopify down → saving and the list answer 503; holds still list w
   const h = await clara(t);
   await t.call(post('/api/wishlist', { product_handle: 'pierre-blanche' }, { ...trusted, ...h }));
   await t.call(post('/api/holds', { product_handle: 'the-gourd' }, { ...trusted, ...h }));
-  await t.env.CLIENT_KV.delete('product:v1:gid://shopify/Product/1');
-  await t.env.CLIENT_KV.delete('product_by_handle:v1:the-gourd');
+  await t.env.CLIENT_KV.delete('product:v2:gid://shopify/Product/1');
+  await t.env.CLIENT_KV.delete('product_by_handle:v2:the-gourd');
   await t.env.CLIENT_KV.delete('orders:v1:' + t.rows('SELECT id FROM users')[0].id + ':-');
   world.fail = true;
   const realError = console.error;
