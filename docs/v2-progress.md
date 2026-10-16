@@ -32,12 +32,12 @@ printed; nothing deleted (legacy VIP off by flag); no purchases.
 | T10 Skip | done | 6884ffe |
 | T13 Capsules | done | 6884ffe |
 | T14 Concierge & rooms | done (rooms need R2, B6) | 5cea18d |
-| T18 Admin v2 | API done 2278128; screens: admin UI agent working (public/admin) |
-| Portal screens | portal UI agent working (portal/src) |
-| T19 Benefits copy & storefront | theme files uploaded to draft (a8c145e); benefits copy with the portal agent |
-| Staging deploy | Worker + D1 0006–0011 deployed (cad55de7); portal Pages after the UI agent |
+| T18 Admin v2 | done (API 2278128, screens c056823) |
+| Portal screens | done (5cad22f) |
+| T19 Benefits copy & storefront | done (theme files a8c145e, copy in the portal) |
+| Staging deploy | done: Worker f5cf0ba0, D1 0006–0012, Pages club-staging; smoke ok |
 | T21 Early access (pre-order) | done (API) | c86a254 |
-| Report | todo | docs/v2-report.md + vault copy |
+| Report | done | docs/v2-report.md + vault «ЛК — V2 отчёт.md» |
 
 ## Log
 
@@ -49,3 +49,4 @@ printed; nothing deleted (legacy VIP off by flag); no purchases.
   A read-only backend review agent is running; fix its confirmed findings with tests.
   Left: integrate UI work, deploy club-staging (portal build:staging → Pages project spring-renaissance-club-staging), staging smoke, report (docs/v2-report.md + vault copy).
 - 16 Oct (night): independent backend review → 13 findings fixed with regression tests (07b569f, D40); migration 0012 on staging; suite 556/556. Waiting for the portal and admin UI agents (both told about: early access API, capsule step-up, object 'creating' status, admin unfreeze, adjust Idempotency-Key).
+- 17 Oct: admin screens (44/44 e2e) and portal screens (380/380 e2e) committed; 11 more gaps from the UI build fixed (D41–D42); worker suite 565/565; club-staging + api-staging deployed, smoke ok; report written. V2 build complete — next steps are Felix's (docs/v2-blockers.md, docs/rollout-v2.md).
