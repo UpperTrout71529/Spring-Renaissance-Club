@@ -1,4 +1,4 @@
-# V2 Circle — progress log
+| T8 Emails & cron | done | ea585cd || T6 Member price (C) | done (behind CIRCLE_PRICE_SYNC; theme snippet in T19) | d7dd944 || T7 Welcome piece | done (API + admin API) | 6b9b78b || T12 Refunds, disputes, delete | done | 8fcb1d7, 30f4f26 || T11 Cancel, grace, rejoin | done (API) | 30f4f26 || T9 Failed payments | done (webhook + retry button) | 8fcb1d7, 30f4f26 || T4 Spend credits | done (API) | de7686a || T3 Ledger & credits | done (API) | de7686a |# V2 Circle — progress log
 
 Read this first after a context reset. Spec: `docs/tz-v2-circle.md`;
 decisions: `docs/v2-decisions.md`; blockers: `docs/v2-blockers.md`.
@@ -18,14 +18,14 @@ printed; nothing deleted (legacy VIP off by flag); no purchases.
 | T5 Economics engine | done (API); admin screen in T18 | cef0c9c, dbab5db |
 | T1 Join | done (API); portal screen later | 42ac438 |
 | T2 Stripe webhooks & state | done (incl. T9/T11/T12 webhook side); daily Stripe reconcile with T8 cron | 8fcb1d7 |
-| T3 Ledger & credits | todo | |
-| T4 Spend credits | todo | |
-| T9 Failed payments | todo | |
-| T11 Cancel, grace, rejoin | todo | |
-| T12 Refunds, disputes, delete | todo | |
-| T7 Welcome piece | todo | |
-| T6 Member price (C) | todo | |
-| T8 Emails & cron | todo | |
+| T3 Ledger & credits | done (API) | de7686a |
+| T4 Spend credits | done (API) | de7686a |
+| T9 Failed payments | done (webhook + retry button) | 8fcb1d7, 30f4f26 |
+| T11 Cancel, grace, rejoin | done (API) | 30f4f26 |
+| T12 Refunds, disputes, delete | done | 8fcb1d7, 30f4f26 |
+| T7 Welcome piece | done (API + admin API) | 6b9b78b |
+| T6 Member price (C) | done (behind CIRCLE_PRICE_SYNC; theme snippet in T19) | d7dd944 |
+| T8 Emails & cron | done | ea585cd |
 | T15 Members' object (B) | todo | |
 | T16 Anniversary (G) | todo | |
 | T17 Invite a friend (H) | todo | |
@@ -43,3 +43,4 @@ printed; nothing deleted (legacy VIP off by flag); no purchases.
 
 - 16 Oct: T0, T5 (engine + D1 + admin API), T1 (join/rejoin API), T2 (webhook state machine) done; suite 434/434.
   Test helpers for V2: test/v2-helpers.mjs (Shopify ops by name, Stripe fake, admin client, event fixtures).
+- 16 Oct (later): T3, T4, T11, T9, T12, T7, T8, T6 done; suite 486/486. Next: T15 object, T16 anniversary, T17 invite, T10/T13/T14, admin UI, portal UI, theme, staging, T21.
