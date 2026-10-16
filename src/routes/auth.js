@@ -10,7 +10,8 @@ import { verifyTurnstile } from "../auth/turnstile.js";
 import { clearedSessionCookie, createSession, revokeSession, summarizeUserAgent } from "../auth/session.js";
 import { sendEmail } from "../email/send.js";
 import { signInLinkEmail } from "../email/templates/sign-in-link.js";
-import { findOrCreateClubCustomer, shopifyConfigured } from "../shopify/admin.js";
+import { customerTags, findOrCreateClubCustomer, shopifyConfigured } from "../shopify/admin.js";
+import { importReserveHolds } from "../shopify/reserve-import.js";
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
@@ -168,14 +169,30 @@ export async function verifyMagicLink(ctx) {
     id: ctx.newId(), userId: user.id, name: "login_succeeded",
     props: { method: "magic_link", is_first: isFirst }, createdAt: nowIso,
   });
-  if (isFirst || !user.shopify_customer_id) {
-    ctx.waitUntil(linkShopifyCustomer(ctx, { userId: user.id, email: user.email, isFirst, nowIso }));
-  }
+  afterSignIn(ctx, { user, isFirst, nowIso });
 
   return json({
     user: { id: user.id, email: user.email, first_name: user.first_name, tier: user.tier },
     return_to: link.return_to || null,
   });
+}
+
+// Background work after any sign-in (link or passkey): link the Shopify
+// customer if needed, and bring reservations made through the storefront's
+// "Let us hold these for you" (customer tags) into Held for you.
+export function afterSignIn(ctx, { user, isFirst, nowIso }) {
+  if (isFirst || !user.shopify_customer_id) {
+    ctx.waitUntil(linkShopifyCustomer(ctx, { userId: user.id, email: user.email, isFirst, nowIso }));
+  } else if (shopifyConfigured(ctx.env)) {
+    ctx.waitUntil((async () => {
+      try {
+        const tags = await customerTags(ctx.env, ctx.fetch, user.shopify_customer_id);
+        await importReserveHolds({ env: ctx.env, fetchImpl: ctx.fetch, newId: ctx.newId, nowIso }, user.id, tags);
+      } catch (e) {
+        console.error("reserve import failed", e && e.message);
+      }
+    })());
+  }
 }
 
 // §9.2.2. Runs after the response; a failure leaves shopify_customer_id NULL
@@ -192,6 +209,7 @@ async function linkShopifyCustomer(ctx, { userId, email, isFirst, nowIso }) {
       await env.DB.prepare(
         "UPDATE users SET shopify_customer_id = ?1 WHERE id = ?2 AND shopify_customer_id IS NULL"
       ).bind(customer.id, userId).run();
+      await importReserveHolds({ env, fetchImpl: ctx.fetch, newId: ctx.newId, nowIso }, userId, customer.tags);
     }
   } catch (e) {
     console.error("shopify link failed", e && e.message, maskEmail(email));

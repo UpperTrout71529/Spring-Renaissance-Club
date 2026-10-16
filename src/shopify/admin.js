@@ -106,7 +106,7 @@ export async function shopifyGraphql(env, fetchImpl, query, variables) {
 }
 
 const FIND_CUSTOMER = `query FindCustomer($query: String!) {
-  customers(first: 1, query: $query) { nodes { id numberOfOrders } }
+  customers(first: 1, query: $query) { nodes { id numberOfOrders tags } }
 }`;
 
 const CREATE_CUSTOMER = `mutation CreateCustomer($input: CustomerInput!) {
@@ -154,5 +154,17 @@ export async function findOrCreateClubCustomer(env, fetchImpl, email) {
     if (errors.length) throw new Error("shopify tagsAdd failed");
   }
 
-  return { id: customer.id, created, hadOrders: Number(customer.numberOfOrders || 0) > 0 };
+  return {
+    id: customer.id,
+    created,
+    hadOrders: Number(customer.numberOfOrders || 0) > 0,
+    tags: created ? [CLUB_TAG] : customer.tags || [],
+  };
+}
+
+const CUSTOMER_TAGS = `query CustomerTags($id: ID!) { customer(id: $id) { id tags } }`;
+
+export async function customerTags(env, fetchImpl, customerId) {
+  const data = await shopifyGraphql(env, fetchImpl, CUSTOMER_TAGS, { id: customerId });
+  return (data.customer && data.customer.tags) || [];
 }

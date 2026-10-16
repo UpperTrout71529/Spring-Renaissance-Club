@@ -15,6 +15,7 @@ import { base64url } from "../lib/crypto.js";
 import { withinLimit } from "../lib/rate-limit.js";
 import { recordEvent } from "../lib/events.js";
 import { createSession, summarizeUserAgent } from "../auth/session.js";
+import { afterSignIn } from "./auth.js";
 import { requireStepUp } from "../auth/step-up.js";
 import { MAX_PASSKEYS, RP_NAME, challengeOf, claimChallenge, parseTransports, rpConfig, storeChallenge } from "../auth/webauthn.js";
 
@@ -205,7 +206,7 @@ export async function loginVerify(ctx) {
   const passkey = await verifyAssertion(ctx, { response, challenge });
   const nowIso = ctx.nowIso();
   await env.DB.prepare("UPDATE users SET last_login_at = ?1 WHERE id = ?2").bind(nowIso, passkey.user_id).run();
-  const user = await env.DB.prepare("SELECT id, email, first_name, tier FROM users WHERE id = ?1")
+  const user = await env.DB.prepare("SELECT id, email, first_name, tier, shopify_customer_id FROM users WHERE id = ?1")
     .bind(passkey.user_id).first();
 
   const { cookie } = await createSession(env, {
@@ -221,6 +222,7 @@ export async function loginVerify(ctx) {
     id: ctx.newId(), userId: user.id, name: "login_succeeded",
     props: { method: "passkey", is_first: false }, createdAt: nowIso,
   });
+  afterSignIn(ctx, { user, isFirst: false, nowIso });
   return json({ user: { id: user.id, email: user.email, first_name: user.first_name, tier: user.tier } });
 }
 
