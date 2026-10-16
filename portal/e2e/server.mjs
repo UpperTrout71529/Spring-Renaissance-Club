@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { createApp } from "../../src/app.js";
 import { makeEnv } from "../../test/harness.mjs";
 import { AUD, TEAM, makeAccess } from "../../test/access-helpers.mjs";
+import { STRIPE_WHSEC, createCircleFakes } from "./circle-fakes.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const DIST = resolve(HERE, "..", "dist-e2e");
@@ -53,6 +54,7 @@ const outside = async (url, init = {}) => {
     emails.push(JSON.parse(init.body));
     return Response.json({ id: `re_${emails.length}` });
   }
+  if (u.startsWith("https://api.stripe.com/")) return circle.fakeStripe(u, init);
   if (u.startsWith("https://challenges.cloudflare.com/")) {
     return Response.json({ success: init.body.get("response") === "e2e-token" });
   }
@@ -70,6 +72,10 @@ const env = makeEnv({
   ACCESS_TEAM_DOMAIN: TEAM,
   ACCESS_AUD: AUD,
   ADMIN_EMAILS: ADMIN_EMAIL,
+  // V2 Circle: Stripe is the fake in e2e/circle-fakes.mjs (test-mode key shape).
+  STRIPE_SECRET_KEY: "sk_test_e2e",
+  STRIPE_CIRCLE_WEBHOOK_SECRET: STRIPE_WHSEC,
+  CIRCLE_JOIN_OPEN: "on",
   // Workers Static Assets stand-in: public/ on disk.
   ASSETS: {
     async fetch(request) {
@@ -80,6 +86,7 @@ const env = makeEnv({
   },
 });
 const app = createApp({ fetch: outside });
+const circle = createCircleFakes({ origin: ORIGIN, env, app });
 
 const TYPES = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css",
@@ -133,6 +140,14 @@ const server = createServer(certificate(), async (req, res) => {
       res.end(JSON.stringify({ code }));
       return;
     }
+    const fake = await circle.route(url, req, () => body(req));
+    if (fake) {
+      const out = {};
+      fake.headers.forEach((v, k) => { out[k] = v; });
+      res.writeHead(fake.status, out);
+      res.end(Buffer.from(await fake.arrayBuffer()));
+      return;
+    }
     if (url.pathname === "/__e2e/access-jwt") {
       const nowS = Math.floor(Date.now() / 1000);
       const jwt = await access.sign({ email: url.searchParams.get("email") || ADMIN_EMAIL, iat: nowS, nbf: nowS, exp: nowS + 3600 });
@@ -148,7 +163,7 @@ const server = createServer(certificate(), async (req, res) => {
       res.end(JSON.stringify({ link }));
       return;
     }
-    if (url.pathname === "/health" || url.pathname.startsWith("/api/") || url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
+    if (url.pathname === "/health" || url.pathname === "/webhooks/stripe" || url.pathname.startsWith("/api/") || url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
       const headers = new Headers();
       for (const [k, v] of Object.entries(req.headers)) {
         if (typeof v === "string") headers.set(k, v);
