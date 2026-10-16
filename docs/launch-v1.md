@@ -3,22 +3,28 @@
 Status 16 Oct 2026. **Production: nothing changed.** Every production step
 below waits for Felix's "yes"; so does any DNS record (staging included).
 
-## 1. Staging
+## 1. Staging (live since 16 Oct 2026, Felix's yes)
 
 | Piece | State |
 |---|---|
-| D1 `spring-renaissance-staging` (`cf5418bc-d6ad-4b14-bf82-09701f6fb996`, ENAM) | **created**; migrations 0000–0005 applied and recorded in `d1_migrations` (wrangler's format, so `wrangler d1 migrations apply --env staging --remote` sees nothing pending); schema identical to the local one |
-| KV `CLIENT_KV_STORE_STAGING` | **not created** — the connector call was refused by the permission check; needs Felix's OK (or one click in the dashboard), then its id goes into `wrangler.toml` `[[env.staging.kv_namespaces]]` |
-| Worker `stripe-magiclink-staging` | config in `wrangler.toml` `[env.staging]` (own D1/KV, assets, cron, vars); `wrangler deploy --env staging --dry-run` builds. **Not deployed**: wrangler on this machine is not signed in (`wrangler login`, or a scoped API token in the shell, by Felix) |
-| Staging secrets | `SESSION_PEPPER` (any random 32+ bytes), `RESEND_API_KEY` (the same key works; mail goes to real inboxes), `TURNSTILE_SECRET` = Cloudflare's always-pass test secret `1x0000000000000000000000000000000AA` |
-| Shopify on staging | **off on purpose** (no `SHOPIFY_SHOP`): a staging sign-in must not create customers or tags in the live store. Orders/gift cards show their "unavailable" state there |
-| Portal staging build | `npm run build:staging` (`portal/.env.staging`: API `https://api-staging.springrenaissance.store`, Turnstile always-pass test site key, no FAQ) → `portal/dist-staging`; CSP checked (connect-src = api-staging) |
-| Pages project for staging | **not created** (needs wrangler auth): `wrangler pages project create spring-renaissance-club-staging`, then `wrangler pages deploy portal/dist-staging --project-name spring-renaissance-club-staging` |
-| Domains `api-staging.` / `club-staging.springrenaissance.store` | **DNS — needs Felix's "yes"**. Needed for the real cookie check: on `*.workers.dev` + `*.pages.dev` the API and the portal are cross-site, so the SameSite=Lax session cookie is (correctly) not sent and WebKit would block it anyway. Worker: `routes = [{ pattern = "api-staging.springrenaissance.store", custom_domain = true }]` under `[env.staging]`; Pages: custom domain `club-staging.` on the staging project |
+| D1 `spring-renaissance-staging` (`cf5418bc-…`, ENAM) | created, migrations 0000–0005 applied (recorded in `d1_migrations`) |
+| KV `CLIENT_KV_STORE_STAGING` (`040632c8…`) | created by Felix |
+| Worker `stripe-magiclink-staging` | deployed (`wrangler deploy --env staging`), custom domain **https://api-staging.springrenaissance.store**, daily cron |
+| Staging secrets | `SESSION_PEPPER` (random, never printed), `TURNSTILE_SECRET` (Cloudflare's always-pass test secret). **`RESEND_API_KEY` missing** — sign-in emails are not sent on staging until Felix sets it: `npx.cmd wrangler secret put RESEND_API_KEY --env staging` |
+| Shopify on staging | off on purpose (no `SHOPIFY_SHOP`): staging sign-ins never touch the live store |
+| Pages `spring-renaissance-club-staging` | deployed from `npm run build:staging`; custom domain **https://club-staging.springrenaissance.store** (CNAME → `spring-renaissance-club-staging.pages.dev`, proxied; added in the dashboard) — active |
+| Production | untouched (Worker `stripe-magiclink`, D1 `spring-renaissance`, Pages `spring-renaissance-club`, DNS records other than the two staging names) |
 
-Once those are in: `E2E_BASE_URL`-style run of the e2e suite against
-staging is the S11 "cross-subdomain cookie in WebKit" check (sign in by link
-in WebKit, reload, still signed in; passkey sign-in in Chromium).
+**Smoke on staging** (`node portal/e2e/staging-smoke.mjs`, Chromium + WebKit,
+375 px): signed-out deep link → `/login?return_to=…`; CSP meta; the sign-in
+form posts cross-subdomain with credentials → 202, CORS allows exactly
+`club-staging.`; "Check your inbox"; no console errors; `/health` 200;
+`/api/me` 401; `/api/admin/*` 403 (no Access); foreign Origin 403 — all ok.
+
+**Still to do:** the full sign-in in WebKit (open the link from the email →
+signed in → reload → still signed in), which needs `RESEND_API_KEY` on
+staging and a real inbox — Felix in Safari, or Claude reading the link from
+an inbox Felix names.
 
 ## 2. QA done locally (all green, 16 Oct)
 
@@ -93,9 +99,11 @@ click away ("Rollback to this deployment").
 
 ## 5. Launch checklist for Felix
 
-- [ ] Staging: KV OK, `wrangler login`, DNS for `api-staging.` / `club-staging.`
-- [ ] Staging e2e green in WebKit and Chromium (Claude runs it)
-- [ ] Theme edits in the draft approved (header + footer "Account")
+- [x] Staging: KV, `wrangler login`, `api-staging.` / `club-staging.` (16 Oct)
+- [ ] `RESEND_API_KEY` on staging, then the full sign-in in Safari
+- [x] Staging smoke green in WebKit and Chromium (16 Oct)
+- [x] Footer "Account" and header-actions uploaded to the draft (MD5 checked)
+- [ ] Header "Account" in `sections/sr-header.liquid` (the draft's real header) — prepared, waiting for yes
 - [ ] Production steps 1–7 above, each with a "yes"
 - [ ] Sign-in email lands in the inbox at Gmail, Outlook, iCloud
 - [ ] Copy read and corrected (`docs/v1-decisions.md` → "Copy for review")
