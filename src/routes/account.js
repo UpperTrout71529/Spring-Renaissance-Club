@@ -15,6 +15,8 @@ import {
 import { removeCustomerTags, shopifyConfigured, updateCustomer } from "../shopify/admin.js";
 import { portalUrl } from "./auth.js";
 import { WAITLIST_TAG } from "./circle.js";
+import { closeCircleForDeletion } from "../circle/account-delete.js";
+import { PAST_TAG, VIP_TAG } from "../circle/effects.js";
 
 const HOUR = 60 * 60 * 1000;
 const EMAIL_CHANGE_TTL_MS = HOUR;
@@ -207,6 +209,9 @@ export async function deleteAccount(ctx) {
 
   const id = session.user.id;
   const user = await env.DB.prepare("SELECT email, shopify_customer_id FROM users WHERE id = ?1").bind(id).first();
+  // V2: a live Circle membership is cancelled in Stripe first; if that fails
+  // nothing below runs and the account stays (fail closed).
+  const hadMembership = await closeCircleForDeletion(ctx, id);
   const nowIso = ctx.nowIso();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM step_up_codes WHERE session_id_hash IN (SELECT id_hash FROM sessions WHERE user_id = ?1)").bind(id),
@@ -237,7 +242,8 @@ export async function deleteAccount(ctx) {
     console.error("ADMIN_NOTIFY_EMAIL not set — account deletion notice not sent");
   }
   if (user.shopify_customer_id && shopifyConfigured(env)) {
-    ctx.waitUntil(removeCustomerTags(env, ctx.fetch, user.shopify_customer_id, ["sr-club", WAITLIST_TAG])
+    ctx.waitUntil(removeCustomerTags(env, ctx.fetch, user.shopify_customer_id,
+      hadMembership ? ["sr-club", WAITLIST_TAG, VIP_TAG, PAST_TAG] : ["sr-club", WAITLIST_TAG])
       .catch((e) => console.error("shopify untag failed", e && e.message)));
   }
   return json({ deleted: true }, 202);

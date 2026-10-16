@@ -225,7 +225,10 @@ async function endMembership(svc, m, sub) {
       if (reason === "payment_failed") {
         await emailUser(svc, m.user_id, "membership_ended_payment", `membership_ended:${m.id}`, { graceUntil: grace, balanceCents: Math.max(0, balance) });
       } else {
-        // Shares its key with the cancel flow, so a member who cancelled in the portal gets it once.
+        // A member who cancelled in the portal already has this email.
+        const sent = await env.DB.prepare("SELECT 1 AS yes FROM email_log WHERE dedupe_key LIKE ?1 LIMIT 1")
+          .bind(`membership_canceled:${m.id}:%`).first();
+        if (sent) return;
         await emailUser(svc, m.user_id, "membership_canceled", `membership_canceled:${m.id}`,
           { endsOn: endedAt, graceUntil: grace, balanceCents: Math.max(0, balance) });
       }

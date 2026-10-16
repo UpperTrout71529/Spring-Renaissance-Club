@@ -34,6 +34,8 @@ import { getJoin, postCheckout, postRejoin } from "./routes/circle-join.js";
 import { stripeWebhook } from "./routes/webhooks-stripe.js";
 import { getCircle, getCredits } from "./routes/circle-member.js";
 import { listRedemptions, postRedeem, postReturn } from "./routes/credits.js";
+import { billingRetry, cancelConfirm, cancelKeep, cancelStart, cancelUndo } from "./routes/circle-cancel.js";
+import { getMembershipBilling, postBillingPortal } from "./routes/account-membership.js";
 import { getEconomics, listCosts, postCatalogSync, putCost, putEconomics, putPriceList } from "./routes/admin-economics.js";
 
 // Route options:
@@ -80,6 +82,13 @@ export const ROUTES = [
   { method: "POST", path: "/api/credits/redeem", handler: postRedeem, auth: "session" },
   { method: "GET", path: "/api/credits/redemptions", handler: listRedemptions, auth: "session" },
   { method: "POST", path: "/api/credits/redemptions/:id/return", handler: postReturn, auth: "session" },
+  { method: "POST", path: "/api/circle/cancel/start", handler: cancelStart, auth: "session" },
+  { method: "POST", path: "/api/circle/cancel/confirm", handler: cancelConfirm, auth: "session" },
+  { method: "POST", path: "/api/circle/cancel/undo", handler: cancelUndo, auth: "session" },
+  { method: "POST", path: "/api/circle/cancel/keep", handler: cancelKeep, auth: "session" },
+  { method: "POST", path: "/api/circle/billing/retry", handler: billingRetry, auth: "session" },
+  { method: "GET", path: "/api/account/membership", handler: getMembershipBilling, auth: "session" },
+  { method: "POST", path: "/api/account/membership/portal", handler: postBillingPortal, auth: "session" },
   { method: "GET", path: "/api/circle/join", handler: getJoin, auth: "session" },
   { method: "POST", path: "/api/circle/checkout", handler: postCheckout, auth: "session" },
   { method: "POST", path: "/api/circle/rejoin", handler: postRejoin, auth: "session" },
