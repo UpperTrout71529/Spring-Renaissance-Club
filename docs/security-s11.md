@@ -127,6 +127,22 @@ is limited to 3 an hour, so it is not a usable enumeration oracle.
 - Email change: notice to the old address at request time.
 - Staging cannot touch the live store (Shopify off on staging).
 
+## Applied in production (16 Oct 2026, Felix's yes)
+
+- **HSTS** — Response Header Transform Rule "HSTS 6 months on api. and club."
+  (zone springrenaissance.store): `(http.host in {"api.springrenaissance.store"
+  "club.springrenaissance.store"})` → set static
+  `Strict-Transport-Security: max-age=15552000` (no includeSubDomains, no
+  preload). Checked live: present on api. and club.; absent on concierge.,
+  registry., reserve., www. and the root (all three neighbours open over HTTPS
+  with valid certificates, checked first). The zone-wide HSTS setting was not
+  used on purpose: it would cover every proxied subdomain.
+- **WAF rate limit** — "LK auth: 20 per 10s per IP on /api/auth/*" on api. and
+  api-staging., Block 10 s: form filled, but the dashboard's Deploy is gated by
+  Cloudflare's human check, so Felix saves it.
+- **P1** — waiting: see the question in the report (the new portal's API is not
+  live yet).
+
 ## Recommended next (not done)
 
 1. **P1** — close the repo-root exposure on `club.` (production step 6).
