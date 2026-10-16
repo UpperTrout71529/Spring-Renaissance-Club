@@ -26,17 +26,17 @@ printed; nothing deleted (legacy VIP off by flag); no purchases.
 | T7 Welcome piece | done (API + admin API) | 6b9b78b |
 | T6 Member price (C) | done (behind CIRCLE_PRICE_SYNC; theme snippet in T19) | d7dd944 |
 | T8 Emails & cron | done | ea585cd |
-| T15 Members' object (B) | todo | |
-| T16 Anniversary (G) | todo | |
-| T17 Invite a friend (H) | todo | |
-| T10 Skip | todo | |
-| T13 Capsules | todo | |
-| T14 Concierge & rooms | todo | |
-| T18 Admin v2 | todo | |
-| Portal screens | todo | |
-| T19 Benefits copy & storefront | todo | |
-| Staging deploy | todo | |
-| T21 Early access (pre-order) | todo | last |
+| T15 Members' object (B) | done (API + admin API) | 321c189 |
+| T16 Anniversary (G) | done | 759ae22 |
+| T17 Invite a friend (H) | done | 9ca75f1 |
+| T10 Skip | done | 6884ffe |
+| T13 Capsules | done | 6884ffe |
+| T14 Concierge & rooms | done (rooms need R2, B6) | 5cea18d |
+| T18 Admin v2 | API done 2278128; screens: admin UI agent working (public/admin) |
+| Portal screens | portal UI agent working (portal/src) |
+| T19 Benefits copy & storefront | theme files uploaded to draft (a8c145e); benefits copy with the portal agent |
+| Staging deploy | Worker + D1 0006–0011 deployed (cad55de7); portal Pages after the UI agent |
+| T21 Early access (pre-order) | done (API) | c86a254 |
 | Report | todo | docs/v2-report.md + vault copy |
 
 ## Log
@@ -44,3 +44,7 @@ printed; nothing deleted (legacy VIP off by flag); no purchases.
 - 16 Oct: T0, T5 (engine + D1 + admin API), T1 (join/rejoin API), T2 (webhook state machine) done; suite 434/434.
   Test helpers for V2: test/v2-helpers.mjs (Shopify ops by name, Stripe fake, admin client, event fixtures).
 - 16 Oct (later): T3, T4, T11, T9, T12, T7, T8, T6 done; suite 486/486. Next: T15 object, T16 anniversary, T17 invite, T10/T13/T14, admin UI, portal UI, theme, staging, T21.
+- 16 Oct (evening): T15, T16, T17, T13/T10, T14, T18 API, T21, theme files, Stripe setup script; staging Worker deployed with migrations 0006–0011; suite 542/542.
+  Two background agents: portal Circle screens (portal/) and admin screens (public/admin/) — they do not commit; review their files, run portal unit + e2e and the admin e2e config (port 4444), then commit.
+  A read-only backend review agent is running; fix its confirmed findings with tests.
+  Left: integrate UI work, deploy club-staging (portal build:staging → Pages project spring-renaissance-club-staging), staging smoke, report (docs/v2-report.md + vault copy).
