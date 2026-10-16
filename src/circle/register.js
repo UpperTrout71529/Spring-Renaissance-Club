@@ -6,12 +6,22 @@ import { circleHooks } from "./stripe-events.js";
 import { anniversaryOnPaid, anniversaryQueue } from "./anniversary.js";
 import { giftQueues } from "../routes/admin-gifts.js";
 import { memberSections } from "../routes/circle-member.js";
+import { invitations } from "../routes/circle-join.js";
+import * as inv from "./invitations.js";
 
 let done = false;
 export function registerCircle() {
   if (done) return;
   done = true;
   circleHooks.invoicePaid.push(anniversaryOnPaid);
+  circleHooks.invoicePaid.push(inv.onInvoicePaid);
+  circleHooks.sessionCompleted.push(inv.onSessionCompleted);
+  circleHooks.sessionExpired.push(inv.onSessionExpired);
+  circleHooks.chargeRefunded.push(inv.onChargeRefunded);
+  circleHooks.dispute.push(inv.onDispute);
+  circleHooks.subscriptionEnded.push(inv.onSubscriptionEnded);
+  invitations.describe = inv.describeInvitation;
+  invitations.forCheckout = inv.invitationForCheckout;
   giftQueues.push(anniversaryQueue);
   memberSections.push(async (ctx, { userId }) => {
     const g = await ctx.env.DB.prepare(
