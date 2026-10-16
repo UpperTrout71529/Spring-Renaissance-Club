@@ -35,7 +35,7 @@ migrations_dir = "migrations"
 # Daily data retention (spec §13.2; src/cron/retention.js). V2's credit
 # expiry (§9.4, the same 03:15 UTC slot) joins this trigger.
 [triggers]
-crons = ["15 3 * * *"]
+crons = ["*/5 * * * *", "15 3 * * *"]
 
 # Plain (non-secret) configuration of the portal API.
 [vars]
@@ -70,7 +70,7 @@ name = "stripe-magiclink-staging"
 routes = [{ pattern = "api-staging.springrenaissance.store", custom_domain = true }]
 
 [env.staging.triggers]
-crons = ["15 3 * * *"]
+crons = ["*/5 * * * *", "15 3 * * *"]
 
 [[env.staging.d1_databases]]
 binding = "DB"
