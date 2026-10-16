@@ -14,10 +14,10 @@ printed; nothing deleted (legacy VIP off by flag); no purchases.
 
 | Task | Status | Notes |
 |---|---|---|
-| T0 Foundations | in progress | |
-| T5 Economics engine | todo | |
-| T1 Join | todo | |
-| T2 Stripe webhooks & state | todo | |
+| T0 Foundations | done | 1ef0ee7 |
+| T5 Economics engine | done (API); admin screen in T18 | cef0c9c, dbab5db |
+| T1 Join | done (API); portal screen later | 42ac438 |
+| T2 Stripe webhooks & state | done (incl. T9/T11/T12 webhook side); daily Stripe reconcile with T8 cron | 8fcb1d7 |
 | T3 Ledger & credits | todo | |
 | T4 Spend credits | todo | |
 | T9 Failed payments | todo | |
@@ -40,3 +40,6 @@ printed; nothing deleted (legacy VIP off by flag); no purchases.
 | Report | todo | docs/v2-report.md + vault copy |
 
 ## Log
+
+- 16 Oct: T0, T5 (engine + D1 + admin API), T1 (join/rejoin API), T2 (webhook state machine) done; suite 434/434.
+  Test helpers for V2: test/v2-helpers.mjs (Shopify ops by name, Stripe fake, admin client, event fixtures).
