@@ -32,6 +32,11 @@ database_name = "spring-renaissance"
 database_id = "88e830cc-fc14-4ab6-ab69-e91a37698e28"
 migrations_dir = "migrations"
 
+# Daily data retention (spec §13.2; src/cron/retention.js). V2's credit
+# expiry (§9.4, the same 03:15 UTC slot) joins this trigger.
+[triggers]
+crons = ["15 3 * * *"]
+
 # Plain (non-secret) configuration of the portal API.
 [vars]
 SHOPIFY_SHOP = "qyziv4-0c.myshopify.com"
@@ -40,6 +45,47 @@ SHOPIFY_SHOP = "qyziv4-0c.myshopify.com"
 # request runs the Worker first, so nothing under public/ is served without
 # the Cloudflare Access check in src/admin/access.js.
 [assets]
+directory = "./public"
+binding = "ASSETS"
+html_handling = "none"
+run_worker_first = true
+
+# ---------------------------------------------------------------------------
+# Staging (S11): its own Worker, D1 and KV; nothing shared with production.
+# Deploy: wrangler deploy --env staging. Bindings and vars are not inherited
+# from the top level, so everything is repeated here.
+# Shopify is deliberately NOT configured on staging (no SHOPIFY_SHOP): a
+# staging sign-in must not create customers or tags in the live store.
+# Same-site cookies need the API and the portal on one registrable domain, so
+# staging uses api-staging. and club-staging. (custom domains = DNS records;
+# added only with Felix's "yes" — until then the Worker is on workers.dev).
+# Secrets (wrangler secret put --env staging): SESSION_PEPPER, RESEND_API_KEY,
+# TURNSTILE_SECRET (Cloudflare's always-pass test secret is fine here).
+[env.staging]
+name = "stripe-magiclink-staging"
+
+[env.staging.triggers]
+crons = ["15 3 * * *"]
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "spring-renaissance-staging"
+database_id = "cf5418bc-d6ad-4b14-bf82-09701f6fb996"
+migrations_dir = "migrations"
+
+[[env.staging.kv_namespaces]]
+binding = "CLIENT_KV"
+# TODO(S11): the staging KV namespace "CLIENT_KV_STORE_STAGING" is not created
+# yet (needs Felix's OK); replace with its id.
+id = "00000000000000000000000000000000"
+
+[env.staging.vars]
+PORTAL_URL = "https://club-staging.springrenaissance.store"
+ALLOWED_ORIGINS = "https://club-staging.springrenaissance.store"
+PASSKEY_RP_ID = "springrenaissance.store"
+PASSKEY_ORIGINS = "https://club-staging.springrenaissance.store"
+
+[env.staging.assets]
 directory = "./public"
 binding = "ASSETS"
 html_handling = "none"
