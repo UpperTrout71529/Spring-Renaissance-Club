@@ -3,6 +3,58 @@
 Running list for PR review (Felix). Spec: "ЛК — ТЗ v1.1" (2026-10-15).
 "My call" = not defined in the spec, decided during the build.
 
+## Status — where the build stands (16 Oct 2026, before context compaction)
+
+- Branch `feat/lk-v1`, PR #11 into `feat/d1-state`. Pushed through `d303ff0`
+  (S8). **Not pushed yet:** `407d257` (S8 follow-up: FAQ off in production,
+  Circle price fixtures), `958a73a` (S9 API), `3259f43` (S9 portal) — ask
+  Felix before pushing.
+- Done: P0.3, S1–S9 (V1 API + portal shell, sign-in by link and passkey,
+  step-up, orders, gift cards + Home, Saved/Held + import, Circle teaser +
+  waitlist, Account/sessions/export/delete).
+- Tests at `3259f43`: worker `npm test` 264/264; portal unit 13; e2e 220
+  passed / 12 skipped (passkey specs are Chromium-only); Lighthouse a11y on
+  /login 100/100; the Circle FAQ strings are absent from a production build.
+- Theme: only the draft 189482795229 was touched (S7: `snippets/sr-save.liquid`,
+  2 lines in `snippets/sr-touch-fix.liquid`; backup in `theme/backups/`).
+  Felix edits templates and sr-consult there in parallel — do not touch them.
+- Nothing deployed: no production migrations, no Worker deploy, Pages not
+  switched (club. is served by Cloudflare Pages; plan in S11).
+
+### What is left in V1 (spec §17.3)
+- **S10 — Admin v1 and analytics:** `/admin` behind Cloudflare Access (P0.8:
+  Felix creates the Access app; Worker checks `Cf-Access-Jwt-Assertion` and
+  `ADMIN_EMAILS`), Members (search, detail read-only), System (failed
+  webhooks, email log, audit), `POST /api/events` with the §15.1 client
+  allowlist, Overview V1 metrics, Shopify webhook `orders/create` →
+  `order_placed` (+ `SHOPIFY_WEBHOOK_SECRET`, HMAC, dedupe in
+  `webhook_events`). Acceptance: no Access JWT → 403 even on direct
+  `/api/admin/*`; email not in `ADMIN_EMAILS` → 403; metric SQL unit-tested.
+- **S11 — QA and V1 launch:** staging (separate Worker env + D1 + KV, a
+  staging Pages deploy of `portal/`, its own Turnstile widget) and the
+  cross-subdomain cookie check in WebKit there; e2e on staging; Lighthouse
+  LCP < 2.5 s on Slow 4G for Home; security pass (§13.1); "Account" link in
+  the draft theme header/footer → portal; launch checklist for Felix (publish
+  theme, deliverability of the sign-in email to Gmail/Outlook/iCloud). Rollout
+  order and rollback: `docs/rollout-s1.md`.
+- **S12 (V1.1) — Google sign-in** (needs a Google Cloud project, Felix).
+- Small follow-ups noted on the way: the storefront heart on collection cards
+  (only product pages now); the reservation form posting to `/api/holds`
+  when its `hold_mode` is switched on; client events (`circle_teaser_viewed`
+  etc.) wait for `POST /api/events` in S10.
+- Secrets/vars Felix sets himself (dashboard): `SESSION_PEPPER`,
+  `TURNSTILE_SECRET`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`; plain
+  variable `ADMIN_NOTIFY_EMAIL`.
+
+### Working rule (Felix, 16 Oct)
+Each task starts by checking which skills/plugins fit (Shopify, Cloudflare,
+superpowers, accessibility) and using them; each task report lists the
+skills used. So far: shopify-admin (all Admin GraphQL validated), shopify-liquid
+(snippet; its validator was broken, theme-check run instead); Cloudflare and
+accessibility checks were done with wrangler `--local`, axe and Lighthouse
+rather than the plugin skills; superpowers process skills not invoked
+formally (TDD and mutation checks done by hand) — to use from S10 on.
+
 ## Open questions for Felix
 
 1. **Shopify access (P0.4) — code done, secrets pending.** "Claude Sync"
