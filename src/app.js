@@ -32,6 +32,8 @@ import { postEvent } from "./routes/events.js";
 import { shopifyWebhook } from "./routes/webhooks-shopify.js";
 import { getJoin, postCheckout, postRejoin } from "./routes/circle-join.js";
 import { stripeWebhook } from "./routes/webhooks-stripe.js";
+import { getCircle, getCredits } from "./routes/circle-member.js";
+import { listRedemptions, postRedeem, postReturn } from "./routes/credits.js";
 import { getEconomics, listCosts, postCatalogSync, putCost, putEconomics, putPriceList } from "./routes/admin-economics.js";
 
 // Route options:
@@ -73,6 +75,11 @@ export const ROUTES = [
   { method: "DELETE", path: "/api/account", handler: deleteAccount, auth: "session" },
   { method: "GET", path: "/api/circle/teaser", handler: getTeaser, auth: "session" },
   { method: "POST", path: "/api/circle/waitlist", handler: joinWaitlist, auth: "session" },
+  { method: "GET", path: "/api/circle", handler: getCircle, auth: "session" },
+  { method: "GET", path: "/api/circle/credits", handler: getCredits, auth: "session" },
+  { method: "POST", path: "/api/credits/redeem", handler: postRedeem, auth: "session" },
+  { method: "GET", path: "/api/credits/redemptions", handler: listRedemptions, auth: "session" },
+  { method: "POST", path: "/api/credits/redemptions/:id/return", handler: postReturn, auth: "session" },
   { method: "GET", path: "/api/circle/join", handler: getJoin, auth: "session" },
   { method: "POST", path: "/api/circle/checkout", handler: postCheckout, auth: "session" },
   { method: "POST", path: "/api/circle/rejoin", handler: postRejoin, auth: "session" },
