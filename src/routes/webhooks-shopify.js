@@ -120,6 +120,12 @@ export async function shopifyWebhook(ctx) {
     "UPDATE webhook_events SET status = ?1, processed_at = ?2, error = ?3 WHERE event_id = ?4"
   ).bind(status, nowIso, error, eventId);
 
+  if (topic === "products/update") {
+    // V2 (review finding 2): prices may have changed — the 5-minute job re-reads the catalog.
+    if (env.CLIENT_KV) await env.CLIENT_KV.put("circle_catalog_dirty", nowIso).catch(() => {});
+    await done("processed").run();
+    return json({ ok: true });
+  }
   if (topic === "draft_orders/update") {
     // V2: a completed draft marks a members' object claim paid.
     try {

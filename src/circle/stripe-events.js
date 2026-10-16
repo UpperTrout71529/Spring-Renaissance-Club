@@ -194,7 +194,7 @@ async function onSubscriptionSnapshot(svc, event) {
        current_period_end = COALESCE(?3, current_period_end),
        cancel_requested_at = CASE WHEN ?4 = 1 THEN COALESCE(cancel_requested_at, ?5) ELSE NULL END,
        started_at = COALESCE(started_at, ?6), stripe_synced_at = ?7, updated_at = ?5
-     WHERE id = ?8 AND status NOT IN ('ended','ended_expired')`
+     WHERE id = ?8 AND status NOT IN ('ended','ended_expired') AND stripe_synced_at <= ?7`
   ).bind(next, period.start, period.end, cancelling ? 1 : 0, nowIso, isoOf(sub.start_date), event.created, m.id).run();
   await setTier(svc.env, m.user_id);
   transitionEffects(svc, m.user_id, m.status, next);
@@ -346,7 +346,7 @@ async function onInvoicePaid(svc, event) {
   if ((m.status === "past_due" || m.status === "pending") && event.created >= m.stripe_synced_at) {
     next = statusAfterPayment(m);
     stmts.push(env.DB.prepare(
-      "UPDATE memberships SET status = ?1, stripe_synced_at = ?2 WHERE id = ?3 AND status IN ('past_due','pending')"
+      "UPDATE memberships SET status = ?1, stripe_synced_at = ?2 WHERE id = ?3 AND status IN ('past_due','pending') AND stripe_synced_at <= ?2"
     ).bind(next, event.created, m.id));
   }
   await env.DB.batch(stmts);
@@ -387,7 +387,7 @@ async function onInvoicePaymentFailed(svc, event) {
   if ((m.status === "active" || m.status === "canceling") && event.created >= m.stripe_synced_at) {
     next = "past_due";
     stmts.push(env.DB.prepare(
-      "UPDATE memberships SET status = 'past_due', stripe_synced_at = ?1, updated_at = ?2 WHERE id = ?3 AND status IN ('active','canceling')"
+      "UPDATE memberships SET status = 'past_due', stripe_synced_at = ?1, updated_at = ?2 WHERE id = ?3 AND status IN ('active','canceling') AND stripe_synced_at <= ?1"
     ).bind(event.created, nowIso, m.id));
   }
   await env.DB.batch(stmts);
@@ -433,6 +433,13 @@ async function paymentFor(svc, { paymentIntent, chargeId }) {
   return env.DB.prepare("SELECT * FROM stripe_payments WHERE payment_intent_id = ?1").bind(paymentIntent).first();
 }
 
+// Credits already taken back from one invoice: refunds on its charges,
+// disputes on it, minus disputes restored. ?9 = the invoice id, ?4 = the
+// charge being refunded (a refund row may arrive before the charge is mapped).
+const REVERSED_FOR_INVOICE = `(SELECT COALESCE(-SUM(l.amount_cents), 0) FROM credit_ledger l
+  WHERE (l.kind = 'refund_reversal' AND (l.ref IN (SELECT charge_id FROM stripe_payments WHERE invoice_id = ?9 AND charge_id IS NOT NULL) OR l.ref = ?4))
+     OR (l.kind IN ('dispute_reversal','dispute_restore') AND l.ref IN (SELECT dispute_id FROM stripe_disputes WHERE invoice_id = ?9)))`;
+
 async function invoiceCredits(env, invoiceId) {
   const row = await env.DB.prepare(
     "SELECT COALESCE(SUM(amount_cents), 0) AS c FROM credit_ledger WHERE idempotency_key = ?1"
@@ -448,19 +455,19 @@ async function onChargeRefunded(svc, event) {
   const accrued = await invoiceCredits(env, pay.invoice_id);
   const total = ch.amount || pay.amount_cents || 0;
   if (accrued > 0 && total > 0) {
-    // §9.1.4: the invoice's credits × the refunded share, rounded against the house.
+    // §9.1.4: the invoice's credits × the refunded share, rounded against the
+    // house — computed inside the INSERT, so two refund events processed at
+    // once, or a dispute already booked, can never reverse more than the
+    // invoice credited (review findings 5, 10).
     const target = Math.min(accrued, Math.ceil((accrued * (ch.amount_refunded || 0)) / total));
-    const done = await env.DB.prepare(
-      "SELECT COALESCE(-SUM(amount_cents), 0) AS d FROM credit_ledger WHERE kind = 'refund_reversal' AND ref = ?1"
-    ).bind(ch.id).first();
-    const delta = target - ((done && done.d) || 0);
-    if (delta > 0) {
-      const m = await env.DB.prepare("SELECT membership_id FROM membership_invoices WHERE invoice_id = ?1").bind(pay.invoice_id).first();
-      await ledgerEntry(env, {
-        id: svc.newId(), userId: pay.user_id, membershipId: m && m.membership_id, amountCents: -delta, kind: "refund_reversal",
-        ref: ch.id, memo: "Reversed — refund", key: `refund:${ch.id}:${ch.amount_refunded}`, createdAt: svc.nowIso(),
-      }).run();
-    }
+    const m = await env.DB.prepare("SELECT membership_id FROM membership_invoices WHERE invoice_id = ?1").bind(pay.invoice_id).first();
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO credit_ledger (id, user_id, membership_id, amount_cents, kind, ref, memo, idempotency_key, created_by, created_at)
+       SELECT ?1, ?2, ?3, -d, 'refund_reversal', ?4, 'Reversed — refund', ?5, 'system', ?6
+         FROM (SELECT MIN(?7 - (SELECT COALESCE(-SUM(amount_cents), 0) FROM credit_ledger WHERE kind = 'refund_reversal' AND ref = ?4),
+                          ?8 - ${REVERSED_FOR_INVOICE}) AS d)
+        WHERE d > 0`
+    ).bind(svc.newId(), pay.user_id, m && m.membership_id, ch.id, `refund:${ch.id}:${ch.amount_refunded}`, svc.nowIso(), target, accrued, pay.invoice_id).run();
   }
   await runHooks(circleHooks.chargeRefunded, svc, { charge: ch, payment: pay });
   return "processed";
@@ -473,15 +480,22 @@ async function onDisputeCreated(svc, event) {
   const { env } = svc;
   const nowIso = svc.nowIso();
   const accrued = await invoiceCredits(env, pay.invoice_id);
+  // Only what the invoice still has unreversed (a refund may have come first).
   await env.DB.batch([
     env.DB.prepare(
       `INSERT OR IGNORE INTO stripe_disputes (dispute_id, charge_id, invoice_id, user_id, status, reversed_cents, created_at)
-       VALUES (?1, ?2, ?3, ?4, 'open', ?5, ?6)`
-    ).bind(dp.id, dp.charge || pay.charge_id, pay.invoice_id, pay.user_id, accrued, nowIso),
-    ledgerEntry(env, {
-      id: svc.newId(), userId: pay.user_id, amountCents: -accrued, kind: "dispute_reversal", ref: dp.id,
-      memo: "Reversed — payment dispute", key: `dispute:${dp.id}`, createdAt: nowIso,
-    }),
+       VALUES (?1, ?2, ?3, ?4, 'open', 0, ?5)`
+    ).bind(dp.id, dp.charge || pay.charge_id, pay.invoice_id, pay.user_id, nowIso),
+    env.DB.prepare(
+      `INSERT OR IGNORE INTO credit_ledger (id, user_id, membership_id, amount_cents, kind, ref, memo, idempotency_key, created_by, created_at)
+       SELECT ?1, ?2, NULL, -d, 'dispute_reversal', ?3, 'Reversed — payment dispute', ?4, 'system', ?5
+         FROM (SELECT ?6 - ${REVERSED_FOR_INVOICE.replace(/\?9/g, "?7")} AS d)
+        WHERE d > 0`
+    ).bind(svc.newId(), pay.user_id, dp.id, `dispute:${dp.id}`, nowIso, accrued, pay.invoice_id),
+    env.DB.prepare(
+      `UPDATE stripe_disputes SET reversed_cents = COALESCE((SELECT -amount_cents FROM credit_ledger WHERE idempotency_key = ?1), 0)
+        WHERE dispute_id = ?2`
+    ).bind(`dispute:${dp.id}`, dp.id),
     env.DB.prepare("UPDATE memberships SET credits_frozen = 1, updated_at = ?1 WHERE user_id = ?2").bind(nowIso, pay.user_id),
   ]);
   later(svc, "dispute_suspend", () => membershipSuspended(svc, pay.user_id, "dispute"));
@@ -516,6 +530,15 @@ async function onDisputeClosed(svc, event) {
     ).bind(nowIso, d.user_id, dp.id));
   }
   await env.DB.batch(stmts);
+  if (!won) {
+    // Review finding 6: Felix decides — unfreeze in the admin, or cancel the membership.
+    later(svc, "dispute_lost", () => raiseFlag(svc, {
+      kind: "dispute_lost", dedupeKey: `dispute_lost:${dp.id}`, userId: d.user_id, ref: dp.id,
+      title: "A payment dispute was lost",
+      lines: [`Dispute ${dp.id} closed as lost. The member's credits stay reversed and frozen, and the member price is paused.`,
+        "Decide in the admin: lift the freeze (Members → the member) or cancel the membership in Stripe."],
+    }));
+  }
   if (won) {
     const live = await env.DB.prepare(
       "SELECT 1 AS yes FROM memberships WHERE user_id = ?1 AND status IN ('active','canceling') AND credits_frozen = 0 LIMIT 1"

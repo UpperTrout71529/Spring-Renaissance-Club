@@ -5,6 +5,7 @@ import { readJson } from "../http/body.js";
 import { badRequest, conflict, notFound } from "../http/errors.js";
 import { ledgerEntry, balanceCents } from "../circle/ledger.js";
 import { loadSettings } from "../circle/economics-store.js";
+import { syncMemberPrice } from "../circle/member-price.js";
 
 async function audit(ctx, action, target, payload = null) {
   await ctx.env.DB.prepare(
@@ -22,15 +23,37 @@ export async function adjustCredits(ctx) {
   }
   const m = await env.DB.prepare("SELECT id FROM memberships WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 1").bind(b.user_id).first();
   if (!m) throw conflict("not_a_member", "Only members have credits.");
+  // Review finding 13: a double submit with the same key is booked once.
+  const raw = ctx.request.headers.get("Idempotency-Key");
+  if (raw !== null && !/^[A-Za-z0-9_-]{1,100}$/.test(raw)) throw badRequest("invalid_idempotency_key", "Invalid request key.");
+  const key = raw ? `manual:key:${b.user_id}:${raw}` : null;
+  if (key) {
+    const seen = await env.DB.prepare("SELECT 1 AS yes FROM credit_ledger WHERE idempotency_key = ?1").bind(key).first();
+    if (seen) return ctx.json({ balance_cents: await balanceCents(env, b.user_id), repeated: true });
+  }
   const balance = await balanceCents(env, b.user_id);
   if (balance + b.amount_cents < 0) throw conflict("below_zero", "An adjustment cannot take the balance below zero.");
   const id = ctx.newId();
   await ledgerEntry(env, {
     id, userId: b.user_id, membershipId: m.id, amountCents: b.amount_cents, kind: "manual", ref: id,
-    memo: `Adjustment by the Maison — ${memo}`, key: `manual:${id}`, createdBy: `admin:${ctx.admin.email}`, createdAt: ctx.nowIso(),
+    memo: `Adjustment by the Maison — ${memo}`, key: key || `manual:${id}`, createdBy: `admin:${ctx.admin.email}`, createdAt: ctx.nowIso(),
   }).run();
   await audit(ctx, "credits_adjusted", b.user_id, { amount_cents: b.amount_cents, memo });
   return ctx.json({ balance_cents: balance + b.amount_cents }, 201);
+}
+
+// Review finding 6: after a lost dispute (or any freeze) Felix decides.
+export async function unfreezeCredits(ctx) {
+  const { env, params } = ctx;
+  const b = await readJson(ctx.request);
+  const memo = typeof b.memo === "string" ? b.memo.trim().slice(0, 200) : "";
+  if (!memo) throw badRequest("note_required", "A note is required.");
+  const res = await env.DB.prepare("UPDATE memberships SET credits_frozen = 0, updated_at = ?1 WHERE user_id = ?2 AND credits_frozen = 1")
+    .bind(ctx.nowIso(), params.id).run();
+  if (!res.meta || res.meta.changes === 0) throw conflict("not_frozen", "These credits are not frozen.");
+  await audit(ctx, "credits_unfrozen", params.id, { memo });
+  ctx.waitUntil(syncMemberPrice(ctx));
+  return ctx.json({ unfrozen: true });
 }
 
 export async function circleOverview(ctx) {

@@ -31,7 +31,7 @@ All member endpoints: session cookie; writes need `Origin` = portal and
 | GET | `/api/circle/invite` | `{ code, link, discount_cents, reward_cents, season, this_season: none\|joined\|counted, paused }`; 403 members_only |
 | GET/POST | `/api/circle/anniversary` | GET `{ gift: {id, n, status, address, name}\|null }`; POST `{ address: {name, line1, line2?, city, state, postal_code, country:'US'} }` → `{ status:'ready' }` |
 | GET | `/api/circle/capsules` | `{ current: {id, season, title, price_cents, opens_at, closes_at, skipped, claimed, product_url, eligible, reason}\|null, upcoming: [...] }` |
-| POST | `/api/circle/capsules/:id/claim` | → 201 `{ capsule_id, amount_cents, code, last4?, product_url }` |
+| POST | `/api/circle/capsules/:id/claim` | step-up within 15 min (403 step_up_required) → 201 `{ capsule_id, amount_cents, code, last4?, product_url }` |
 | GET/POST/DELETE | `/api/circle/skips[/:capsule_id]` | list / `{ capsule_id }` / undo — before the window opens only (409 capsule_window_open) |
 | GET/POST | `/api/circle/concierge` | GET `{ messages:[{id, author: member\|maison, body, created_at}], unread }`; POST `{ body, priority? }` → 201 |
 | GET/PUT | `/api/circle/rooms` | GET `{ photos:[{id, room_label, note, created_at}] }`; PUT raw image (`Content-Type` image/jpeg\|png\|webp, `?label=`) → 201; 503 rooms_unavailable without R2 |
@@ -59,11 +59,12 @@ All member endpoints: session cookie; writes need `Origin` = portal and
 | GET/POST/PATCH | `/api/admin/capsules[/:id]` | capsules |
 | GET / GET / POST | `/api/admin/concierge` / `/:id` / `/:id/reply` | threads, a thread with room photos, reply |
 | GET | `/api/admin/rooms/:id/image` | a member's room photo |
-| POST | `/api/admin/credits/adjust` | `{ user_id, amount_cents, memo }` (note required) |
+| POST | `/api/admin/credits/adjust` | `{ user_id, amount_cents, memo }` (note required; optional `Idempotency-Key`) |
+| POST | `/api/admin/members/:id/unfreeze` | `{ memo }` — lift a dispute freeze (note required, audited) |
 | GET | `/api/admin/circle/overview` | members by status, credits outstanding, monthly recurring, open flags, queues |
 | GET / POST | `/api/admin/flags[?status=resolved]` / `/:id/resolve` | signals for Felix |
 | GET | `/api/admin/members[?status=]`, `/api/admin/members/:id` | V1 + membership, balance, next charge, ledger, invoices |
 
 ## Webhooks
 `POST /webhooks/stripe` (STRIPE_CIRCLE_WEBHOOK_SECRET) and `POST /webhooks/shopify`
-(orders/create audit, draft_orders/update → object claim paid).
+(orders/create audit, draft_orders/update → object claim paid, products/update → catalog re-read within 5 minutes).

@@ -44,7 +44,7 @@ import { assignAnniversary, createAnniversaryOrder, getAnniversary, postAnnivers
 import { registerCircle } from "./circle/register.js";
 import { decideInvitation, getInvite, listInvitations } from "./circle/invitations.js";
 import { adminRoomImage, deleteRoom, getConcierge, getRoomImage, getThread, listRooms, listThreads, postConcierge, replyThread, uploadRoom } from "./circle/concierge.js";
-import { adjustCredits, circleOverview, listFlags, resolveFlag } from "./routes/admin-circle.js";
+import { adjustCredits, circleOverview, listFlags, resolveFlag, unfreezeCredits } from "./routes/admin-circle.js";
 import { claimCapsule, createCapsule, deleteSkip, getCapsules, listCapsulesAdmin, listSkips, patchCapsule, postSkip } from "./circle/capsules.js";
 import { closeRelease, createRelease, getEarlyAccess, getObject, getReleaseGuard, listReleases, openReleaseNow, patchRelease, postEarlyAccessClaim, postObjectClaim } from "./routes/member-object.js";
 
@@ -167,6 +167,7 @@ export const ROUTES = [
   { method: "POST", path: "/api/admin/concierge/:id/reply", handler: replyThread, auth: "admin" },
   { method: "GET", path: "/api/admin/rooms/:id/image", handler: adminRoomImage, auth: "admin" },
   { method: "POST", path: "/api/admin/credits/adjust", handler: adjustCredits, auth: "admin" },
+  { method: "POST", path: "/api/admin/members/:id/unfreeze", handler: unfreezeCredits, auth: "admin" },
   { method: "GET", path: "/api/admin/circle/overview", handler: circleOverview, auth: "admin" },
   { method: "GET", path: "/api/admin/flags", handler: listFlags, auth: "admin" },
   { method: "POST", path: "/api/admin/flags/:id/resolve", handler: resolveFlag, auth: "admin" },

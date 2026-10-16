@@ -26,6 +26,10 @@ const READ = `query CirclePriceRead($id: ID!) {
   }
 }`;
 
+const FIND = `query CirclePriceFind($query: String!) {
+  discountNodes(first: 25, query: $query) { nodes { id discount { __typename ... on DiscountAutomaticBasic { title status } } } }
+}`;
+
 const ACTIVATE = `mutation CirclePriceActivate($id: ID!) { discountAutomaticActivate(id: $id) { automaticDiscountNode { id } userErrors { field message } } }`;
 const DEACTIVATE = `mutation CirclePriceDeactivate($id: ID!) { discountAutomaticDeactivate(id: $id) { automaticDiscountNode { id } userErrors { field message } } }`;
 
@@ -72,6 +76,15 @@ export async function readCirclePrice(env, fetchImpl, id) {
     customers: ((d.context && d.context.customers) || []).map((c) => c.id),
     variants: ((d.customerGets && d.customerGets.items && d.customerGets.items.productVariants && d.customerGets.items.productVariants.nodes) || []).map((v) => v.id),
   };
+}
+
+// An automatic discount with exactly this title (one Shopify made even though
+// our create call timed out), or null.
+export async function findCirclePrice(env, fetchImpl, title) {
+  const data = await shopifyGraphql(env, fetchImpl, FIND, { query: `title:"${title}"` });
+  const hit = ((data.discountNodes && data.discountNodes.nodes) || [])
+    .find((n) => n.discount && n.discount.__typename === "DiscountAutomaticBasic" && n.discount.title === title);
+  return hit ? hit.id : null;
 }
 
 export async function setCirclePriceActive(env, fetchImpl, id, active) {

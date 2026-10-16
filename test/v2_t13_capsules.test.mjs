@@ -84,6 +84,7 @@ test('T13-3: claiming turns min(balance, price) into a card; a second claim is 4
   await capsule(r);
   await r.months(2); // 40 credits
   r.t.setNow(T0 + 11 * DAY);
+  await r.t.env.DB.prepare('UPDATE sessions SET step_up_at = ?1').bind(new Date(T0 + 11 * DAY).toISOString()).run();
   const out = await r.api('POST', `/api/circle/capsules/${(await r.api('GET', '/api/circle/capsules')).data.current.id}/claim`, {});
   assert.equal(out.res.status, 201, JSON.stringify(out.data));
   assert.equal(out.data.amount_cents, 4000, 'balance below the price → the whole balance');
@@ -101,6 +102,7 @@ test('T13-4: past_due members cannot claim; canceling members with two months ca
   await r.months(2);
   await r.send('invoice.payment_failed', fx.invoice({ id: 'in_3', userId: r.userId, reason: 'subscription_cycle', status: 'open', next: 1 }));
   r.t.setNow(T0 + 11 * DAY);
+  await r.t.env.DB.prepare('UPDATE sessions SET step_up_at = ?1').bind(new Date(T0 + 11 * DAY).toISOString()).run();
   const out = await r.api('POST', `/api/circle/capsules/${id}/claim`, {});
   assert.equal(out.res.status, 409);
   assert.equal(out.data.error.code, 'not_eligible');

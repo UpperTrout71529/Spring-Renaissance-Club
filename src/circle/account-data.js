@@ -5,6 +5,9 @@
 // cancelled; referral rows stay without personal data (the user row is
 // anonymised by the account code).
 
+import { shopifyConfigured } from "../shopify/admin.js";
+import { deleteDraftOrder } from "../shopify/draft-orders.js";
+
 export async function circleExport(env, userId) {
   const all = async (sql) => (await env.DB.prepare(sql).bind(userId).all()).results;
   const memberships = await all(
@@ -27,7 +30,17 @@ export async function circleExport(env, userId) {
 }
 
 // deletionClosers entry: (env, userId, nowIso) → [statements]
-export async function circleDeletion(env, userId, nowIso) {
+export async function circleDeletion(env, userId, nowIso, fetchImpl) {
+  // Open members' object invoices are deleted in Shopify, so the freed slot
+  // cannot be paid for later (review finding 12).
+  const drafts = (await env.DB.prepare(
+    "SELECT draft_order_gid FROM member_object_claims WHERE user_id = ?1 AND status IN ('creating','invoiced') AND draft_order_gid IS NOT NULL"
+  ).bind(userId).all()).results;
+  if (drafts.length && shopifyConfigured(env)) {
+    for (const d of drafts) {
+      try { await deleteDraftOrder(env, fetchImpl, d.draft_order_gid); } catch (e) { console.error("draft delete failed", e && e.message); }
+    }
+  }
   const photos = (await env.DB.prepare("SELECT r2_key FROM room_photos WHERE user_id = ?1").bind(userId).all()).results;
   if (env.ROOMS) {
     for (const p of photos) {

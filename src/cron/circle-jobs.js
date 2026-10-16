@@ -8,6 +8,61 @@ import { balanceCents, ledgerEntry } from "../circle/ledger.js";
 import { emailUser } from "../circle/notify.js";
 import { processStripeEvent } from "../circle/stripe-events.js";
 import { recordEvent } from "../lib/events.js";
+import { shopifyConfigured } from "../shopify/admin.js";
+import { syncCatalog } from "../shopify/catalog.js";
+import { loadSettings, recomputeItems } from "../circle/economics-store.js";
+import { syncMemberPrice } from "../circle/member-price.js";
+import { raiseFlag } from "../circle/notify.js";
+
+export const CATALOG_DIRTY_KEY = "circle_catalog_dirty";
+
+// Review finding 2: prices follow Shopify. Daily (force) and whenever a
+// products/update webhook marked the catalog dirty (every 5 minutes).
+export async function catalogRefresh(svc, { force = false } = {}) {
+  const { env } = svc;
+  if (!shopifyConfigured(env)) return { skipped: "shopify" };
+  if (!force) {
+    const dirty = env.CLIENT_KV ? await env.CLIENT_KV.get(CATALOG_DIRTY_KEY).catch(() => null) : null;
+    if (!dirty) return { skipped: "clean" };
+  }
+  const nowIso = svc.nowIso();
+  const out = await syncCatalog(env, svc.fetch, nowIso, svc.newId());
+  const { settings } = await loadSettings(env);
+  await recomputeItems(env, settings, nowIso);
+  if (env.CLIENT_KV) await env.CLIENT_KV.delete(CATALOG_DIRTY_KEY).catch(() => {});
+  await syncMemberPrice(svc);
+  return out;
+}
+
+// Review finding 3: a redemption (or capsule claim) stuck in 'creating' for
+// 10 minutes — the request died between the debit and the card. The credits
+// go back and Felix is asked to check Shopify for a card with that note.
+export async function stuckRedemptions(svc) {
+  const { env } = svc;
+  const cutoff = new Date(svc.now() - 10 * 60 * 1000).toISOString();
+  const nowIso = svc.nowIso();
+  const stuck = (await env.DB.prepare(
+    "SELECT id, user_id, amount_cents FROM redemptions WHERE status = 'creating' AND created_at <= ?1 LIMIT 20"
+  ).bind(cutoff).all()).results;
+  for (const r of stuck) {
+    await env.DB.batch([
+      ledgerEntry(env, { id: svc.newId(), userId: r.user_id, amountCents: r.amount_cents, kind: "redemption_return", ref: r.id,
+        memo: "Returned — card not created", key: `redemption_return:${r.id}`, createdAt: nowIso }),
+      env.DB.prepare("UPDATE redemptions SET status = 'failed', updated_at = ?1 WHERE id = ?2 AND status = 'creating'").bind(nowIso, r.id),
+      env.DB.prepare("UPDATE capsule_claims SET status = 'failed' WHERE redemption_id = ?1 AND status = 'creating'").bind(r.id),
+    ]);
+    await raiseFlag(svc, {
+      kind: "redemption_uncertain", dedupeKey: `redemption_uncertain:${r.id}`, userId: r.user_id, ref: r.id,
+      title: "Check a credits gift card",
+      lines: [`Redemption ${r.id} stopped half-way; the credits were returned.`,
+        `If a card noted "Circle credits · ${r.id}" exists in Shopify, deactivate it.`],
+    }).catch(() => {});
+  }
+  const claims = await env.DB.prepare(
+    "UPDATE capsule_claims SET status = 'failed' WHERE status = 'creating' AND created_at <= ?1"
+  ).bind(cutoff).run();
+  return { redemptions: stuck.length, capsule_claims: (claims.meta && claims.meta.changes) || 0 };
+}
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -21,7 +76,10 @@ export async function renewalReminders(svc) {
   const now = svc.now();
   const { results } = await env.DB.prepare(
     `SELECT m.id, m.user_id, m.stripe_subscription_id, m.stripe_customer_id, m.current_period_end FROM memberships m
-      WHERE m.status = 'active' AND m.current_period_end > ?1 AND m.current_period_end <= ?2 LIMIT 10`
+      WHERE m.status = 'active' AND m.current_period_end > ?1 AND m.current_period_end <= ?2
+        AND NOT EXISTS (SELECT 1 FROM email_log e WHERE e.dedupe_key =
+              'renewal_reminder:' || m.stripe_subscription_id || ':' || substr(m.current_period_end, 1, 10))
+      ORDER BY m.current_period_end LIMIT 10`
   ).bind(iso(now + 60 * HOUR_MS), iso(now + 73 * HOUR_MS)).all();
   let sent = 0;
   for (const m of results) {
@@ -55,8 +113,12 @@ export async function creditsExpiry(svc) {
     const live = await env.DB.prepare(
       "SELECT 1 AS yes FROM memberships WHERE user_id = ?1 AND status IN ('pending','active','past_due','canceling') LIMIT 1"
     ).bind(m.user_id).first();
+    // Review finding 11: another ended membership may still be in its grace.
+    const later = await env.DB.prepare(
+      "SELECT 1 AS yes FROM memberships WHERE user_id = ?1 AND id <> ?2 AND status = 'ended' AND credits_grace_until > ?3 LIMIT 1"
+    ).bind(m.user_id, m.id, nowIso).first();
     const stmts = [env.DB.prepare("UPDATE memberships SET status = 'ended_expired', updated_at = ?1 WHERE id = ?2 AND status = 'ended'").bind(nowIso, m.id)];
-    const balance = live ? 0 : await balanceCents(env, m.user_id);
+    const balance = live || later ? 0 : await balanceCents(env, m.user_id);
     if (balance > 0) {
       stmts.push(ledgerEntry(env, { id: svc.newId(), userId: m.user_id, membershipId: m.id, amountCents: -balance, kind: "expiry",
         memo: "Expired after membership ended", key: `expiry:${m.id}`, createdAt: nowIso }));

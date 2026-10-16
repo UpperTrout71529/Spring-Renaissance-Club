@@ -7,7 +7,7 @@
 // nowIso, newId, waitUntil), so the Circle code runs the same in both.
 
 import { runRetention } from "./retention.js";
-import { creditsExpiring, creditsExpiry, renewalReminders, stripeReconcile, welcomeReminders } from "./circle-jobs.js";
+import { catalogRefresh, creditsExpiring, creditsExpiry, renewalReminders, stripeReconcile, stuckRedemptions, welcomeReminders } from "./circle-jobs.js";
 import { ulid } from "../lib/ulid.js";
 import { syncMemberPrice } from "../circle/member-price.js";
 import { closeReleases, expireClaims, guardReleases } from "../circle/member-object.js";
@@ -22,6 +22,8 @@ export const DAILY_CRON = "15 3 * * *";
 // Jobs: { name, run(env, nowMs, deps) → summary }; deps.svc is the service object.
 export const JOBS = {
   frequent: [
+    { name: "catalog_refresh", run: (env, nowMs, deps) => catalogRefresh(deps.svc) },
+    { name: "stuck_redemptions", run: (env, nowMs, deps) => stuckRedemptions(deps.svc) },
     { name: "member_price", run: (env, nowMs, deps) => syncMemberPrice(deps.svc) },
     { name: "close_releases", run: (env, nowMs, deps) => closeReleases(deps.svc) },
     { name: "object_claims", run: (env, nowMs, deps) => expireClaims(deps.svc) },
@@ -30,6 +32,7 @@ export const JOBS = {
   ],
   daily: [
     { name: "retention", run: (env, nowMs) => runRetention(env, nowMs) },
+    { name: "catalog_sync", run: (env, nowMs, deps) => catalogRefresh(deps.svc, { force: true }) },
     { name: "credits_expiry", run: (env, nowMs, deps) => creditsExpiry(deps.svc) },
     { name: "credits_expiring", run: (env, nowMs, deps) => creditsExpiring(deps.svc) },
     { name: "object_guard", run: (env, nowMs, deps) => guardReleases(deps.svc) },

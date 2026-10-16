@@ -14,7 +14,7 @@
 // on a development store, Felix's §19 #1).
 
 import { shopifyConfigured } from "../shopify/admin.js";
-import { createCirclePrice, readCirclePrice, setCirclePriceActive, updateCirclePrice } from "../shopify/discounts.js";
+import { createCirclePrice, findCirclePrice, readCirclePrice, setCirclePriceActive, updateCirclePrice } from "../shopify/discounts.js";
 
 export const TITLE = "Circle price";
 
@@ -72,9 +72,30 @@ export async function refreshGrants(svc) {
 const titleFor = (shard) => (shard === 0 ? TITLE : `${TITLE} · ${shard + 1}`);
 const diff = (want, have) => ({ add: want.filter((x) => !have.includes(x)), remove: have.filter((x) => !want.includes(x)) });
 
-export async function syncMemberPrice(svc) {
+// A short D1 lease: one sync talks to Shopify at a time (review finding 1).
+// A run that cannot take it skips; the 5-minute reconcile catches up.
+export async function withLock(svc, name, ttlMs, fn) {
   const { env } = svc;
-  if (!syncEnabled(env)) return { skipped: "off" };
+  const holder = svc.newId();
+  const res = await env.DB.prepare(
+    `INSERT INTO circle_locks (name, holder, expires_at) VALUES (?1, ?2, ?3)
+     ON CONFLICT(name) DO UPDATE SET holder = ?2, expires_at = ?3 WHERE circle_locks.expires_at <= ?4`
+  ).bind(name, holder, new Date(svc.now() + ttlMs).toISOString(), svc.nowIso()).run();
+  if (!res.meta || res.meta.changes !== 1) return { skipped: "busy" };
+  try {
+    return await fn();
+  } finally {
+    await env.DB.prepare("DELETE FROM circle_locks WHERE name = ?1 AND holder = ?2").bind(name, holder).run().catch(() => {});
+  }
+}
+
+export async function syncMemberPrice(svc) {
+  if (!syncEnabled(svc.env)) return { skipped: "off" };
+  return withLock(svc, "member_price_sync", 60 * 1000, () => syncNow(svc));
+}
+
+async function syncNow(svc) {
+  const { env } = svc;
   const grants = await refreshGrants(svc);
   const nowIso = svc.nowIso();
   const variants = (await env.DB.prepare("SELECT variant_gid FROM circle_price_items WHERE eligible = 1 ORDER BY variant_gid").all())
@@ -103,7 +124,14 @@ export async function syncMemberPrice(svc) {
         }
         continue;
       }
-      let current = row && row.shopify_discount_gid ? await readCirclePrice(env, svc.fetch, row.shopify_discount_gid) : null;
+      let gid = row && row.shopify_discount_gid;
+      let current = gid ? await readCirclePrice(env, svc.fetch, gid) : null;
+      if (!current) {
+        // Shopify may have made it although our create call failed (timeout).
+        gid = await findCirclePrice(env, svc.fetch, titleFor(shard));
+        current = gid ? await readCirclePrice(env, svc.fetch, gid) : null;
+        if (current) row = { ...(row || {}), shopify_discount_gid: gid };
+      }
       if (!current) {
         const gid = await createCirclePrice(env, svc.fetch, { title: titleFor(shard), startsAt: nowIso, customers, variants });
         await save({ gid, status: "active", customers: customers.length, variants: variants.length });

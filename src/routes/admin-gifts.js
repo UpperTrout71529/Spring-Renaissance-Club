@@ -6,7 +6,7 @@
 import { readJson } from "../http/body.js";
 import { HttpError, conflict, notFound, serviceUnavailable } from "../http/errors.js";
 import { shopifyConfigured } from "../shopify/admin.js";
-import { completeDraftOrder, createDraftOrder } from "../shopify/draft-orders.js";
+import { completeDraftOrder, createDraftOrder, draftOrderState } from "../shopify/draft-orders.js";
 import { loadSettings, economicsBasis } from "../circle/economics-store.js";
 import { anniversaryBudget, shippingFor } from "../circle/economics.js";
 import { assertSavable, normaliseOption, welcomeCheck } from "../circle/gifts.js";
@@ -151,15 +151,27 @@ export async function createGiftOrder(ctx) {
     .bind(ctx.nowIso(), sel.id).run();
   if (!claim.meta || claim.meta.changes !== 1) throw conflict("not_ready", "The order already exists.");
   try {
-    const draft = await createDraftOrder(env, ctx.fetch, {
-      customerId: sel.shopify_customer_id || null,
-      lines: [{ variantId: sel.shopify_variant_gid, quantity: 1, free: "Circle welcome piece" }],
-      shipping: JSON.parse(sel.shipping_json),
-      shippingTitle: "Circle welcome",
-      tags: ["circle-welcome"],
-      note: `Circle welcome piece · ${sel.id}`,
-    });
-    const orderId = await completeDraftOrder(env, ctx.fetch, draft.id);
+    // Review finding 8: a retry after a failed completion finishes the same draft.
+    let draftId = sel.shopify_draft_gid;
+    let orderId = null;
+    if (draftId) {
+      const st = await draftOrderState(env, ctx.fetch, draftId);
+      if (st && st.orderId) orderId = st.orderId;
+      else if (!st) draftId = null;
+    }
+    if (!draftId) {
+      const draft = await createDraftOrder(env, ctx.fetch, {
+        customerId: sel.shopify_customer_id || null,
+        lines: [{ variantId: sel.shopify_variant_gid, quantity: 1, free: "Circle welcome piece" }],
+        shipping: JSON.parse(sel.shipping_json),
+        shippingTitle: "Circle welcome",
+        tags: ["circle-welcome"],
+        note: `Circle welcome piece · ${sel.id}`,
+      });
+      draftId = draft.id;
+      await env.DB.prepare("UPDATE gift_selections SET shopify_draft_gid = ?1 WHERE id = ?2").bind(draftId, sel.id).run();
+    }
+    if (!orderId) orderId = await completeDraftOrder(env, ctx.fetch, draftId);
     await env.DB.prepare("UPDATE gift_selections SET shopify_order_gid = ?1, updated_at = ?2 WHERE id = ?3").bind(orderId, ctx.nowIso(), sel.id).run();
     await audit(ctx, "welcome_order_created", sel.id, { order: orderId });
     return ctx.json({ status: "order_created", shopify_order_gid: orderId });

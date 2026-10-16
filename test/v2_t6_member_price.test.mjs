@@ -47,6 +47,7 @@ function discountStore(world) {
     return { discountNode: d ? { id, discount: { status: d.status, context: { customers: d.customers.map((x) => ({ id: x })) },
       customerGets: { items: { productVariants: { nodes: d.variants.map((x) => ({ id: x })) } } } } } : null };
   };
+  world.shopifyOps.CirclePriceFind = () => ({ discountNodes: { nodes: world.discounts.map((d) => ({ id: d.id, discount: { __typename: 'DiscountAutomaticBasic', title: d.title, status: d.status } })) } });
   world.shopifyOps.CirclePriceActivate = ({ id }) => { const d = find(id); d.status = 'ACTIVE'; check(d); return { discountAutomaticActivate: { automaticDiscountNode: { id }, userErrors: [] } }; };
   world.shopifyOps.CirclePriceDeactivate = ({ id }) => { find(id).status = 'EXPIRED'; return { discountAutomaticDeactivate: { automaticDiscountNode: { id }, userErrors: [] } }; };
 }

@@ -12,6 +12,7 @@ import { balanceCents } from "./ledger.js";
 import { emailUser } from "./notify.js";
 import { issueCard, reserveCredits } from "../routes/credits.js";
 import { spendState } from "./spend.js";
+import { requireStepUp } from "../auth/step-up.js";
 
 const STORE = "https://springrenaissance.store";
 const GID_PRODUCT = /^gid:\/\/shopify\/Product\/\d+$/;
@@ -65,6 +66,7 @@ export async function getCapsules(ctx) {
 export async function claimCapsule(ctx) {
   const { env, session, params } = ctx;
   const userId = session.user.id;
+  requireStepUp(ctx); // credits become a gift-card code (review finding 4)
   const cap = await env.DB.prepare("SELECT * FROM capsules WHERE id = ?1").bind(params.id).first();
   if (!cap) throw notFound();
   const nowIso = ctx.nowIso();

@@ -49,7 +49,7 @@ export async function closeCircleForDeletion(ctx, userId) {
     stmts.push(ledgerEntry(env, { id: ctx.newId(), userId, amountCents: -balance, kind: "expiry", memo: "Expired — account deleted",
       key: `expiry:account_deleted:${userId}`, createdAt: nowIso }));
   }
-  for (const closer of deletionClosers) stmts.push(...(await closer(env, userId, nowIso)));
+  for (const closer of deletionClosers) stmts.push(...(await closer(env, userId, nowIso, ctx.fetch)));
   await env.DB.batch(stmts);
   if (live.length) ctx.waitUntil(membershipOff(ctx, userId, "account_deleted"));
   return true;

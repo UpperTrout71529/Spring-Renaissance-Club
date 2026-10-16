@@ -189,17 +189,32 @@ test('T15-7: one per member per release — a paid claim blocks a second', async
   assert.equal(r.world.drafts.length, 1);
 });
 
-test('T15-8: Shopify failing to create the draft frees the slot and says so calmly', async () => {
+test('T15-8: Shopify unreachable while drafting: a calm 503; the claim waits for the by-tag check, then frees the slot', async () => {
   const r = await rig();
   const { id } = await openRelease(r, { edition_size: 1 });
   await r.join('clara@example.com');
   r.world.failDraft = true;
+  r.world.shopifyOps.CircleDraftByTag = () => ({ draftOrders: { nodes: [] } });
+  const out = await r.as('clara@example.com').post('/api/circle/object/claim', { release_id: id });
+  assert.equal(out.res.status, 503);
+  assert.equal(out.data.error.code, 'object_unavailable');
+  assert.equal(r.t.rows('SELECT status FROM member_object_claims')[0].status, 'creating');
+  r.world.failDraft = false;
+  await runScheduled(r.t.env, T0 + 11 * MIN, FREQUENT_CRON, { deps: { fetch: r.world.fetch } });
+  assert.equal(r.t.rows('SELECT status FROM member_object_claims')[0].status, 'failed', 'no draft in Shopify → the slot is free');
+  r.t.setNow(T0 + 12 * MIN);
+  const again = await r.as('clara@example.com').post('/api/circle/object/claim', { release_id: id });
+  assert.equal(again.res.status, 201);
+});
+
+test('T15-8b: Shopify refusing the draft (userErrors) frees the slot at once', async () => {
+  const r = await rig();
+  const { id } = await openRelease(r, { edition_size: 1 });
+  await r.join('clara@example.com');
+  r.world.shopifyOps.CircleDraftCreate = () => ({ draftOrderCreate: { draftOrder: null, userErrors: [{ field: ['lineItems'], message: 'Variant not available' }] } });
   const out = await r.as('clara@example.com').post('/api/circle/object/claim', { release_id: id });
   assert.equal(out.res.status, 503);
   assert.equal(r.t.rows('SELECT status FROM member_object_claims')[0].status, 'failed');
-  r.world.failDraft = false;
-  const again = await r.as('clara@example.com').post('/api/circle/object/claim', { release_id: id });
-  assert.equal(again.res.status, 201);
 });
 
 test('T15-9: an order with the object variant that is not a paid claim is flagged for Felix (bypass audit)', async () => {

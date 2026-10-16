@@ -15,7 +15,7 @@ import { loadSettings, economicsBasis } from "./economics-store.js";
 import { anniversaryBudget, shippingFor } from "./economics.js";
 import { emailUser } from "./notify.js";
 import { shopifyConfigured } from "../shopify/admin.js";
-import { completeDraftOrder, createDraftOrder } from "../shopify/draft-orders.js";
+import { completeDraftOrder, createDraftOrder, draftOrderState } from "../shopify/draft-orders.js";
 
 export async function poolWithinBudget(env, settings, budget) {
   const { results } = await env.DB.prepare(
@@ -148,20 +148,31 @@ export async function createAnniversaryOrder(ctx) {
     .bind(ctx.nowIso(), g.id).run();
   if (!claim.meta || claim.meta.changes !== 1) throw conflict("not_ready", "The order already exists.");
   try {
-    const draft = await createDraftOrder(env, ctx.fetch, {
-      customerId: g.shopify_customer_id || null,
-      lines: [{ variantId: g.shopify_variant_gid, quantity: 1, free: "Circle anniversary" }],
-      shipping: JSON.parse(g.shipping_json),
-      shippingTitle: "Circle anniversary",
-      tags: ["circle-anniversary"],
-      note: `Circle anniversary ${g.n} · ${g.id}`,
-    });
-    const orderId = await completeDraftOrder(env, ctx.fetch, draft.id);
+    let draftId = g.shopify_draft_gid;
+    let orderId = null;
+    if (draftId) {
+      const st = await draftOrderState(env, ctx.fetch, draftId);
+      if (st && st.orderId) orderId = st.orderId;
+      else if (!st) draftId = null;
+    }
+    if (!draftId) {
+      const draft = await createDraftOrder(env, ctx.fetch, {
+        customerId: g.shopify_customer_id || null,
+        lines: [{ variantId: g.shopify_variant_gid, quantity: 1, free: "Circle anniversary" }],
+        shipping: JSON.parse(g.shipping_json),
+        shippingTitle: "Circle anniversary",
+        tags: ["circle-anniversary"],
+        note: `Circle anniversary ${g.n} · ${g.id}`,
+      });
+      draftId = draft.id;
+      await env.DB.prepare("UPDATE anniversary_gifts SET shopify_draft_gid = ?1 WHERE id = ?2").bind(draftId, g.id).run();
+    }
+    if (!orderId) orderId = await completeDraftOrder(env, ctx.fetch, draftId);
     await env.DB.prepare("UPDATE anniversary_gifts SET shopify_order_gid = ?1, updated_at = ?2 WHERE id = ?3").bind(orderId, ctx.nowIso(), g.id).run();
     await audit(ctx, "anniversary_order_created", g.id, { order: orderId });
     return ctx.json({ status: "order_created", shopify_order_gid: orderId });
   } catch (e) {
-    await env.DB.prepare("UPDATE anniversary_gifts SET status = 'ready', updated_at = ?1 WHERE id = ?2").bind(ctx.nowIso(), g.id).run();
+    await env.DB.prepare("UPDATE anniversary_gifts SET status = 'ready', needs_attention = 1, updated_at = ?1 WHERE id = ?2").bind(ctx.nowIso(), g.id).run();
     console.error("anniversary order failed", e && e.message);
     throw new HttpError(502, "shopify_order_failed", "Shopify did not create the order. Check Shopify before trying again.");
   }

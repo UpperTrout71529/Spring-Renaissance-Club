@@ -144,7 +144,12 @@ export async function claimRelease(ctx, { releaseId, kind, note = "Circle member
     });
   } catch (e) {
     console.error("object draft failed", e && e.message);
-    await env.DB.prepare("UPDATE member_object_claims SET status = 'failed', updated_at = ?1 WHERE id = ?2").bind(ctx.nowIso(), id).run();
+    // Shopify said no → the slot is free again. Anything else (timeout, 5xx):
+    // the draft may exist; the claim stays 'creating' for the by-tag check in
+    // expireClaims, so no second draft is made (review finding 12, §8.2).
+    if (/refused/.test(String(e && e.message))) {
+      await env.DB.prepare("UPDATE member_object_claims SET status = 'failed', updated_at = ?1 WHERE id = ?2").bind(ctx.nowIso(), id).run();
+    }
     throw unavailable();
   }
   await env.DB.prepare(
