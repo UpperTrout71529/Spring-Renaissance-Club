@@ -1,0 +1,77 @@
+{% doc %}
+  Circle price line under a product price (V2, docs/tz-v2-circle.md §3.2, §7.6).
+  Shows nothing until the portal API returns a Circle price for the selected
+  variant — the API answers only while the member discount is live in Shopify,
+  so the page never promises a price checkout does not give. Follows variant
+  changes (any change of a product form's `id`, or the ?variant= parameter).
+
+  @param {product} product - The product shown on the page
+  @param {string} [api_base] - Portal API origin (default https://api.springrenaissance.store)
+
+  @example
+  {% render 'sr-circle-price', product: product %}
+{% enddoc %}
+{%- unless product == blank or product.gift_card? -%}
+  {%- liquid
+    assign sr_cp_api = api_base | default: 'https://api.springrenaissance.store'
+    assign sr_cp_variant = product.selected_or_first_available_variant
+  -%}
+  <p
+    class="sr-circle-price"
+    data-sr-circle-price
+    data-api="{{ sr_cp_api | escape }}"
+    data-handle="{{ product.handle | escape }}"
+    data-variant="{{ sr_cp_variant.id }}"
+    hidden
+  >
+    <span data-sr-circle-price-text></span>
+    <span class="sr-circle-price__sep" aria-hidden="true">·</span>
+    <a class="sr-circle-price__link" href="https://club.springrenaissance.store/circle">About the Circle</a>
+  </p>
+  <style>
+    .sr-circle-price { margin: 8px 0 0; font-size: 14px; line-height: 1.5; color: inherit; opacity: 0.8; }
+    .sr-circle-price__sep { margin: 0 6px; }
+    .sr-circle-price__link { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+  </style>
+  <script>
+    (function () {
+      var nodes = document.querySelectorAll('[data-sr-circle-price]:not([data-sr-ready])');
+      Array.prototype.forEach.call(nodes, function (el) {
+        el.setAttribute('data-sr-ready', 'true');
+        var text = el.querySelector('[data-sr-circle-price-text]');
+        var scope = el.closest('section, form, main') || document;
+        var prices = null;
+        var member = false;
+        var money = function (cents) {
+          return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+        };
+        var variantId = function () {
+          var input = scope.querySelector('form[action*="/cart/add"] [name="id"]') || document.querySelector('form[action*="/cart/add"] [name="id"]');
+          if (input && input.value) return String(input.value);
+          var fromUrl = new URLSearchParams(window.location.search).get('variant');
+          return fromUrl || el.getAttribute('data-variant');
+        };
+        var render = function () {
+          var v = prices && prices.variants ? prices.variants[variantId()] : null;
+          if (!v) { el.hidden = true; return; }
+          text.textContent = 'Circle price ' + money(v.circle_price_cents) + (member ? ' — applied at checkout with your Circle email' : '');
+          el.hidden = false;
+        };
+        var api = el.getAttribute('data-api');
+        fetch(api + '/api/storefront/circle-price?product=' + encodeURIComponent(el.getAttribute('data-handle')))
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            prices = d;
+            render();
+            if (d && d.variants && Object.keys(d.variants).length) {
+              return fetch(api + '/api/me/storefront', { credentials: 'include' })
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (m) { member = !!(m && m.is_member); render(); });
+            }
+          })
+          .catch(function () { el.hidden = true; });
+        document.addEventListener('change', function () { window.setTimeout(render, 0); });
+      });
+    })();
+  </script>
+{%- endunless -%}
