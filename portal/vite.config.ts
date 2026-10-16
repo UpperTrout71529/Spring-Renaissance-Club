@@ -11,9 +11,12 @@ const DEFAULT_API_BASE = "https://api.springrenaissance.store";
 // login.html with status 200; without these files every deep link would be
 // answered by 404.html with HTTP 404. Dynamic paths (/orders/:id) still fall
 // back to 404.html and are resolved by the client router.
-const STATIC_ROUTES = [
+export const STATIC_ROUTES = [
   "login", "auth", "orders", "saved", "circle", "account",
   "account/security", "account/privacy", "account/email", "terms/membership",
+  // V2 Circle (docs/tz-v2-circle.md §3.1).
+  "circle/join", "circle/welcome", "circle/credits", "circle/credits/use", "circle/object", "circle/early-access",
+  "circle/invite", "circle/anniversary", "circle/capsules", "circle/concierge", "circle/rooms", "account/membership",
 ];
 
 // Spec §13.1: the CSP lives in a <meta> tag (GitHub Pages cannot set headers).
@@ -23,7 +26,9 @@ function csp(apiBase: string): string {
   return [
     "default-src 'self'",
     `connect-src 'self'${api} https://challenges.cloudflare.com https://cloudflareinsights.com`,
-    "img-src 'self' https://cdn.shopify.com data:",
+    // The API origin: room photos are served to their owner only, with the
+    // session cookie (GET /api/circle/rooms/:id/image).
+    `img-src 'self'${api} https://cdn.shopify.com data:`,
     "font-src 'self'",
     "style-src 'self'",
     "frame-src https://challenges.cloudflare.com",

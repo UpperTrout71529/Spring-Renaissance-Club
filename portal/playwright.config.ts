@@ -11,6 +11,8 @@ const viewports = {
 
 export default defineConfig({
   testDir: "e2e",
+  // Admin specs run with playwright.admin.config.ts (own port, no portal build).
+  testIgnore: /admin-.*\.spec\.ts$/,
   timeout: 30_000,
   fullyParallel: true,
   reporter: [["list"]],

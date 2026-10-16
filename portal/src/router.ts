@@ -5,11 +5,17 @@ import { useEffect, useState } from "preact/hooks";
 
 export type RouteName =
   | "login" | "auth" | "home" | "orders" | "order" | "saved" | "circle"
-  | "account" | "accountSecurity" | "accountPrivacy" | "accountEmail" | "termsMembership" | "notFound";
+  | "account" | "accountSecurity" | "accountPrivacy" | "accountEmail" | "termsMembership" | "notFound"
+  | CircleRoute | "accountMembership";
+
+// V2 Circle screens (docs/tz-v2-circle.md §3.1).
+export type CircleRoute =
+  | "circleJoin" | "circleWelcome" | "circleCredits" | "circleCreditsUse" | "circleObject" | "circleEarlyAccess"
+  | "circleInvite" | "circleAnniversary" | "circleCapsules" | "circleConcierge" | "circleRooms";
 
 type RouteDef = { name: RouteName; pattern: string; public?: boolean };
 
-// V1 screen map (spec §5.3).
+// V1 screen map (spec §5.3) + V2 (tz §3.1).
 export const ROUTES: RouteDef[] = [
   { name: "login", pattern: "/login", public: true },
   { name: "auth", pattern: "/auth", public: true },
@@ -20,9 +26,21 @@ export const ROUTES: RouteDef[] = [
   { name: "order", pattern: "/orders/:id" },
   { name: "saved", pattern: "/saved" },
   { name: "circle", pattern: "/circle" },
+  { name: "circleJoin", pattern: "/circle/join" },
+  { name: "circleWelcome", pattern: "/circle/welcome" },
+  { name: "circleCredits", pattern: "/circle/credits" },
+  { name: "circleCreditsUse", pattern: "/circle/credits/use" },
+  { name: "circleObject", pattern: "/circle/object" },
+  { name: "circleEarlyAccess", pattern: "/circle/early-access" },
+  { name: "circleInvite", pattern: "/circle/invite" },
+  { name: "circleAnniversary", pattern: "/circle/anniversary" },
+  { name: "circleCapsules", pattern: "/circle/capsules" },
+  { name: "circleConcierge", pattern: "/circle/concierge" },
+  { name: "circleRooms", pattern: "/circle/rooms" },
   { name: "account", pattern: "/account" },
   { name: "accountSecurity", pattern: "/account/security" },
   { name: "accountPrivacy", pattern: "/account/privacy" },
+  { name: "accountMembership", pattern: "/account/membership" },
 ];
 
 export type Match = { name: RouteName; params: Record<string, string>; public: boolean };

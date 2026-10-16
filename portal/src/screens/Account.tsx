@@ -28,6 +28,7 @@ export function Account({ email, onSignOut }: { email: string; onSignOut: () => 
         </>
       ) : <Skeleton lines={4} label={copy.nav.account} />}
       <ul class="account-links">
+        {me?.user.tier === "vip" && <li><Link href="/account/membership">{copy.membership.title}</Link></li>}
         <li><Link href="/account/security">{copy.account.security}</Link></li>
         <li><Link href="/account/privacy">{copy.account.privacy}</Link></li>
         <li><a href={`${STOREFRONT_ORIGIN}/policies/privacy-policy`}>{copy.account.privacyPolicy}</a></li>

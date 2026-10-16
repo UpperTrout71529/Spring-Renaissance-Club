@@ -18,6 +18,20 @@ export function formatDate(iso: string): string {
   }).format(new Date(dateOnly ? `${iso}T00:00:00Z` : iso));
 }
 
+// A moment that matters to the hour (a reservation's end): "Oct 18, 2026, 3:00 PM".
+export function formatDateTime(iso: string): string {
+  return new Intl.DateTimeFormat(LOCALE, {
+    month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit",
+  }).format(new Date(iso));
+}
+
+// "Nov 2026" (Member since …).
+export function formatMonthYear(iso: string): string {
+  const dateOnly = DATE_ONLY.test(iso);
+  return new Intl.DateTimeFormat(LOCALE, { month: "short", year: "numeric", ...(dateOnly ? { timeZone: "UTC" } : {}) })
+    .format(new Date(dateOnly ? `${iso}T00:00:00Z` : iso));
+}
+
 export function formatMoney(cents: number, currency = "USD"): string {
   return new Intl.NumberFormat(LOCALE, { style: "currency", currency }).format(cents / 100);
 }

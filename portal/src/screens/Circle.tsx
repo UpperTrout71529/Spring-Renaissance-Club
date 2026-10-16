@@ -1,18 +1,24 @@
 // The Circle in V1 (spec §6.3 teaser, §6.6 screen; S8). No modals, no
 // timers, no counts of "places left" — the invitation sits below the useful
-// things and can be put away for 30 days.
+// things and can be put away for 30 days. V2: /circle is the Club benefits
+// page (tz §16) with Join when the gate is open, or the member page.
 
 import { useEffect, useState } from "preact/hooks";
-import { api, track } from "../api";
+import { api, ApiError, track } from "../api";
 import { copy } from "../copy/en";
 import { CIRCLE_FAQ, CIRCLE_FAQ_TITLE } from "../copy/circle-faq";
 import { formatMoney } from "../format";
 import { Link } from "../ui/Link";
-import { Skeleton } from "../ui/states";
+import { ErrorState, Skeleton } from "../ui/states";
+import { circleView, joinState, type CircleSummary, type JoinOffer } from "../circle-model";
+import { lazyScreen } from "../ui/lazy";
 import { SectionHeading } from "./Placeholder";
 import "./circle.css";
 
 const SHOW_FAQ = import.meta.env.VITE_CIRCLE_FAQ === "1";
+
+// The member page lives in the V2 chunk (loaded on first use).
+const CircleMember = lazyScreen(() => import("./circle/index").then((m) => m.CircleMember), copy.member.loading);
 
 export type Teaser = {
   sealed_count: number;
@@ -125,19 +131,62 @@ export function CircleTeaser() {
 }
 
 // /circle for Club members (§6.6).
-export function CircleScreen() {
+// /circle (§6.6 Club, §6.7 member; tz §3.1): one call decides which page.
+// A 401/403 (no Circle for this session) is the Club page, as in V1.
+export function CircleScreen({ search = "" }: { search?: string }) {
+  const [summary, setSummary] = useState<CircleSummary | "loading" | { error: string }>("loading");
+  const canceled = new URLSearchParams(search).get("checkout") === "canceled";
+
+  async function load() {
+    setSummary("loading");
+    try {
+      setSummary(await api<CircleSummary>("/api/circle"));
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) setSummary({ membership: null });
+      else setSummary({ error: e instanceof ApiError ? e.message : copy.errors.generic });
+    }
+  }
+  useEffect(() => { void load(); }, []);
+
+  if (summary === "loading") {
+    return (
+      <>
+        <SectionHeading eyebrow={copy.circle.eyebrow} title={copy.circle.title} />
+        <Skeleton lines={4} label={copy.circle.loading} />
+      </>
+    );
+  }
+  if ("error" in summary) return <ErrorState body={summary.error} onRetry={load} />;
+  if (circleView(summary) === "member") return <CircleMember summary={summary} canceled={canceled} onChanged={load} />;
+  return <CircleClub canceled={canceled} />;
+}
+
+function CircleClub({ canceled }: { canceled: boolean }) {
   const [teaser, setTeaser] = useTeaser();
+  const [offer, setOffer] = useState<JoinOffer | null | "loading">("loading");
+  useEffect(() => {
+    api<JoinOffer>("/api/circle/join").then(setOffer).catch(() => setOffer(null));
+  }, []);
+  const canJoin = offer && offer !== "loading" && joinState(offer) === "open";
+
   return (
     <>
       <SectionHeading eyebrow={copy.circle.eyebrow} title={copy.circle.title} />
+      {canceled && <p class="notice circle-notice" role="status">{copy.club.checkoutCanceled}</p>}
       <div class="circle-page appear">
         <SealedEnvelopes />
         <p>{copy.circle.body}</p>
-        <p>{copy.circle.value}</p>
-        {teaser ? (
+        <p>{copy.club.value}</p>
+        {teaser && offer !== "loading" ? (
           <>
             <PriceLines teaser={teaser} />
-            <Reserve teaser={teaser} onJoined={() => setTeaser({ ...teaser, on_waitlist: true })} />
+            {canJoin ? (
+              <div class="circle-reserve">
+                <Link href="/circle/join" class="button button-primary">
+                  {offer.kind === "rejoin" ? copy.club.rejoin : copy.club.join}
+                </Link>
+              </div>
+            ) : <Reserve teaser={teaser} onJoined={() => setTeaser({ ...teaser, on_waitlist: true })} />}
           </>
         ) : <Skeleton lines={2} label={copy.circle.loading} />}
 
@@ -146,6 +195,15 @@ export function CircleScreen() {
           <ol class="circle-steps">
             {copy.circle.steps.map((s) => <li key={s}>{s}</li>)}
           </ol>
+        </section>
+
+        <section aria-labelledby="circle-benefits">
+          <h2 id="circle-benefits">{copy.club.benefitsTitle}</h2>
+          <ul class="benefits">
+            {copy.club.benefits.map((b) => <li key={b.name}><strong>{b.name}</strong>{" — "}{b.text}</li>)}
+          </ul>
+          <p class="circle-terms-line">{copy.club.termsLine}</p>
+          <p><Link href="/terms/membership">{copy.club.termsLink}</Link></p>
         </section>
 
         {/* PENDING LEGAL REVIEW: the FAQ restates membership terms the lawyer

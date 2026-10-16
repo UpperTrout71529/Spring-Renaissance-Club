@@ -13,12 +13,19 @@ export class ApiError extends Error {
   }
 }
 
-type Options = { method?: "GET" | "POST" | "PATCH" | "DELETE"; body?: unknown; signal?: AbortSignal };
+// `headers` adds request headers (e.g. Idempotency-Key). A Blob body is sent
+// as it is (room photos: PUT with its own Content-Type); anything else as JSON.
+type Options = {
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; body?: unknown; signal?: AbortSignal;
+  headers?: Record<string, string>;
+};
 
-export async function api<T>(path: string, { method = "GET", body, signal }: Options = {}): Promise<T> {
+export async function api<T>(path: string, { method = "GET", body, signal, headers: extra }: Options = {}): Promise<T> {
   const headers: Record<string, string> = {};
+  const raw = typeof Blob !== "undefined" && body instanceof Blob;
   if (method !== "GET") headers["X-SR-Client"] = "portal";
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (body !== undefined) headers["Content-Type"] = raw ? (body as Blob).type : "application/json";
+  if (extra) Object.assign(headers, extra);
 
   let res: Response;
   try {
@@ -26,7 +33,7 @@ export async function api<T>(path: string, { method = "GET", body, signal }: Opt
       method,
       credentials: "include",
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : raw ? (body as Blob) : JSON.stringify(body),
       signal,
     });
   } catch {

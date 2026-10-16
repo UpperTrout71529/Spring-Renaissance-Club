@@ -15,6 +15,22 @@ import { Saved } from "./screens/Saved";
 import { CircleScreen } from "./screens/Circle";
 import { Privacy } from "./screens/Privacy";
 import { EmailConfirm } from "./screens/EmailConfirm";
+import { lazyScreen } from "./ui/lazy";
+
+// V2 Circle screens: one chunk, loaded on first use (ui/lazy.tsx).
+const v2 = () => import("./screens/circle/index");
+const Join = lazyScreen(() => v2().then((m) => m.Join), copy.join.loading);
+const Welcome = lazyScreen(() => v2().then((m) => m.Welcome), copy.welcome.confirming);
+const Credits = lazyScreen(() => v2().then((m) => m.Credits), copy.credits.loading);
+const UseCredits = lazyScreen(() => v2().then((m) => m.UseCredits), copy.credits.loading);
+const MemberObject = lazyScreen(() => v2().then((m) => m.MemberObject), copy.memberObject.loading);
+const Invite = lazyScreen(() => v2().then((m) => m.Invite), copy.invite.loading);
+const Anniversary = lazyScreen(() => v2().then((m) => m.Anniversary), copy.anniversary.loading);
+const Capsules = lazyScreen(() => v2().then((m) => m.Capsules), copy.capsules.loading);
+const Concierge = lazyScreen(() => v2().then((m) => m.Concierge), copy.concierge.loading);
+const Rooms = lazyScreen(() => v2().then((m) => m.Rooms), copy.rooms.loading);
+const Membership = lazyScreen(() => v2().then((m) => m.Membership), copy.membership.loading);
+const Terms = lazyScreen(() => v2().then((m) => m.Terms), copy.terms.title);
 
 type Session =
   | { status: "loading" }
@@ -34,6 +50,20 @@ const TITLES: Partial<Record<RouteName, string>> = {
   accountPrivacy: copy.privacy.title,
   accountEmail: copy.account.email,
   notFound: copy.notFound.title,
+  // V2 Circle.
+  circleJoin: copy.join.title,
+  circleWelcome: copy.welcome.title,
+  circleCredits: copy.credits.title,
+  circleCreditsUse: copy.use.title,
+  circleObject: copy.memberObject.title,
+  circleEarlyAccess: copy.early.title,
+  circleInvite: copy.invite.title,
+  circleAnniversary: copy.anniversary.title(1),
+  circleCapsules: copy.capsules.title,
+  circleConcierge: copy.concierge.title,
+  circleRooms: copy.rooms.title,
+  accountMembership: copy.membership.title,
+  termsMembership: copy.terms.title,
 };
 
 export function App() {
@@ -126,6 +156,11 @@ export function App() {
     );
   }
 
+  // Membership Terms are public (spec §5.3): readable before signing in.
+  if (match.name === "termsMembership" && session.status !== "signed-in") {
+    return <PublicLayout><Terms /></PublicLayout>;
+  }
+
   if (session.status === "error") {
     return <PublicLayout><ErrorState body={session.message} onRetry={loadMe} /></PublicLayout>;
   }
@@ -163,7 +198,20 @@ function Screen({ route, params, search, user, takeBootMe, onSignOut, onDeleted 
     case "orders": return <Orders />;
     case "order": return <OrderDetail id={params.id} />;
     case "saved": return <Saved initialTab={new URLSearchParams(search).get("view") === "held" ? "held" : "saved"} />;
-    case "circle": return <CircleScreen />;
+    case "circle": return <CircleScreen search={search} />;
+    case "circleJoin": return <Join search={search} />;
+    case "circleWelcome": return <Welcome />;
+    case "circleCredits": return <Credits />;
+    case "circleCreditsUse": return <UseCredits email={email} />;
+    case "circleObject": return <MemberObject kind="object" />;
+    case "circleEarlyAccess": return <MemberObject kind="early" />;
+    case "circleInvite": return <Invite />;
+    case "circleAnniversary": return <Anniversary />;
+    case "circleCapsules": return <Capsules email={email} />;
+    case "circleConcierge": return <Concierge search={search} />;
+    case "circleRooms": return <Rooms />;
+    case "accountMembership": return <Membership />;
+    case "termsMembership": return <Terms />;
     case "account": return <Account email={email} onSignOut={onSignOut} />;
     case "accountSecurity": return <Security email={email} />;
     case "accountPrivacy": return <Privacy email={email} onDeleted={onDeleted} />;

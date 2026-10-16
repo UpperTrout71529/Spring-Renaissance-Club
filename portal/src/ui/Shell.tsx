@@ -16,8 +16,11 @@ const TABS: Tab[] = [
   { key: "home", href: "/", label: copy.nav.home, Icon: House, routes: ["home"] },
   { key: "orders", href: "/orders", label: copy.nav.orders, Icon: Package, routes: ["orders", "order"] },
   { key: "saved", href: "/saved", label: copy.nav.saved, Icon: Heart, routes: ["saved"] },
-  { key: "circle", href: "/circle", label: copy.nav.circle, Icon: Stamp, routes: ["circle"] },
-  { key: "account", href: "/account", label: copy.nav.account, Icon: User, routes: ["account", "accountSecurity", "accountPrivacy"] },
+  { key: "circle", href: "/circle", label: copy.nav.circle, Icon: Stamp, routes: [
+    "circle", "circleJoin", "circleWelcome", "circleCredits", "circleCreditsUse", "circleObject", "circleEarlyAccess",
+    "circleInvite", "circleAnniversary", "circleCapsules", "circleConcierge", "circleRooms", "termsMembership",
+  ] },
+  { key: "account", href: "/account", label: copy.nav.account, Icon: User, routes: ["account", "accountSecurity", "accountPrivacy", "accountMembership"] },
 ];
 
 type Props = {

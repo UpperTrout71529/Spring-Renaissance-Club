@@ -44,4 +44,20 @@ describe("api", () => {
     expect(err).toBeInstanceOf(ApiError);
     expect(err).toMatchObject({ status: 0, code: "network", message: copy.errors.network });
   });
+
+  it("adds extra headers (Idempotency-Key) and sends a Blob as it is (room photos)", async () => {
+    const fn = stubFetch(Response.json({ ok: true }, { status: 201 }));
+    await api("/api/credits/redeem", { method: "POST", body: { amount_cents: 100 }, headers: { "Idempotency-Key": "k1" } });
+    let [, init] = fn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.headers).toEqual({ "X-SR-Client": "portal", "Content-Type": "application/json", "Idempotency-Key": "k1" });
+    expect(init.body).toBe('{"amount_cents":100}');
+
+    const jpeg = new Blob([new Uint8Array([0xff, 0xd8, 0xff])], { type: "image/jpeg" });
+    fn.mockResolvedValueOnce(Response.json({ photo: { id: "p1" } }, { status: 201 }));
+    await api("/api/circle/rooms?label=Study", { method: "PUT", body: jpeg });
+    [, init] = fn.mock.calls[1] as unknown as [string, RequestInit];
+    expect(init.method).toBe("PUT");
+    expect(init.headers).toEqual({ "X-SR-Client": "portal", "Content-Type": "image/jpeg" });
+    expect(init.body).toBe(jpeg);
+  });
 });

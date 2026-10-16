@@ -87,8 +87,9 @@ export function Home({ user, takeBootMe }: { user: User; takeBootMe?: () => Me |
 
           {me && <Onboarding me={me} onDismissed={setMe} />}
 
-          {/* §6.3: the invitation always sits below the useful blocks. */}
-          <CircleTeaser />
+          {/* §6.3: the invitation always sits below the useful blocks. A
+              member (tier vip) is already in the Circle: no invitation. */}
+          {(me?.user.tier ?? user.tier) !== "vip" && <CircleTeaser />}
         </>
       )}
     </div>

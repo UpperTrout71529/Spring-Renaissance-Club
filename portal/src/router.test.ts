@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { isStorefrontUrl, matchPath, safeReturnPath } from "./router";
+import { isStorefrontUrl, matchPath, ROUTES, safeReturnPath } from "./router";
+import { STATIC_ROUTES } from "../vite.config";
 
 describe("matchPath", () => {
   it("resolves the V1 screen map", () => {
@@ -9,6 +10,22 @@ describe("matchPath", () => {
     expect(matchPath("/account/security").name).toBe("accountSecurity");
     expect(matchPath("/login")).toMatchObject({ name: "login", public: true });
     expect(matchPath("/auth")).toMatchObject({ name: "auth", public: true });
+  });
+
+  it("resolves the V2 Circle screens (tz §3.1)", () => {
+    const names: Record<string, string> = {
+      "/circle/join": "circleJoin", "/circle/welcome": "circleWelcome", "/circle/credits": "circleCredits",
+      "/circle/credits/use": "circleCreditsUse", "/circle/object": "circleObject", "/circle/early-access": "circleEarlyAccess",
+      "/circle/invite": "circleInvite", "/circle/anniversary": "circleAnniversary", "/circle/capsules": "circleCapsules",
+      "/circle/concierge": "circleConcierge", "/circle/rooms": "circleRooms", "/account/membership": "accountMembership",
+    };
+    for (const [path, name] of Object.entries(names)) expect(matchPath(path)).toEqual({ name, params: {}, public: false });
+    expect(matchPath("/terms/membership")).toMatchObject({ name: "termsMembership", public: true });
+  });
+
+  it("every fixed route has a static page in the build, so deep links answer 200", () => {
+    const fixed = ROUTES.map((r) => r.pattern).filter((p) => p !== "/" && !p.includes(":"));
+    expect(fixed.filter((p) => !STATIC_ROUTES.includes(p.slice(1)))).toEqual([]);
   });
 
   it("decodes params and tolerates a trailing slash", () => {
