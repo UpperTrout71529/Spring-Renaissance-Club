@@ -100,10 +100,10 @@ test('S1-A4: GET /api/me with a live session → the §8.3 V1 shape', async () =
   const res = await app().fetch(get('/api/me', { Origin: CLUB, ...withSession() }), e);
   assert.equal(res.status, 200);
   assert.deepEqual(await body(res), {
-    user: { id: '01USER', email: 'clara@example.com', first_name: 'Clara', tier: 'club' },
+    user: { id: '01USER', email: 'clara@example.com', first_name: 'Clara', tier: 'club', created_at: iso(NOW - DAY) },
     membership: null,
     badges: { circle: false },
-    onboarding: { passkey: false, saved: false },
+    onboarding: { passkey: false, saved: false, dismissed: false },
   });
 });
 
@@ -231,7 +231,7 @@ test('S1-A16: responses to a foreign origin carry no Access-Control-Allow-Origin
 test('S1-A17: wrong method on an owned path → 405 with Allow, in the error shape', async () => {
   const res = await app().fetch(post('/api/me', {}, trusted), env());
   assert.equal(res.status, 405);
-  assert.equal(res.headers.get('Allow'), 'GET');
+  assert.equal(res.headers.get('Allow'), 'GET, PATCH');
   assertErrorShape(await body(res), 'method_not_allowed');
 });
 

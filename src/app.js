@@ -13,13 +13,14 @@ import { assertTrustedMutation, corsHeaders, isAllowedOrigin, preflightHeaders }
 import { loadSession } from "./auth/session.js";
 import { ulid } from "./lib/ulid.js";
 import { health } from "./routes/health.js";
-import { getMe } from "./routes/me.js";
+import { getMe, patchMe } from "./routes/me.js";
 import { logout, requestMagicLink, verifyMagicLink } from "./routes/auth.js";
 import {
   deletePasskey, listPasskeys, loginOptions, loginVerify, registerOptions, registerVerify, stepUpPasskeyOptions,
 } from "./routes/passkeys.js";
 import { sendStepUpCode, verifyStepUp } from "./routes/step-up.js";
 import { getOrder, listOrders } from "./routes/orders.js";
+import { listGiftCards } from "./routes/gift-cards.js";
 
 // Route options:
 //   auth: "session"   — 401 without a live session; ctx.session is set
@@ -41,6 +42,8 @@ export const ROUTES = [
   { method: "GET", path: "/api/passkeys", handler: listPasskeys, auth: "session" },
   { method: "DELETE", path: "/api/passkeys/:credential_id", handler: deletePasskey, auth: "session" },
   { method: "GET", path: "/api/me", handler: getMe, auth: "session" },
+  { method: "PATCH", path: "/api/me", handler: patchMe, auth: "session" },
+  { method: "GET", path: "/api/gift-cards", handler: listGiftCards, auth: "session" },
   { method: "GET", path: "/api/orders", handler: listOrders, auth: "session" },
   { method: "GET", path: "/api/orders/:id", handler: getOrder, auth: "session" },
 ];

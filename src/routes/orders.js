@@ -7,29 +7,12 @@
 import { HttpError, badRequest, notFound } from "../http/errors.js";
 import { shopifyConfigured } from "../shopify/admin.js";
 import { fetchCustomerOrders, fetchOrder } from "../shopify/orders.js";
-
-const CACHE_TTL_SECONDS = 5 * 60;
+import { cached } from "../lib/kv-cache.js";
 
 const unavailable = () =>
   new HttpError(503, "orders_unavailable", "We couldn't load your orders right now. Please try again in a moment.");
 
-async function cached(env, key, load) {
-  try {
-    const hit = await env.CLIENT_KV.get(key, { type: "json" });
-    if (hit) return hit;
-  } catch (e) {
-    console.error("orders cache read failed", e && e.name);
-  }
-  const value = await load();
-  try {
-    await env.CLIENT_KV.put(key, JSON.stringify(value), { expirationTtl: CACHE_TTL_SECONDS });
-  } catch (e) {
-    console.error("orders cache write failed", e && e.name);
-  }
-  return value;
-}
-
-async function customerIdOf(env, userId) {
+export async function customerIdOf(env, userId) {
   const row = await env.DB.prepare("SELECT shopify_customer_id FROM users WHERE id = ?1").bind(userId).first();
   return row && row.shopify_customer_id;
 }
