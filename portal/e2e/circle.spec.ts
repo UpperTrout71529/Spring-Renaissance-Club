@@ -109,3 +109,27 @@ test("axe: Home with the teaser has no WCAG 2.2 A/AA violations", async ({ page 
   await expect(page.getByRole("region", { name: "A sealed object, chosen by you." })).toBeVisible();
   expect(await a11yViolations(page)).toEqual([]);
 });
+
+test("analytics (§15.1): circle_teaser_viewed once on Home, circle_teaser_clicked on Learn", async ({ page }) => {
+  await mockHome(page, { snoozed_until: null, on_waitlist: false });
+  const events: unknown[] = [];
+  await page.route("**/api/events", (r) => { events.push(r.request().postDataJSON()); return r.fulfill({ status: 204 }); });
+  await page.goto("/");
+  const teaser = page.getByRole("region", { name: "A sealed object, chosen by you." });
+  await expect(teaser).toBeVisible();
+  await expect.poll(() => events).toEqual([{ name: "circle_teaser_viewed", props: { placement: "home" } }]);
+  await teaser.getByRole("link", { name: "Learn about the Circle" }).click();
+  await expect(page).toHaveURL(/\/circle$/);
+  await expect.poll(() => events.length).toBe(2);
+  expect(events[1]).toEqual({ name: "circle_teaser_clicked", props: { placement: "home" } });
+});
+
+test("a folded (Not now) teaser is not counted as viewed", async ({ page }) => {
+  await mockHome(page, { snoozed_until: "2026-11-15T12:00:00.000Z", on_waitlist: false });
+  const events: unknown[] = [];
+  await page.route("**/api/events", (r) => { events.push(r.request().postDataJSON()); return r.fulfill({ status: 204 }); });
+  await page.goto("/");
+  await expect(page.getByRole("link", { name: /Circle/ }).first()).toBeVisible();
+  await page.waitForTimeout(300);
+  expect(events).toEqual([]);
+});

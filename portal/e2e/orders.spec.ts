@@ -100,3 +100,23 @@ test("axe: the orders list has no WCAG 2.2 A/AA violations", async ({ page }) =>
   await expect(page.locator(".order-card")).toHaveCount(10);
   expect(await a11yViolations(page)).toEqual([]);
 });
+
+test("analytics (§15.1): order_viewed once on the detail, tracking_clicked with the carrier", async ({ page, context }) => {
+  const events: unknown[] = [];
+  await page.route("**/api/events", (r) => {
+    expect(r.request().headers()["x-sr-client"]).toBe("portal");
+    events.push(r.request().postDataJSON());
+    return r.fulfill({ status: 204 });
+  });
+  await context.route("https://www.ups.com/**", (r) => r.fulfill({ status: 200, contentType: "text/html", body: "<title>UPS</title>" }));
+  await mockOrders(page, { pages, details: { "5023": split } });
+  await page.goto("/orders/5023");
+  await expect(page.getByRole("heading", { level: 1, name: "#1023" })).toBeVisible();
+  await expect.poll(() => events).toEqual([{ name: "order_viewed", props: { order_id: "5023" } }]);
+
+  const popup = page.waitForEvent("popup");
+  await page.getByRole("link", { name: "Track with UPS" }).first().click();
+  await (await popup).close();
+  await expect.poll(() => events.length).toBe(2);
+  expect(events[1]).toEqual({ name: "tracking_clicked", props: { order_id: "5023", carrier: "UPS" } });
+});

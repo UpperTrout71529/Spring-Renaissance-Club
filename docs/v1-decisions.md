@@ -3,33 +3,23 @@
 Running list for PR review (Felix). Spec: "ЛК — ТЗ v1.1" (2026-10-15).
 "My call" = not defined in the spec, decided during the build.
 
-## Status — where the build stands (16 Oct 2026, before context compaction)
+## Status — where the build stands (16 Oct 2026, after S10)
 
-- Branch `feat/lk-v1`, PR #11 into `feat/d1-state`. Pushed through `d303ff0`
-  (S8). **Not pushed yet:** `407d257` (S8 follow-up: FAQ off in production,
-  Circle price fixtures), `958a73a` (S9 API), `3259f43` (S9 portal) — ask
-  Felix before pushing.
-- Done: P0.3, S1–S9 (V1 API + portal shell, sign-in by link and passkey,
-  step-up, orders, gift cards + Home, Saved/Held + import, Circle teaser +
-  waitlist, Account/sessions/export/delete).
-- Tests at `3259f43`: worker `npm test` 264/264; portal unit 13; e2e 220
-  passed / 12 skipped (passkey specs are Chromium-only); Lighthouse a11y on
-  /login 100/100; the Circle FAQ strings are absent from a production build.
+- Branch `feat/lk-v1`, PR #11 into `feat/d1-state`. S9 pushed (`0db05cc`);
+  S10 pushed with this update. Felix's rule since 16 Oct: push after each task
+  when all tests are green; ask only before Shopify theme (draft
+  189482795229 only) or Cloudflare changes.
+- Done: P0.3, S1–S10.
+- Tests after S10: worker `npm test` 320/320; portal unit 13; e2e (all four
+  projects) — see the PR comment for the run; the Circle FAQ strings are
+  absent from a production build.
 - Theme: only the draft 189482795229 was touched (S7: `snippets/sr-save.liquid`,
   2 lines in `snippets/sr-touch-fix.liquid`; backup in `theme/backups/`).
   Felix edits templates and sr-consult there in parallel — do not touch them.
 - Nothing deployed: no production migrations, no Worker deploy, Pages not
-  switched (club. is served by Cloudflare Pages; plan in S11).
+  switched, no Access app or webhook subscription created.
 
 ### What is left in V1 (spec §17.3)
-- **S10 — Admin v1 and analytics:** `/admin` behind Cloudflare Access (P0.8:
-  Felix creates the Access app; Worker checks `Cf-Access-Jwt-Assertion` and
-  `ADMIN_EMAILS`), Members (search, detail read-only), System (failed
-  webhooks, email log, audit), `POST /api/events` with the §15.1 client
-  allowlist, Overview V1 metrics, Shopify webhook `orders/create` →
-  `order_placed` (+ `SHOPIFY_WEBHOOK_SECRET`, HMAC, dedupe in
-  `webhook_events`). Acceptance: no Access JWT → 403 even on direct
-  `/api/admin/*`; email not in `ADMIN_EMAILS` → 403; metric SQL unit-tested.
 - **S11 — QA and V1 launch:** staging (separate Worker env + D1 + KV, a
   staging Pages deploy of `portal/`, its own Turnstile widget) and the
   cross-subdomain cookie check in WebKit there; e2e on staging; Lighthouse
@@ -40,11 +30,13 @@ Running list for PR review (Felix). Spec: "ЛК — ТЗ v1.1" (2026-10-15).
 - **S12 (V1.1) — Google sign-in** (needs a Google Cloud project, Felix).
 - Small follow-ups noted on the way: the storefront heart on collection cards
   (only product pages now); the reservation form posting to `/api/holds`
-  when its `hold_mode` is switched on; client events (`circle_teaser_viewed`
-  etc.) wait for `POST /api/events` in S10.
+  when its `hold_mode` is switched on.
+- **Setup Felix does for S10 (Cloudflare/Shopify, not done by me):** see
+  `docs/rollout-s10-admin.md`.
 - Secrets/vars Felix sets himself (dashboard): `SESSION_PEPPER`,
-  `TURNSTILE_SECRET`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`; plain
-  variable `ADMIN_NOTIFY_EMAIL`.
+  `TURNSTILE_SECRET`, `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET`,
+  `SHOPIFY_WEBHOOK_SECRET`; plain variables `ADMIN_NOTIFY_EMAIL`,
+  `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `ADMIN_EMAILS`.
 
 ### Working rule (Felix, 16 Oct)
 Each task starts by checking which skills/plugins fit (Shopify, Cloudflare,
@@ -54,6 +46,10 @@ skills used. So far: shopify-admin (all Admin GraphQL validated), shopify-liquid
 accessibility checks were done with wrangler `--local`, axe and Lighthouse
 rather than the plugin skills; superpowers process skills not invoked
 formally (TDD and mutation checks done by hand) — to use from S10 on.
+S10: superpowers:test-driven-development, cloudflare (+ cloudflare-one for
+the Access JWT, wrangler for the assets config and a `--dry-run` build),
+shopify-admin (OrderPlaced query validated), design:accessibility-review
+(+ axe in e2e on every admin screen).
 
 ## Open questions for Felix
 
@@ -229,6 +225,64 @@ formally (TDD and mutation checks done by hand) — to use from S10 on.
   automated — it cannot be undone; Felix gets an email at
   `ADMIN_NOTIFY_EMAIL` with the Shopify customer id to decide. Needs the
   variable `ADMIN_NOTIFY_EMAIL` (Felix's work address).
+
+### S10 — Admin v1 and analytics
+- **Gate:** the Worker verifies the `Cf-Access-Jwt-Assertion` itself on
+  `/admin*` and `/api/admin/*` (RS256 with the team's keys from
+  `/cdn-cgi/access/certs`, cached 1 hour, one refetch for an unknown key id;
+  `iss` = team domain, `aud` = the app's AUD tag, `exp`/`nbf` with 60 s
+  of clock skew) and the email against `ADMIN_EMAILS`. Any of the three vars
+  missing, a service token (no email), `alg` other than RS256 → 403. The
+  `Cf-Access-Authenticated-User-Email` header is never trusted. Vars:
+  `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` (names are mine), `ADMIN_EMAILS`.
+- **Admin page:** plain HTML + JS in `public/admin/` (no build), served by
+  Workers Static Assets with `run_worker_first = true` and
+  `html_handling = "none"` — no file is served without the gate. Strict CSP
+  (`default-src 'none'`, scripts/styles/fetch only from itself,
+  `frame-ancestors 'none'`); all API values rendered through `textContent`.
+  System font with Georgia for headings (the CSP loads no web fonts).
+- **V1 is read-only.** Members (search by email or name, filter by tier, 50 per
+  page; deleted accounts left out), member detail (profile, Shopify Admin link,
+  consents, live sessions, passkeys, saved, holds, last 20 emails and events),
+  System (webhooks by status, last 100 emails, last 100 admin actions). V2
+  fields (status, balance, next charge, membership) are present and empty.
+  Opening a member's detail is written to `admin_audit` (`member_viewed`) —
+  it shows personal data. Session revoke, credit adjust, webhook replay and the
+  V2 screens come with V2 (§8.6 lists them; webhook replay needs the payload
+  stored, which V1 does not do — Shopify retries failures itself).
+- **Overview V1 metrics** (`src/admin/metrics.js`, SQL unit-tested on fixed
+  data): Club accounts (total / new in the period, deleted excluded), sign-ins
+  (count, members, by passkey), Saved (added; members with saved pieces),
+  Circle waitlist (joined; open places), orders (count, buyers, share of
+  buyers with an account), repeat purchase rate over the 90 days ending at the
+  period's end — all buyers, Club, no account (a buyer counts as Club if any
+  of those orders had an account) — and a weekly table (Monday weeks).
+  Ranges are whole UTC days, up to a year; default the last 30 days. Order
+  metrics start the day the webhook is switched on, so the 90-day rate needs
+  90 days of history.
+- **`POST /api/events`:** only `order_viewed`, `tracking_clicked`
+  (`order_id`, optional `carrier`), `circle_teaser_viewed` /
+  `circle_teaser_clicked` (`placement`: home | circle). Strings ≤ 64
+  characters, unknown properties refused, 300 per member per hour, session +
+  portal headers required. `circle_teaser_snoozed` stays server-side (written
+  by `PATCH /api/me`), so it cannot be counted twice. The portal sends them
+  fire-and-forget (`keepalive`); the teaser counts as viewed once per Home
+  visit and only when shown in full (not folded).
+- **Shopify webhook `POST /webhooks/shopify`:** HMAC over the raw body with
+  `SHOPIFY_WEBHOOK_SECRET` (no secret → 401); ledger in `webhook_events` by
+  `X-Shopify-Event-Id` — processed/ignored redeliveries are no-ops, failed
+  ones are retried. `orders/create` reads the order from the Admin API (query
+  validated against 2026-07: email, gateways, customer `numberOfOrders`, line
+  item product handles) and writes `order_placed { order_id, customer_id,
+  tier, is_repeat, used_gift_card }` with the order's own time; the event id is
+  `order_placed:<order id>`, so one order is counted once even under two
+  event ids. `is_repeat` = Shopify's order count for the customer > 1. The
+  account is matched by linked Shopify customer first, then by email (deleted
+  accounts never). The **buyer's own** open object holds on the bought pieces
+  become `converted`; other members' holds on the same piece are left as they
+  are (the piece shows "No longer available" when it sells out). Other topics
+  (`orders/updated`, `customers/update` — §9.2.8) are acknowledged and marked
+  `ignored` in V1.
 
 ## Copy for review (not quoted in the spec)
 

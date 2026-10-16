@@ -57,8 +57,11 @@ one code path an unauthenticated caller can reach.
 `wrangler secret put`: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
 `GEMINI_API_KEY`, `RESEND_API_KEY`, `ADMIN_SECRET`, `PORTAL_ORIGIN`,
 `SESSION_PEPPER`, `TURNSTILE_SECRET`, `SHOPIFY_CLIENT_ID`,
-`SHOPIFY_CLIENT_SECRET`. Plain vars: `SHOPIFY_SHOP` (in `wrangler.toml`) and
-the optional ones in `.dev.vars.example`.
+`SHOPIFY_CLIENT_SECRET`, `SHOPIFY_WEBHOOK_SECRET`. Plain vars: `SHOPIFY_SHOP` (in
+`wrangler.toml`), the admin's `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` and
+`ADMIN_EMAILS` (see `docs/rollout-s10-admin.md`), and the optional ones in
+`.dev.vars.example`. The admin page lives in `public/admin/` (Workers Static
+Assets; the Worker runs first on every request).
 
 Shopify access: "Claude Sync" is a Dev Dashboard app with no permanent token.
 `src/shopify/admin.js` exchanges the client ID and secret for an access token

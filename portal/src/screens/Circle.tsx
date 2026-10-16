@@ -3,7 +3,7 @@
 // things and can be put away for 30 days.
 
 import { useEffect, useState } from "preact/hooks";
-import { api } from "../api";
+import { api, track } from "../api";
 import { copy } from "../copy/en";
 import { CIRCLE_FAQ, CIRCLE_FAQ_TITLE } from "../copy/circle-faq";
 import { formatMoney } from "../format";
@@ -82,6 +82,11 @@ function PriceLines({ teaser }: { teaser: Teaser }) {
 // Home, below orders and Saved (§6.3).
 export function CircleTeaser() {
   const [teaser, setTeaser] = useTeaser();
+  const open = !!teaser && !teaser.snoozed_until;
+  // Viewed once per Home visit, and only when the full teaser shows.
+  useEffect(() => {
+    if (open) track({ name: "circle_teaser_viewed", props: { placement: "home" } });
+  }, [open]);
   if (!teaser) return null;
 
   if (teaser.snoozed_until) {
@@ -111,7 +116,8 @@ export function CircleTeaser() {
       <PriceLines teaser={teaser} />
       <Reserve teaser={teaser} onJoined={() => setTeaser({ ...teaser, on_waitlist: true })} />
       <div class="circle-actions">
-        <Link href="/circle" class="button button-secondary">{copy.circle.learn}</Link>
+        <Link href="/circle" class="button button-secondary"
+          onClick={() => track({ name: "circle_teaser_clicked", props: { placement: "home" } })}>{copy.circle.learn}</Link>
         <button type="button" class="button-link" onClick={notNow}>{copy.circle.notNow}</button>
       </div>
     </section>

@@ -48,6 +48,24 @@ export async function api<T>(path: string, { method = "GET", body, signal }: Opt
   return data as T;
 }
 
+// Client analytics (spec §15.1, POST /api/events). Fire and forget: a lost
+// event never shows an error. keepalive lets it finish when a link click
+// leaves the page.
+export type ClientEvent =
+  | { name: "order_viewed"; props: { order_id: string; carrier?: string } }
+  | { name: "tracking_clicked"; props: { order_id: string; carrier?: string } }
+  | { name: "circle_teaser_viewed" | "circle_teaser_clicked"; props: { placement: "home" | "circle" } };
+
+export function track(event: ClientEvent): void {
+  fetch(`${API_BASE}/api/events`, {
+    method: "POST",
+    credentials: "include",
+    keepalive: true,
+    headers: { "Content-Type": "application/json", "X-SR-Client": "portal" },
+    body: JSON.stringify(event),
+  }).catch(() => {});
+}
+
 export type User = {
   id: string; email: string; first_name: string | null; tier: "club" | "vip";
   created_at?: string; last_name?: string | null; seasonal_email_opt_in?: boolean;

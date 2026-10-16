@@ -15,9 +15,11 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createApp } from "../../src/app.js";
 import { makeEnv } from "../../test/harness.mjs";
+import { AUD, TEAM, makeAccess } from "../../test/access-helpers.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const DIST = resolve(HERE, "..", "dist-e2e");
+const PUBLIC = resolve(HERE, "..", "..", "public");
 export const PORT = Number(process.env.E2E_PORT || 4443);
 const ORIGIN = `https://localhost:${PORT}`;
 
@@ -36,9 +38,16 @@ function certificate() {
   return { key: readFileSync(key), cert: readFileSync(cert) };
 }
 
+// A fake Cloudflare Access for the admin (S10): its certs answer the
+// Worker's JWT check, and /__e2e/access-jwt mints a token for a test.
+const access = await makeAccess();
+const ADMIN_EMAIL = "felix@example.com";
+
 const emails = [];
 const outside = async (url, init = {}) => {
   const u = String(url);
+  const certs = access.fetch(u);
+  if (certs) return certs;
   if (u.startsWith("https://api.resend.com/")) {
     emails.push(JSON.parse(init.body));
     return Response.json({ id: `re_${emails.length}` });
@@ -57,6 +66,17 @@ const env = makeEnv({
   PORTAL_URL: ORIGIN,
   PASSKEY_RP_ID: "localhost",
   PASSKEY_ORIGINS: ORIGIN,
+  ACCESS_TEAM_DOMAIN: TEAM,
+  ACCESS_AUD: AUD,
+  ADMIN_EMAILS: ADMIN_EMAIL,
+  // Workers Static Assets stand-in: public/ on disk.
+  ASSETS: {
+    async fetch(request) {
+      const file = normalize(join(PUBLIC, decodeURIComponent(new URL(request.url).pathname)));
+      if (!file.startsWith(PUBLIC + sep) || !existsSync(file)) return new Response("Not found", { status: 404 });
+      return new Response(readFileSync(file), { headers: { "Content-Type": TYPES[extname(file)] || "application/octet-stream" } });
+    },
+  },
 });
 const app = createApp({ fetch: outside });
 
@@ -101,6 +121,13 @@ const server = createServer(certificate(), async (req, res) => {
       res.end(JSON.stringify({ code }));
       return;
     }
+    if (url.pathname === "/__e2e/access-jwt") {
+      const nowS = Math.floor(Date.now() / 1000);
+      const jwt = await access.sign({ email: url.searchParams.get("email") || ADMIN_EMAIL, iat: nowS, nbf: nowS, exp: nowS + 3600 });
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ jwt }));
+      return;
+    }
     if (url.pathname === "/__e2e/last-link") {
       const to = url.searchParams.get("email");
       const mail = [...emails].reverse().find((m) => m.to.includes(to));
@@ -109,7 +136,7 @@ const server = createServer(certificate(), async (req, res) => {
       res.end(JSON.stringify({ link }));
       return;
     }
-    if (url.pathname === "/health" || url.pathname.startsWith("/api/")) {
+    if (url.pathname === "/health" || url.pathname.startsWith("/api/") || url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
       const headers = new Headers();
       for (const [k, v] of Object.entries(req.headers)) {
         if (typeof v === "string") headers.set(k, v);

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "preact/hooks";
 import { ArrowLeft } from "lucide-preact";
-import { api, ApiError } from "../api";
+import { api, ApiError, track } from "../api";
 import { copy } from "../copy/en";
 import { formatDate, formatMoney, sized } from "../format";
 import { STOREFRONT_COLLECTIONS } from "../router";
@@ -102,6 +102,7 @@ export function OrderDetail({ id }: { id: string }) {
     try {
       const res = await api<{ order: OrderDetailData }>(`/api/orders/${encodeURIComponent(id)}`);
       setState({ kind: "ready", order: res.order });
+      track({ name: "order_viewed", props: { order_id: id } });
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) setState({ kind: "notFound" });
       else setState({ kind: "error", message: e instanceof ApiError ? e.message : copy.errors.generic });
@@ -169,7 +170,8 @@ export function OrderDetail({ id }: { id: string }) {
                   <span class="small">{copy.orders.arrives(formatDate(f.estimated_delivery_at))}</span>
                 )}
                 {f.tracking_url && (
-                  <a class="button button-secondary" href={f.tracking_url} target="_blank" rel="noopener noreferrer">
+                  <a class="button button-secondary" href={f.tracking_url} target="_blank" rel="noopener noreferrer"
+                    onClick={() => track({ name: "tracking_clicked", props: f.carrier ? { order_id: id, carrier: f.carrier } : { order_id: id } })}>
                     {f.carrier ? copy.orders.trackWith(f.carrier) : copy.orders.trackParcel}
                   </a>
                 )}

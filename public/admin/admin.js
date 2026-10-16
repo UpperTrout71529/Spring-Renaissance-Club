@@ -45,7 +45,9 @@ function render(title, ...content) {
 
 function table(caption, columns, rows, empty = "Nothing yet.") {
   if (!rows.length) return h("p", { class: "empty" }, `${caption}: ${empty}`);
-  return h("div", { class: "table-wrap" }, h("table", {},
+  // Focusable and named: at narrow widths the wrapper scrolls sideways and
+  // keyboard users must be able to reach it (axe scrollable-region-focusable).
+  return h("div", { class: "table-wrap", role: "region", "aria-label": caption, tabindex: "0" }, h("table", {},
     h("caption", {}, caption),
     h("thead", {}, h("tr", {}, columns.map((c) => h("th", { scope: "col", class: c.num ? "num" : null }, c.label)))),
     h("tbody", {}, rows.map((r) => h("tr", {}, columns.map((c, i) => {
@@ -156,7 +158,7 @@ async function member(id) {
       h("dt", {}, "Last sign-in"), h("dd", {}, fmtDateTime(u.last_login_at)),
       h("dt", {}, "Seasonal letter"), h("dd", {}, u.seasonal_email_opt_in ? "Yes" : "No"),
       h("dt", {}, "Orders"), h("dd", {}, d.shopify_admin_url
-        ? h("a", { href: d.shopify_admin_url, target: "_blank", rel: "noopener noreferrer" }, "Open in Shopify Admin")
+        ? h("a", { href: d.shopify_admin_url, target: "_blank", rel: "noopener noreferrer" }, "Open in Shopify Admin", h("span", { class: "visually-hidden" }, " (opens in a new tab)"))
         : "No Shopify customer linked"),
       h("dt", {}, "Membership"), h("dd", {}, d.membership ? "VIP" : "None (VIP Circle opens in V2)"),
     ),
