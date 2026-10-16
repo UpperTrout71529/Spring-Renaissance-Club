@@ -57,7 +57,24 @@ export const copy = {
     action: "Go to Home",
   },
   home: {
+    // §6.3: by time of day; "Welcome back" when there is no name.
     welcomeBack: "Welcome back",
+    greeting: (part: "morning" | "afternoon" | "evening", name: string) => `Good ${part}, ${name}`,
+    memberSince: (monthYear: string) => `Club member since ${monthYear}`,
+    onItsWay: "On its way",
+    viewOrder: "View order",
+    giftCardBalance: "Gift card balance",
+    cardEnding: (last4: string) => `Card ending ${last4}`,
+    expires: (date: string) => `Expires ${date}`,
+    loading: "Loading your home page",
+    // §6.10, items verbatim; the title, progress and button are ours.
+    onboardingTitle: "Make it yours",
+    onboardingProgress: (done: number, total: number) => `${done} of ${total} done`,
+    onboardingAccount: "Account created",
+    onboardingPasskey: (name: string | null) => (name ? `Add ${name} for faster sign-in` : "Add a passkey for faster sign-in"),
+    onboardingSave: "Save a piece you love",
+    done: "Done",
+    dismiss: "Dismiss",
   },
   account: {
     security: "Sign-in & security",

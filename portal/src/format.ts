@@ -5,8 +5,17 @@
 
 const LOCALE = "en-US";
 
+// A calendar date without a time ("2027-10-01", e.g. a gift card's expiresOn)
+// is the same day everywhere: format it in UTC, or a visitor west of
+// Greenwich would see the day before. A timestamp is shown in the device's
+// time zone.
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
 export function formatDate(iso: string): string {
-  return new Intl.DateTimeFormat(LOCALE, { month: "short", day: "numeric", year: "numeric" }).format(new Date(iso));
+  const dateOnly = DATE_ONLY.test(iso);
+  return new Intl.DateTimeFormat(LOCALE, {
+    month: "short", day: "numeric", year: "numeric", ...(dateOnly ? { timeZone: "UTC" } : {}),
+  }).format(new Date(dateOnly ? `${iso}T00:00:00Z` : iso));
 }
 
 export function formatMoney(cents: number, currency = "USD"): string {

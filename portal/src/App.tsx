@@ -10,6 +10,7 @@ import { NotFound, SectionHeading } from "./screens/Placeholder";
 import { Account } from "./screens/Account";
 import { Security } from "./screens/Security";
 import { OrderDetail, Orders } from "./screens/Orders";
+import { Home } from "./screens/Home";
 
 type Session =
   | { status: "loading" }
@@ -111,16 +112,17 @@ export function App() {
 
   return (
     <Shell route={match.name} email={session.user.email} circleBadge={session.circleBadge} onSignOut={signOut}>
-      <Screen route={match.name} params={match.params} email={session.user.email} onSignOut={signOut} />
+      <Screen route={match.name} params={match.params} user={session.user} onSignOut={signOut} />
     </Shell>
   );
 }
 
-type ScreenProps = { route: RouteName; params: Record<string, string>; email: string; onSignOut: () => void };
+type ScreenProps = { route: RouteName; params: Record<string, string>; user: User; onSignOut: () => void };
 
-function Screen({ route, params, email, onSignOut }: ScreenProps) {
+function Screen({ route, params, user, onSignOut }: ScreenProps) {
+  const email = user.email;
   switch (route) {
-    case "home": return <SectionHeading title={copy.home.welcomeBack} />;
+    case "home": return <Home user={user} />;
     case "orders": return <Orders />;
     case "order": return <OrderDetail id={params.id} />;
     // Empty state until the data arrives with S7.

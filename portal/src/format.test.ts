@@ -9,6 +9,13 @@ describe("format", () => {
     expect(formatMoney(8800, "USD")).toBe("$88.00");
   });
 
+  it("keeps a date-only value on its day in every time zone", () => {
+    expect(formatDate("2027-10-01")).toBe("Oct 1, 2027");
+    const ny = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", day: "numeric" });
+    // The bug this guards against: midnight UTC is still Sep 30 in New York.
+    expect(ny.format(new Date("2027-10-01"))).toBe("30");
+  });
+
   it("asks the Shopify CDN for the displayed width", () => {
     expect(sized("https://cdn.shopify.com/p.jpg", 160)).toBe("https://cdn.shopify.com/p.jpg?width=160");
     expect(sized("https://cdn.shopify.com/p.jpg?v=1", 160)).toBe("https://cdn.shopify.com/p.jpg?v=1&width=160");

@@ -1,0 +1,23 @@
+@import "./orders.css";
+
+.home { display: grid; gap: var(--space-3); }
+.home-card { display: grid; gap: var(--space-2); padding: var(--space-3) 0; border-top: 1px solid var(--line); }
+.home-order { display: flex; gap: var(--space-2); align-items: center; }
+.home-order-meta { display: grid; gap: 2px; }
+.home-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+
+.home-row { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.home-row summary {
+  display: flex; justify-content: space-between; align-items: center; gap: var(--space-2);
+  min-height: 56px; cursor: pointer; list-style: none;
+}
+.home-row summary::-webkit-details-marker { display: none; }
+.home-row-value { font-variant-numeric: tabular-nums; }
+.gift-cards { list-style: none; margin: 0; padding: 0 0 var(--space-2); }
+.gift-cards li { display: flex; justify-content: space-between; gap: var(--space-2); padding: var(--space-1) 0; }
+
+.onboarding-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2); }
+.onboarding-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); }
+.onboarding-list li { display: flex; align-items: center; gap: var(--space-1); min-height: 44px; }
+.onboarding-list li.is-done { color: var(--ink-muted); }
+.onboarding .button-link { justify-self: start; }

@@ -48,10 +48,10 @@ export async function api<T>(path: string, { method = "GET", body, signal }: Opt
   return data as T;
 }
 
-export type User = { id: string; email: string; first_name: string | null; tier: "club" | "vip" };
+export type User = { id: string; email: string; first_name: string | null; tier: "club" | "vip"; created_at?: string };
 export type Me = {
   user: User;
   membership: null;
   badges: { circle: boolean };
-  onboarding: { passkey: boolean; saved: boolean };
+  onboarding: { passkey: boolean; saved: boolean; dismissed: boolean };
 };

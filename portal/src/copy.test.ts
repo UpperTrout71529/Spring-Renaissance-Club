@@ -19,8 +19,10 @@ describe("copy", () => {
     const offenders: string[] = [];
     for (const file of tsxFiles(join(__dirname))) {
       const src = readFileSync(file, "utf8");
-      // >Some words<  — a text node that is not an {expression}.
-      for (const m of src.matchAll(/>\s*([A-Za-z][^<>{}]*[A-Za-z.!?])\s*</g)) offenders.push(`${file}: ${m[1]}`);
+      // >Some words<  — a text node that is not an {expression}. Code between
+      // an arrow and a generic (=> x.has(y) ... api<T>) is excluded by refusing
+      // the characters text nodes never need: ( ) ; =
+      for (const m of src.matchAll(/>\s*([A-Za-z][^<>{}();=]*[A-Za-z.!?])\s*</g)) offenders.push(`${file}: ${m[1]}`);
     }
     expect(offenders).toEqual([]);
   });
