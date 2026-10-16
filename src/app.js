@@ -26,10 +26,16 @@ import { getTeaser, joinWaitlist } from "./routes/circle.js";
 import {
   confirmEmailChange, deleteAccount, exportAccount, listSessions, requestEmailChange, revokeOneSession, revokeOtherSessions,
 } from "./routes/account.js";
+import { getMember, getMetrics, listAudit, listEmails, listMembers, listWebhooks, serveAdmin } from "./routes/admin.js";
+import { verifyAdmin } from "./admin/access.js";
+import { postEvent } from "./routes/events.js";
+import { shopifyWebhook } from "./routes/webhooks-shopify.js";
 
 // Route options:
 //   auth: "session"   — 401 without a live session; ctx.session is set
 //   auth: "optional"  — ctx.session is set when there is one
+//   auth: "admin"     — 403 without a verified Cloudflare Access JWT for an
+//                       email in ADMIN_EMAILS; ctx.admin = { email }
 //   crossSite: true   — skip the Origin / X-SR-Client check (server-to-server
 //                       callers such as webhooks, which send neither)
 export const ROUTES = [
@@ -66,6 +72,16 @@ export const ROUTES = [
   { method: "POST", path: "/api/circle/waitlist", handler: joinWaitlist, auth: "session" },
   { method: "GET", path: "/api/orders", handler: listOrders, auth: "session" },
   { method: "GET", path: "/api/orders/:id", handler: getOrder, auth: "session" },
+  { method: "POST", path: "/webhooks/shopify", handler: shopifyWebhook, crossSite: true },
+  { method: "POST", path: "/api/events", handler: postEvent, auth: "session" },
+  { method: "GET", path: "/api/admin/members", handler: listMembers, auth: "admin" },
+  { method: "GET", path: "/api/admin/members/:id", handler: getMember, auth: "admin" },
+  { method: "GET", path: "/api/admin/metrics", handler: getMetrics, auth: "admin" },
+  { method: "GET", path: "/api/admin/webhooks", handler: listWebhooks, auth: "admin" },
+  { method: "GET", path: "/api/admin/emails", handler: listEmails, auth: "admin" },
+  { method: "GET", path: "/api/admin/audit", handler: listAudit, auth: "admin" },
+  { method: "GET", path: "/admin", handler: serveAdmin, auth: "admin" },
+  { method: "GET", path: "/admin/:file", handler: serveAdmin, auth: "admin" },
 ];
 
 const SECURITY_HEADERS = {
@@ -154,6 +170,9 @@ export function createApp({
           session: null,
         };
 
+        if (route.auth === "admin") {
+          ctx.admin = await verifyAdmin(request, env, fetchImpl, nowMs);
+        }
         if (route.auth === "session" || route.auth === "optional") {
           ctx.session = await loadSession(request, env, nowMs);
           if (!ctx.session && route.auth === "session") throw unauthenticated();

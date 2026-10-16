@@ -4,6 +4,11 @@
 #   SESSION_PEPPER, TURNSTILE_SECRET,
 #   SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET   (portal API, src/; "Claude Sync"
 #   gets a 24-hour token from these — src/shopify/admin.js)
+#   SHOPIFY_WEBHOOK_SECRET   (POST /webhooks/shopify HMAC; for a subscription
+#   made by the Claude Sync app it is that app's client secret)
+# Admin vars (not secret, S10): ACCESS_TEAM_DOMAIN (https://<team>.cloudflareaccess.com),
+#   ACCESS_AUD (the "SR Admin" Access application's AUD tag), ADMIN_EMAILS
+#   (comma-separated). Missing any of them → every admin request is 403.
 # Portal vars (not secret): SHOPIFY_SHOP (*.myshopify.com), and optionally
 #   SHOPIFY_API_VERSION, SESSION_IDLE_DAYS, PORTAL_URL. See .dev.vars.example.
 # The same list is documented in the worker.js header and README; keep them in sync.
@@ -30,3 +35,12 @@ migrations_dir = "migrations"
 # Plain (non-secret) configuration of the portal API.
 [vars]
 SHOPIFY_SHOP = "qyziv4-0c.myshopify.com"
+
+# Admin page (spec §12): public/admin/ via Workers Static Assets. Every
+# request runs the Worker first, so nothing under public/ is served without
+# the Cloudflare Access check in src/admin/access.js.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+html_handling = "none"
+run_worker_first = true
