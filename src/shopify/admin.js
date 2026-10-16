@@ -164,6 +164,28 @@ export async function findOrCreateClubCustomer(env, fetchImpl, email) {
 
 const CUSTOMER_TAGS = `query CustomerTags($id: ID!) { customer(id: $id) { id tags } }`;
 
+const UNTAG_CUSTOMER = `mutation UntagCustomer($id: ID!, $tags: [String!]!) {
+  tagsRemove(id: $id, tags: $tags) { userErrors { field message } }
+}`;
+
+const UPDATE_CUSTOMER = `mutation UpdateCustomer($input: CustomerInput!) {
+  customerUpdate(input: $input) { customer { id } userErrors { field message } }
+}`;
+
+export async function removeCustomerTags(env, fetchImpl, customerId, tags) {
+  const data = await shopifyGraphql(env, fetchImpl, UNTAG_CUSTOMER, { id: customerId, tags });
+  const errors = (data.tagsRemove && data.tagsRemove.userErrors) || [];
+  if (errors.length) throw new Error("shopify tagsRemove failed");
+}
+
+// fields: any of { firstName, lastName, email } (spec §8.3: name and email
+// changes are mirrored to the Shopify customer).
+export async function updateCustomer(env, fetchImpl, customerId, fields) {
+  const data = await shopifyGraphql(env, fetchImpl, UPDATE_CUSTOMER, { input: { id: customerId, ...fields } });
+  const errors = (data.customerUpdate && data.customerUpdate.userErrors) || [];
+  if (errors.length) throw new Error(`shopify customerUpdate failed: ${errors.map((e) => e.message).join("; ").slice(0, 200)}`);
+}
+
 export async function addCustomerTags(env, fetchImpl, customerId, tags) {
   const data = await shopifyGraphql(env, fetchImpl, TAG_CUSTOMER, { id: customerId, tags });
   const errors = (data.tagsAdd && data.tagsAdd.userErrors) || [];

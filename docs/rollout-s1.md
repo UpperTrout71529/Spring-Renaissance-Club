@@ -1,4 +1,4 @@
-# Portal API rollout: migrations 0000–0004 + Worker `src/index.js`
+# Portal API rollout: migrations 0000–0005 + Worker `src/index.js`
 
 (Written for S1; S4 added `0004_auth_challenges.sql` and the secrets for
 passkeys. The order and the rollback below cover both.)
@@ -35,9 +35,10 @@ in every table on 2026-10-15, so there is no data at risk in the gap.
 2. Secrets: `SESSION_PEPPER` (random, 32+ bytes; without it any request with
    a session cookie gets 503 `auth_unavailable`), `TURNSTILE_SECRET`,
    `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET` (Claude Sync). `SHOPIFY_SHOP`
-   ships in `wrangler.toml` `[vars]`.
+   ships in `wrangler.toml` `[vars]`. `ADMIN_NOTIFY_EMAIL` (Felix's work
+   address; a plain variable) for internal notices such as account deletion.
 3. `wrangler d1 migrations apply spring-renaissance --remote` — lists
-   0000–0004 as pending; 0000 is a no-op on the existing tables.
+   0000–0005 as pending; 0000 is a no-op on the existing tables.
 4. **Immediately** `wrangler deploy`.
 5. Smoke checks:
    - `GET https://api.springrenaissance.store/health` → `200 {"status":"ok"}`

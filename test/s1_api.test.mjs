@@ -100,7 +100,7 @@ test('S1-A4: GET /api/me with a live session → the §8.3 V1 shape', async () =
   const res = await app().fetch(get('/api/me', { Origin: CLUB, ...withSession() }), e);
   assert.equal(res.status, 200);
   assert.deepEqual(await body(res), {
-    user: { id: '01USER', email: 'clara@example.com', first_name: 'Clara', tier: 'club', created_at: iso(NOW - DAY) },
+    user: { id: '01USER', email: 'clara@example.com', first_name: 'Clara', last_name: null, tier: 'club', created_at: iso(NOW - DAY), seasonal_email_opt_in: false },
     membership: null,
     badges: { circle: false },
     onboarding: { passkey: false, saved: false, dismissed: false },
