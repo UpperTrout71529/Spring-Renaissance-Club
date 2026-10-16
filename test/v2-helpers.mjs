@@ -65,7 +65,20 @@ export function withStripe(world) {
 }
 
 export function makeV2World(opts = {}) {
-  return withStripe(withShopifyOps(makeWorld(opts)));
+  const world = withStripe(withShopifyOps(makeWorld(opts)));
+  const cust = (id) => world.shopify.customers.find((c) => c.id === id);
+  world.shopifyOps.TagCustomer = ({ id, tags }) => {
+    const c = cust(id);
+    if (c) for (const t of tags) if (!c.tags.includes(t)) c.tags.push(t);
+    world.shopify.tagged.push(id);
+    return { tagsAdd: { userErrors: [] } };
+  };
+  world.shopifyOps.UntagCustomer = ({ id, tags }) => {
+    const c = cust(id);
+    if (c) c.tags = c.tags.filter((t) => !tags.includes(t));
+    return { tagsRemove: { userErrors: [] } };
+  };
+  return world;
 }
 
 // setup() + Access + an admin client. Returns { t, admin, adminSend, world }.
@@ -149,4 +162,75 @@ export function seedWelcomeSet(t, { shippingCents = 600 } = {}) {
     db.prepare(`INSERT INTO gift_options (id, kind, title, blurb, shopify_variant_gid, image_url, landed_cost_cents, shipping_class, active, sort, created_at, updated_at)
       VALUES (?, 'welcome', ?, 'A sealed piece.', ?, NULL, ?, 'S', 1, 0, 'x', 'x')`).run(id, `Piece ${id}`, `gid://shopify/ProductVariant/9${id.slice(2)}`, cost);
   }
+}
+
+// ---- Stripe events -------------------------------------------------------------
+
+import { signBody } from './harness.mjs';
+
+export const CIRCLE_WHSEC = 'whsec_circle_test';
+const S = (ms) => Math.floor(ms / 1000);
+let evtSeq = 0;
+
+export function stripeEvent(type, object, { id, created, livemode = false, previous } = {}) {
+  evtSeq++;
+  return { id: id || `evt_${evtSeq}_${type}`, object: 'event', type, created: created ?? S(T0) + evtSeq, livemode,
+    data: { object, ...(previous ? { previous_attributes: previous } : {}) } };
+}
+
+export async function deliver(t, event, { secret = CIRCLE_WHSEC, ts } = {}) {
+  const raw = typeof event === 'string' ? event : JSON.stringify(event);
+  const stamp = ts ?? S(T0);
+  const req = new Request('https://w.dev/webhooks/stripe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Content-Length': String(new TextEncoder().encode(raw).length),
+      'Stripe-Signature': `t=${stamp},v1=${await signBody(raw, stamp, secret)}` },
+    body: raw,
+  });
+  const res = await t.call(req);
+  return { res, data: JSON.parse(await res.text()) };
+}
+
+export const fx = {
+  session: ({ userId, sub = 'sub_1', customer = 'cus_1', kind = 'join', id = 'cs_test_1', referralId } = {}) => ({
+    id, object: 'checkout.session', mode: 'subscription', status: 'complete', payment_status: 'paid', customer, subscription: sub,
+    client_reference_id: userId, metadata: { user_id: userId, kind, terms_version: 'membership-terms-draft-2026-10-16', ...(referralId ? { referral_id: referralId } : {}) },
+    customer_details: { email: 'clara@example.com', name: 'Clara Moss' },
+    collected_information: { shipping_details: { name: 'Clara Moss', address: { line1: '1 Main St', city: 'Austin', state: 'TX', postal_code: '78701', country: 'US' } } },
+  }),
+  subscription: ({ id = 'sub_1', customer = 'cus_1', status = 'active', userId, kind = 'join', start = T0, end = T0 + 31 * DAY, cancelAtPeriodEnd = false, reason = null, endedAt = null } = {}) => ({
+    id, object: 'subscription', customer, status, cancel_at_period_end: cancelAtPeriodEnd, cancel_at: null, start_date: S(start),
+    ended_at: endedAt ? S(endedAt) : null, canceled_at: endedAt ? S(endedAt) : null,
+    metadata: { user_id: userId, kind }, cancellation_details: { reason },
+    items: { data: [{ id: 'si_1', price: { id: 'price_monthly' }, current_period_start: S(start), current_period_end: S(end) }] },
+  }),
+  invoice: ({ id = 'in_1', sub = 'sub_1', customer = 'cus_1', userId, kind = 'join', reason = 'subscription_create', start = T0, end = T0 + 31 * DAY,
+    monthly = 2000, joining = reason === 'subscription_create' && kind === 'join' ? 3000 : 0, tax = 0, discount = 0, attempt = 1, next = null, status = 'paid' } = {}) => {
+    const lines = [{ id: `il_${id}_m`, amount: monthly, pricing: { price_details: { price: 'price_monthly', product: 'prod_membership' } }, period: { start: S(start), end: S(end) } }];
+    if (joining) lines.push({ id: `il_${id}_j`, amount: joining, discount_amounts: discount ? [{ amount: discount, discount: 'di_1' }] : [],
+      pricing: { price_details: { price: 'price_joining', product: 'prod_joining' } }, period: { start: S(start), end: S(start) } });
+    const total = monthly + joining - discount + tax;
+    return {
+      id, object: 'invoice', customer, status, billing_reason: reason, amount_paid: status === 'paid' ? total : 0, amount_due: total, total,
+      hosted_invoice_url: `https://invoice.stripe.com/i/${id}`, attempt_count: attempt, next_payment_attempt: next,
+      parent: { type: 'subscription_details', subscription_details: { subscription: sub, metadata: { user_id: userId, kind } } },
+      lines: { data: lines }, total_discount_amounts: discount ? [{ amount: discount, discount: 'di_1' }] : [],
+      status_transitions: { paid_at: status === 'paid' ? S(start) : null },
+    };
+  },
+};
+
+// Stripe fakes for the payment map: invoice → payment intent → charge.
+export function stripePayments(world, { fingerprint = 'fp_clara', wallet = null } = {}) {
+  world.stripeOn('GET', '/v1/invoice_payments', (call) => {
+    const inv = call.params.invoice;
+    const pi = call.params['payment[payment_intent]'];
+    if (inv) return { data: [{ id: `inpay_${inv}`, invoice: inv, amount_paid: 5000, status: 'paid', payment: { type: 'payment_intent', payment_intent: `pi_${inv}` } }] };
+    if (pi) return { data: [{ id: `inpay_${pi}`, invoice: pi.replace(/^pi_/, ''), amount_paid: 5000, status: 'paid', payment: { type: 'payment_intent', payment_intent: pi } }] };
+    return { data: [] };
+  });
+  world.stripeOn('GET', '/v1/payment_intents/:id', (call, id) => ({
+    id, latest_charge: { id: id.replace(/^pi_/, 'ch_'), payment_method_details: { card: { fingerprint: typeof fingerprint === 'function' ? fingerprint(id) : fingerprint, last4: '4242', wallet: wallet ? { type: wallet } : null } } },
+  }));
+  return world;
 }

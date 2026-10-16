@@ -27,6 +27,7 @@ CREATE TABLE memberships (
   paid_invoices INTEGER NOT NULL DEFAULT 0,                 -- added: paid invoices of this subscription (anniversary, §10)
   credits_frozen INTEGER NOT NULL DEFAULT 0,
   terms_version TEXT,                                       -- added
+  stripe_synced_at INTEGER NOT NULL DEFAULT 0,              -- added: Stripe event time (s) of the last state applied; older snapshots are ignored
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE INDEX idx_memberships_user ON memberships(user_id);

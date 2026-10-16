@@ -31,6 +31,7 @@ import { verifyAdmin } from "./admin/access.js";
 import { postEvent } from "./routes/events.js";
 import { shopifyWebhook } from "./routes/webhooks-shopify.js";
 import { getJoin, postCheckout, postRejoin } from "./routes/circle-join.js";
+import { stripeWebhook } from "./routes/webhooks-stripe.js";
 import { getEconomics, listCosts, postCatalogSync, putCost, putEconomics, putPriceList } from "./routes/admin-economics.js";
 
 // Route options:
@@ -78,6 +79,7 @@ export const ROUTES = [
   { method: "GET", path: "/api/orders", handler: listOrders, auth: "session" },
   { method: "GET", path: "/api/orders/:id", handler: getOrder, auth: "session" },
   { method: "POST", path: "/webhooks/shopify", handler: shopifyWebhook, crossSite: true },
+  { method: "POST", path: "/webhooks/stripe", handler: stripeWebhook, crossSite: true },
   { method: "POST", path: "/api/events", handler: postEvent, auth: "session" },
   { method: "GET", path: "/api/admin/members", handler: listMembers, auth: "admin" },
   { method: "GET", path: "/api/admin/members/:id", handler: getMember, auth: "admin" },
