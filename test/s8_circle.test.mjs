@@ -28,6 +28,10 @@ function world() {
     product(5, 'gift-card', '50.0', { isGiftCard: true }),
     product(6, 'carafe', '210.0'),
     product(7, 'flacon', '64.0'),
+    product(8, 'the-kouros-fragment', '220.0'),
+    product(9, 'archived-piece', '300.0', { status: 'ARCHIVED', onlineStoreUrl: null }),
+    product(10, 'draft-piece', '150.0', { status: 'DRAFT', onlineStoreUrl: null }),
+    product(11, 'unpublished-piece', '180.0', { onlineStoreUrl: null }),
   ];
   w.tagCalls = [];
   w.fail = false;
@@ -158,4 +162,15 @@ test('S8-7: member price rules', () => {
   assert.equal(memberPriceEligible(p({ tags: ['capsule'] })), false);
   assert.equal(memberPriceEligible(p({ isGiftCard: true })), false);
   assert.equal(memberPriceEligible(p({ handle: 'patron-membership' })), false);
+});
+
+test('S8-8: only ACTIVE pieces on the online store get a Circle price; archived, draft and unpublished are skipped', async () => {
+  const t = setup({ world: world() });
+  const h = await clara(t);
+  for (const [i, handle] of ['archived-piece', 'draft-piece', 'unpublished-piece', 'the-kouros-fragment'].entries()) {
+    t.setNow(T0 + i * 1000);
+    await t.call(post('/api/wishlist', { product_handle: handle }, { ...trusted, ...h }));
+  }
+  const { member_price_examples: ex } = await body(await t.call(get('/api/circle/teaser', h)));
+  assert.deepEqual(ex, [{ handle: 'the-kouros-fragment', title: 'the-kouros-fragment', price_cents: 22000, member_price_cents: 16500 }]);
 });

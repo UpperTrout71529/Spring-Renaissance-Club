@@ -24,8 +24,12 @@ Running list for PR review (Felix). Spec: "ЛК — ТЗ v1.1" (2026-10-15).
    cancel online any time, effective at the end of the paid month; credits
    usable 30 days after the last paid month; 25% on the collections, not
    Small Pleasures, gift cards or capsules). These are membership terms the
-   lawyer has not reviewed yet (P0.7). The Membership Terms link from §6.6 is
-   left out: the terms page does not exist in V1.
+   lawyer has not reviewed yet (P0.7). **PENDING LEGAL REVIEW — not for
+   production** (Felix, 16 Oct): the FAQ lives in `portal/src/copy/circle-faq.ts`
+   and renders only when the build sets `VITE_CIRCLE_FAQ=1` (the e2e build
+   does; production does not, and portal-ci fails if the strings reach a
+   production bundle). The Membership Terms link from §6.6 is left out: the
+   terms page does not exist in V1.
 
 ## Answered (16 Oct 2026)
 
@@ -136,8 +140,13 @@ Running list for PR review (Felix). Spec: "ЛК — ТЗ v1.1" (2026-10-15).
 ### S8 — Circle teaser and waitlist (V1)
 - No Welcome piece count in V1: `gift_options` is a V2 table, so
   `sealed_count` is 0 and the copy names no number (§6.3 rule).
-- Circle price line only for saved, available pieces the 25% applies to;
-  member price = 75% of Shopify's price in cents, rounded half up; at most 3.
+- Circle price line only for saved pieces that are ACTIVE, published on the
+  online store and purchasable, from the main collections (not catalog /
+  Small Pleasures, gift cards, capsules, the membership); member price = 75%
+  of Shopify's price in cents, rounded half up; at most 3. Archived, draft
+  and unpublished pieces are skipped (test S8-8). The screenshot's "Pierre
+  Blanche … $66.00" was test data ($88 × 0.75); fixtures now use The Kouros
+  Fragment, $220 → $165.
 - "Reserve a place" creates one `circle_waitlist` hold and tags the customer
   `circle-waitlist` once (retried at the next sign-in if Shopify was down).
 - "Not now" folds the teaser to one line, "The Renaissance Circle · Opening

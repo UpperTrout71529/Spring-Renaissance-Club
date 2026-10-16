@@ -42,13 +42,13 @@ async function mockHome(page: Page, teaser: TeaserState) {
 }
 
 test("the teaser sits below the useful blocks, with the spec's copy and no modal", async ({ page }) => {
-  await mockHome(page, { snoozed_until: null, on_waitlist: false, examples: [{ handle: "pierre-blanche", title: "Pierre Blanche", price_cents: 8800, member_price_cents: 6600 }] });
+  await mockHome(page, { snoozed_until: null, on_waitlist: false, examples: [{ handle: "the-kouros-fragment", title: "The Kouros Fragment", price_cents: 22000, member_price_cents: 16500 }] });
   await page.goto("/");
   const teaser = page.getByRole("region", { name: "A sealed object, chosen by you." });
   await expect(teaser).toBeVisible();
   await expect(teaser).toContainText("Members choose their first piece from a small sealed selection — revealed only after joining.");
   await expect(teaser).toContainText("$20 a month becomes 20 credits to spend on anything in the house, plus 25% off our collections.");
-  await expect(teaser).toContainText("With the Circle, Pierre Blanche would be $66.00.");
+  await expect(teaser).toContainText("With the Circle, The Kouros Fragment would be $165.00.");
   await expect(teaser).toContainText("Opening soon");
   await expect(teaser.getByRole("link", { name: "Learn about the Circle" })).toHaveAttribute("href", "/circle");
 
@@ -104,7 +104,7 @@ test("/circle: how it works, five questions, Reserve a place; axe clean", async 
 });
 
 test("axe: Home with the teaser has no WCAG 2.2 A/AA violations", async ({ page }) => {
-  await mockHome(page, { snoozed_until: null, on_waitlist: false, examples: [{ handle: "pierre-blanche", title: "Pierre Blanche", price_cents: 8800, member_price_cents: 6600 }] });
+  await mockHome(page, { snoozed_until: null, on_waitlist: false, examples: [{ handle: "the-kouros-fragment", title: "The Kouros Fragment", price_cents: 22000, member_price_cents: 16500 }] });
   await page.goto("/");
   await expect(page.getByRole("region", { name: "A sealed object, chosen by you." })).toBeVisible();
   expect(await a11yViolations(page)).toEqual([]);

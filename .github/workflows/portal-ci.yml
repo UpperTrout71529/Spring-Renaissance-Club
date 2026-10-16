@@ -29,6 +29,9 @@ jobs:
       - run: npm ci
       - run: npm audit --omit=dev
       - run: npm run build
+      # The Circle FAQ is pending legal review: it must not ship in a
+      # production build (VITE_CIRCLE_FAQ unset).
+      - run: "! grep -q 'What are credits' dist/assets/*.js"
       - run: npm test
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run e2e

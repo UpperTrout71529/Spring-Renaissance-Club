@@ -5,11 +5,14 @@
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../api";
 import { copy } from "../copy/en";
+import { CIRCLE_FAQ, CIRCLE_FAQ_TITLE } from "../copy/circle-faq";
 import { formatMoney } from "../format";
 import { Link } from "../ui/Link";
 import { Skeleton } from "../ui/states";
 import { SectionHeading } from "./Placeholder";
 import "./circle.css";
+
+const SHOW_FAQ = import.meta.env.VITE_CIRCLE_FAQ === "1";
 
 export type Teaser = {
   sealed_count: number;
@@ -139,17 +142,22 @@ export function CircleScreen() {
           </ol>
         </section>
 
-        <section aria-labelledby="circle-faq">
-          <h2 id="circle-faq">{copy.circle.faqTitle}</h2>
-          <div class="circle-faq">
-            {copy.circle.faq.map((f) => (
-              <details key={f.q}>
-                <summary>{f.q}</summary>
-                <p>{f.a}</p>
-              </details>
-            ))}
-          </div>
-        </section>
+        {/* PENDING LEGAL REVIEW: the FAQ restates membership terms the lawyer
+            has not approved (P0.7). Off unless the build sets VITE_CIRCLE_FAQ=1
+            — never in production until Felix signs the terms off. */}
+        {SHOW_FAQ && (
+          <section aria-labelledby="circle-faq">
+            <h2 id="circle-faq">{CIRCLE_FAQ_TITLE}</h2>
+            <div class="circle-faq">
+              {CIRCLE_FAQ.map((f) => (
+                <details key={f.q}>
+                  <summary>{f.q}</summary>
+                  <p>{f.a}</p>
+                </details>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </>
   );
