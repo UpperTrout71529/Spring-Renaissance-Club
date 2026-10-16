@@ -38,7 +38,8 @@ import { billingRetry, cancelConfirm, cancelKeep, cancelStart, cancelUndo } from
 import { getMembershipBilling, postBillingPortal } from "./routes/account-membership.js";
 import { getWelcome, postWelcome } from "./routes/circle-welcome.js";
 import { assignGift, createGiftOption, createGiftOrder, getGiftQueue, listGiftOptions, patchGiftOption } from "./routes/admin-gifts.js";
-import { getEconomics, listCosts, postCatalogSync, putCost, putEconomics, putPriceList } from "./routes/admin-economics.js";
+import { getCirclePriceStatus, getEconomics, listCosts, postCatalogSync, postCirclePriceSync, putCost, putEconomics, putPriceList } from "./routes/admin-economics.js";
+import { getMeStorefront, getStorefrontCirclePrice } from "./routes/storefront.js";
 
 // Route options:
 //   auth: "session"   — 401 without a live session; ctx.session is set
@@ -62,6 +63,8 @@ export const ROUTES = [
   { method: "GET", path: "/api/passkeys", handler: listPasskeys, auth: "session" },
   { method: "DELETE", path: "/api/passkeys/:credential_id", handler: deletePasskey, auth: "session" },
   { method: "GET", path: "/api/me", handler: getMe, auth: "session" },
+  { method: "GET", path: "/api/me/storefront", handler: getMeStorefront, auth: "optional" },
+  { method: "GET", path: "/api/storefront/circle-price", handler: getStorefrontCirclePrice },
   { method: "PATCH", path: "/api/me", handler: patchMe, auth: "session" },
   { method: "GET", path: "/api/gift-cards", handler: listGiftCards, auth: "session" },
   { method: "GET", path: "/api/wishlist", handler: listWishlist, auth: "session" },
@@ -113,6 +116,8 @@ export const ROUTES = [
   { method: "PUT", path: "/api/admin/costs", handler: putCost, auth: "admin" },
   { method: "PUT", path: "/api/admin/circle-price/list", handler: putPriceList, auth: "admin" },
   { method: "POST", path: "/api/admin/catalog/sync", handler: postCatalogSync, auth: "admin" },
+  { method: "GET", path: "/api/admin/circle-price/status", handler: getCirclePriceStatus, auth: "admin" },
+  { method: "POST", path: "/api/admin/circle-price/sync", handler: postCirclePriceSync, auth: "admin" },
   { method: "GET", path: "/api/admin/gift-options", handler: listGiftOptions, auth: "admin" },
   { method: "POST", path: "/api/admin/gift-options", handler: createGiftOption, auth: "admin" },
   { method: "PATCH", path: "/api/admin/gift-options/:id", handler: patchGiftOption, auth: "admin" },

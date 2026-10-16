@@ -7,6 +7,7 @@ import { shopifyConfigured } from "../shopify/admin.js";
 import { syncCatalog } from "../shopify/catalog.js";
 import { economicsSnapshot, exclusionFor, loadSettings, recomputeItems, saveSettings } from "../circle/economics-store.js";
 import { checkVariant } from "../circle/economics.js";
+import { syncEnabled, syncMemberPrice } from "../circle/member-price.js";
 
 const GID_VARIANT = /^gid:\/\/shopify\/ProductVariant\/\d+$/;
 const GID_PRODUCT = /^gid:\/\/shopify\/Product\/\d+$/;
@@ -19,7 +20,7 @@ async function audit(ctx, action, target, payload = null) {
 
 // After any change to costs, the list or settings: recompute, then let the
 // member-price sync (T6) pick the result up.
-export const afterEconomicsChange = { hooks: [] };
+export const afterEconomicsChange = { hooks: [(ctx) => syncMemberPrice(ctx)] };
 async function recompute(ctx) {
   const { settings } = await loadSettings(ctx.env);
   const out = await recomputeItems(ctx.env, settings, ctx.nowIso());
@@ -136,3 +137,18 @@ export async function postCatalogSync(ctx) {
 }
 
 export { checkVariant };
+
+export async function getCirclePriceStatus(ctx) {
+  const { env, json } = ctx;
+  const discounts = (await env.DB.prepare("SELECT shard, status, customers, variants, last_synced_at, last_error FROM circle_price_discounts ORDER BY shard").all()).results;
+  const members = await env.DB.prepare("SELECT COUNT(*) AS n FROM circle_price_grants WHERE revoked_at IS NULL").first();
+  const eligible = await env.DB.prepare("SELECT COUNT(*) AS n FROM circle_price_items WHERE eligible = 1").first();
+  return json({ sync_enabled: syncEnabled(env), members_with_price: members.n, eligible_variants: eligible.n, discounts });
+}
+
+export async function postCirclePriceSync(ctx) {
+  if (!syncEnabled(ctx.env)) return ctx.json({ error: { code: "sync_off", message: "The member price sync is switched off (CIRCLE_PRICE_SYNC)." } }, 409);
+  const out = await syncMemberPrice(ctx);
+  await audit(ctx, "circle_price_synced", "shopify", out);
+  return ctx.json(out);
+}

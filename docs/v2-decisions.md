@@ -63,3 +63,36 @@ Temporary data mode until then:
 | D18 | Deleting an account with a membership: Stripe subscription cancelled first (fail closed → 503, nothing deleted), membership `ended_expired` with `account_deleted`, credits expire, welcome/anniversary addresses removed, Circle tags removed. Non-members keep the V1 behaviour exactly. | Spec §13.4, §16.3 #12. | `src/circle/account-delete.js`. |
 | D19 | Welcome piece options must be Small Pleasures (product tag `catalog`) when the catalog snapshot exists; with an empty snapshot (staging without Shopify) the check is skipped. Unavailable variants (`availableForSale` false) are hidden from the choice when Shopify can be asked. | Felix §18; staging has no Shopify. | `assertSavable` in `src/circle/gifts.js`. |
 | D20 | Gift orders (welcome now, anniversary later) are created only by Felix's admin button: the row is claimed first (one order per double click), the draft refuses automatic discounts and codes, is completed as paid ($0 lines, free "Circle welcome" shipping). `paymentPending` is deprecated in 2026-07, so it is not sent. A Shopify failure flags the row "needs attention". | Spec §9.2.6; nothing is created in the live store by the build. | — |
+| D21 | The member price is built (automatic "Circle price" discount, `context.customers`, D1 variants, sharded, reconcile every 5 minutes) but sends nothing to Shopify until `CIRCLE_PRICE_SYNC=on`. Until then the storefront line and the Club teaser quote no Circle price. | Felix §19 #1: the spike runs on a dev store first; nothing may be created in the live store. | Set `CIRCLE_PRICE_SYNC=on` (and `CIRCLE_PRICE_SHARD_SIZE` from the spike). |
+| D22 | A shard with no members, or an empty eligible list, is **deactivated** — the discount is never left active with an empty customer list. | An empty customer context could be read by Shopify as "all customers"; Shopify also refuses a discount that applies to nothing. | — |
+| D23 | Entitlement: membership `active`, or `canceling` before its `current_period_end` (D1 time), no open dispute, a Shopify customer. `past_due` and disputes revoke at once. | §7.3, §16.3 #8. | `ENTITLED` in `src/circle/member-price.js`. |
+| D24 | Order audit: every order with the "Circle price" is recorded (`circle_price_order`); one whose buyer is not entitled now raises `circle_price_non_member` + an email to Felix. Someone typing a member's email looks like that member to Shopify and cannot be detected; the margin rule covers it (Felix accepted the risk, §19 #2). | Felix §19 #2. | `src/circle/order-audit.js`. |
+| D25 | Once Circle prices exist in D1, the V1 Club teaser quotes them (and only while the discount is live) instead of `price × 0.75` from product tags. | The teaser must never promise a price checkout would not give (and the V1 rounding was one cent low for p ≡ 3 mod 4). | — |
+
+## Described alternatives (Felix asked for descriptions, not builds)
+
+**Fallback for the member price (§7.5, if the dev-store spike shows the automatic
+"specific customers" discount does not apply to a buyer identified by the email
+typed at checkout).** One discount *code* per member: `discountCodeBasicCreate`
+with `context.customers` = that member only, 25%, the same D1 variant list and
+`combinesWith` shipping only; the code is long and random. The portal shows a
+"Shop as a member" link `https://springrenaissance.store/discount/<CODE>`, which
+puts the code into the cart; revoking = `discountCodeDeactivate`. D1 keeps
+`circle_price_grants` as now (one code per grant instead of a shard); the
+5-minute reconcile and the order audit stay; Shopify's 100-entity cap per code
+discount is not a problem (one customer + the variants). Cost: the member must
+start from the link (or type the code); a code shared with someone else does
+not work for them (customer-limited).
+
+**Credits without the 2% gift-card fee (Felix §19 #7).** Instead of a gift card,
+a spend issues a single-use discount code for a fixed amount (`fixedAmount`,
+`appliesOncePerCustomer`, usage limit 1, `context.customers` = the member, all
+products, `combinesWith.productDiscounts = true` so it stacks with the 25%).
+A discount is not a payment method, so Shopify's third-party fee on gift-card
+payments does not apply. Differences to check in the spike: (1) an unused
+remainder is lost — the code is spent whole, unlike a gift card's balance; so the
+portal would let the member choose the amount per order; (2) the code must
+combine with the automatic Circle price on the same product (product + product
+combination); (3) accounting — a discount reduces revenue, a gift card is a
+payment (accountant). Built: nothing yet; `src/routes/credits.js` would swap
+`createCreditCard` for a code builder.

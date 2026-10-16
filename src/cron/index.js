@@ -9,6 +9,7 @@
 import { runRetention } from "./retention.js";
 import { creditsExpiring, creditsExpiry, renewalReminders, stripeReconcile, welcomeReminders } from "./circle-jobs.js";
 import { ulid } from "../lib/ulid.js";
+import { syncMemberPrice } from "../circle/member-price.js";
 
 export const FREQUENT_CRON = "*/5 * * * *";
 export const DAILY_CRON = "15 3 * * *";
@@ -16,6 +17,7 @@ export const DAILY_CRON = "15 3 * * *";
 // Jobs: { name, run(env, nowMs, deps) → summary }; deps.svc is the service object.
 export const JOBS = {
   frequent: [
+    { name: "member_price", run: (env, nowMs, deps) => syncMemberPrice(deps.svc) },
     { name: "renewal_reminders", run: (env, nowMs, deps) => renewalReminders(deps.svc) },
     { name: "stripe_reconcile", run: (env, nowMs, deps) => stripeReconcile(deps.svc) },
   ],

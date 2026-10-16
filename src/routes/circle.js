@@ -9,6 +9,7 @@ import { addCustomerTags, shopifyConfigured } from "../shopify/admin.js";
 import { memberPriceCents, productsByIds } from "../shopify/products.js";
 import { recordEvent } from "../lib/events.js";
 import { customerIdOf } from "./orders.js";
+import { circlePriceLive } from "../circle/member-price.js";
 
 export const WAITLIST_TAG = "circle-waitlist";
 const MAX_EXAMPLES = 3;
@@ -34,14 +35,23 @@ export async function getTeaser(ctx) {
   const rows = (await env.DB.prepare(
     "SELECT product_gid FROM wishlist_items WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 20"
   ).bind(session.user.id).all()).results;
-  if (rows.length && shopifyConfigured(env)) {
+  // V2: once the economics have computed Circle prices (circle_price_items),
+  // only those are quoted, and only while the Shopify discount is live —
+  // the teaser never promises a price checkout would not give.
+  const v2 = await env.DB.prepare("SELECT 1 AS yes FROM circle_price_items LIMIT 1").first().catch(() => null);
+  const live = v2 ? await circlePriceLive(env) : false;
+  if (rows.length && shopifyConfigured(env) && (!v2 || live)) {
     try {
       const products = await productsByIds(env, ctx.fetch, rows.map((r) => r.product_gid));
+      const d1 = v2 ? await circlePrices(env, rows.map((r) => r.product_gid)) : null;
       examples = rows
         .map((r) => products.get(r.product_gid))
-        .filter((p) => p && p.available && p.member_price_eligible && Number.isInteger(p.price_cents) && p.price_cents > 0)
+        .filter((p) => p && p.available && Number.isInteger(p.price_cents) && p.price_cents > 0)
+        .filter((p) => (d1 ? d1.has(p.id) : p.member_price_eligible))
         .slice(0, MAX_EXAMPLES)
-        .map((p) => ({ handle: p.handle, title: p.title, price_cents: p.price_cents, member_price_cents: memberPriceCents(p.price_cents) }));
+        .map((p) => (d1
+          ? { handle: p.handle, title: p.title, price_cents: d1.get(p.id).price_cents, member_price_cents: d1.get(p.id).circle_price_cents }
+          : { handle: p.handle, title: p.title, price_cents: p.price_cents, member_price_cents: memberPriceCents(p.price_cents) }));
     } catch (e) {
       console.error("teaser: shopify failed", e && e.message);
     }
@@ -54,6 +64,17 @@ export async function getTeaser(ctx) {
     snoozed_until: snoozed,
     on_waitlist: await onWaitlist(env, session.user.id),
   });
+}
+
+// The lowest eligible Circle price per product (from D1).
+async function circlePrices(env, productGids) {
+  const { results } = await env.DB.prepare(
+    `SELECT product_gid, price_cents, circle_price_cents FROM circle_price_items
+      WHERE eligible = 1 AND product_gid IN (SELECT value FROM json_each(?1)) ORDER BY circle_price_cents`
+  ).bind(JSON.stringify(productGids)).all();
+  const out = new Map();
+  for (const r of results) if (!out.has(r.product_gid)) out.set(r.product_gid, r);
+  return out;
 }
 
 // POST /api/circle/waitlist → 201 { on_waitlist: true }. One open place per

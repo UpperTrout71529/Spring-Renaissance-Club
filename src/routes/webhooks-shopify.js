@@ -18,6 +18,7 @@
 
 import { HttpError, badRequest } from "../http/errors.js";
 import { shopifyConfigured, shopifyGraphql } from "../shopify/admin.js";
+import { auditOrder } from "../circle/order-audit.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -27,7 +28,8 @@ const ORDER_PLACED = `query OrderPlaced($id: ID!) {
     email
     paymentGatewayNames
     customer { id numberOfOrders }
-    lineItems(first: 100) { nodes { product { id handle } } }
+    discountApplications(first: 10) { nodes { __typename ... on AutomaticDiscountApplication { title } } }
+    lineItems(first: 100) { nodes { product { id handle } variant { id } } }
   }
 }`;
 
@@ -92,7 +94,7 @@ async function processOrderCreated(ctx, payload) {
        AND product_handle IN (SELECT value FROM json_each(?2))`
     ).bind(user.id, JSON.stringify(handles)));
   }
-  return stmts;
+  return { stmts, order, user };
 }
 
 export async function shopifyWebhook(ctx) {
@@ -129,8 +131,10 @@ export async function shopifyWebhook(ctx) {
       // V8's SyntaxError message can quote the body (customer data).
       throw new Error("invalid payload");
     }
-    const stmts = await processOrderCreated(ctx, payload);
+    const { stmts, order, user } = await processOrderCreated(ctx, payload);
     await env.DB.batch([...stmts, done("processed")]);
+    // V2: the Circle audit runs after the order is recorded and never fails the webhook.
+    ctx.waitUntil(auditOrder(ctx, { order, user }));
     return json({ ok: true });
   } catch (e) {
     // The stored error is a short reason, never payload data.

@@ -6,12 +6,17 @@
 // the daily Stripe reconcile repair anything that did not get through.
 
 import { addCustomerTags, removeCustomerTags, shopifyConfigured } from "../shopify/admin.js";
+import { syncMemberPrice } from "./member-price.js";
 
 export const VIP_TAG = "vip-circle";
 export const PAST_TAG = "vip-circle-past";
 const WAITLIST_TAG = "circle-waitlist";
 
+// Tests may observe grant/revoke here; otherwise both run the member-price sync
+// (a no-op unless CIRCLE_PRICE_SYNC = "on").
 export const memberPriceHooks = { grant: null, revoke: null };
+const grant = (svc, userId) => (memberPriceHooks.grant ? memberPriceHooks.grant(svc, userId) : syncMemberPrice(svc));
+const revoke = (svc, userId, reason) => (memberPriceHooks.revoke ? memberPriceHooks.revoke(svc, userId, reason) : syncMemberPrice(svc));
 
 async function customerOf(env, userId) {
   const u = await env.DB.prepare("SELECT shopify_customer_id FROM users WHERE id = ?1").bind(userId).first();
@@ -32,16 +37,16 @@ async function tags(svc, userId, add, remove) {
 
 export async function membershipOn(svc, userId) {
   await tags(svc, userId, [VIP_TAG], [PAST_TAG, WAITLIST_TAG]);
-  if (memberPriceHooks.grant) await safely("grant", () => memberPriceHooks.grant(svc, userId));
+  await safely("grant", () => grant(svc, userId));
 }
 
 // past_due, or a dispute: the member price pauses (spec v1.1 §16.3 #8).
 export async function membershipSuspended(svc, userId, reason) {
   await tags(svc, userId, [], [VIP_TAG]);
-  if (memberPriceHooks.revoke) await safely("revoke", () => memberPriceHooks.revoke(svc, userId, reason));
+  await safely("revoke", () => revoke(svc, userId, reason));
 }
 
 export async function membershipOff(svc, userId, reason) {
   await tags(svc, userId, [PAST_TAG], [VIP_TAG]);
-  if (memberPriceHooks.revoke) await safely("revoke", () => memberPriceHooks.revoke(svc, userId, reason));
+  await safely("revoke", () => revoke(svc, userId, reason));
 }

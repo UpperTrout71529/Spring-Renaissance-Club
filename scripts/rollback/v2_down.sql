@@ -10,6 +10,8 @@
 -- Keep in step with scripts/rollback/s1_down.sql (which drops these too).
 -- ============================================================================
 
+DROP TABLE IF EXISTS circle_price_grants;
+DROP TABLE IF EXISTS circle_price_discounts;
 DROP TABLE IF EXISTS anniversary_gifts;
 DROP TABLE IF EXISTS gift_selections;
 DROP TABLE IF EXISTS gift_options;
@@ -28,4 +30,4 @@ DROP TABLE IF EXISTS redemptions;
 DROP TABLE IF EXISTS credit_ledger;
 DROP TABLE IF EXISTS memberships;
 
-DELETE FROM d1_migrations WHERE name IN ('0006_membership.sql', '0007_economics_gifts.sql');
+DELETE FROM d1_migrations WHERE name IN ('0006_membership.sql', '0007_economics_gifts.sql', '0008_member_price.sql');
