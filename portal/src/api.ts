@@ -48,7 +48,10 @@ export async function api<T>(path: string, { method = "GET", body, signal }: Opt
   return data as T;
 }
 
-export type User = { id: string; email: string; first_name: string | null; tier: "club" | "vip"; created_at?: string };
+export type User = {
+  id: string; email: string; first_name: string | null; tier: "club" | "vip";
+  created_at?: string; last_name?: string | null; seasonal_email_opt_in?: boolean;
+};
 export type Me = {
   user: User;
   membership: null;

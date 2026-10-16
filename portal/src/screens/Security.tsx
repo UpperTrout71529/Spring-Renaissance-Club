@@ -9,6 +9,7 @@ import { EmptyState, ErrorState, Skeleton } from "../ui/states";
 import { formatDate as fmt } from "../format";
 import { StepUpDialog } from "../ui/StepUpDialog";
 import { SectionHeading } from "./Placeholder";
+import { Sessions } from "./Sessions";
 import "./security.css";
 
 type Load = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; passkeys: Passkey[] };
@@ -109,6 +110,8 @@ export function Security({ email }: { email: string }) {
           </button>
         )}
       </section>
+
+      <Sessions />
 
       {pendingRemove && (
         <StepUpDialog

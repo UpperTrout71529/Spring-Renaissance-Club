@@ -21,8 +21,9 @@ describe("copy", () => {
       const src = readFileSync(file, "utf8");
       // >Some words<  — a text node that is not an {expression}. Code between
       // an arrow and a generic (=> x.has(y) ... api<T>) is excluded by refusing
-      // the characters text nodes never need: ( ) ; =
-      for (const m of src.matchAll(/>\s*([A-Za-z][^<>{}();=]*[A-Za-z.!?])\s*</g)) offenders.push(`${file}: ${m[1]}`);
+      // the characters text nodes never need: ( ) ; = — and a `>` that ends an
+      // arrow (`=> Promise<T>`) is not a tag.
+      for (const m of src.matchAll(/(?<!=)>\s*([A-Za-z][^<>{}();=]*[A-Za-z.!?])\s*</g)) offenders.push(`${file}: ${m[1]}`);
     }
     expect(offenders).toEqual([]);
   });

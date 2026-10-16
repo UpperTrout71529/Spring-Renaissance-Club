@@ -14,7 +14,7 @@ import "./login.css";
 const RESEND_AFTER_S = 30;
 const EMAIL_RE = /^[^\s@"\\]+@[^\s@."\\]+(\.[^\s@."\\]+)+$/;
 
-export function Login({ returnTo, onSignedIn }: { returnTo: string | null; onSignedIn: (user: User) => void }) {
+export function Login({ returnTo, notice = null, onSignedIn }: { returnTo: string | null; notice?: string | null; onSignedIn: (user: User) => void }) {
   const [email, setEmail] = useState("");
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [error, setError] = useState<{ message: string; field: boolean } | null>(null);
@@ -135,6 +135,7 @@ export function Login({ returnTo, onSignedIn }: { returnTo: string | null; onSig
     <div class="login appear">
       <p class="login-wordmark" aria-hidden="true">{copy.brand}</p>
       <h1>{copy.login.title}</h1>
+      {notice && <p class="notice" role="status">{notice}</p>}
       <p class="login-lede">{copy.login.lede}</p>
       <form class="login-form" onSubmit={onSubmit} noValidate>
         <div class="field">

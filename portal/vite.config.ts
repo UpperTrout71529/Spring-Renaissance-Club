@@ -13,7 +13,7 @@ const DEFAULT_API_BASE = "https://api.springrenaissance.store";
 // back to 404.html and are resolved by the client router.
 const STATIC_ROUTES = [
   "login", "auth", "orders", "saved", "circle", "account",
-  "account/security", "account/privacy", "terms/membership",
+  "account/security", "account/privacy", "account/email", "terms/membership",
 ];
 
 // Spec §13.1: the CSP lives in a <meta> tag (GitHub Pages cannot set headers).

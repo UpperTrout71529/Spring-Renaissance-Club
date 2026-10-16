@@ -154,6 +154,30 @@ Running list for PR review (Felix). Spec: "ЛК — ТЗ v1.1" (2026-10-15).
 - The teaser is the last block on Home; the illustration is three abstract
   sealed envelopes (no count implied, no product photos).
 
+### S9 — Account and privacy
+- Migration 0005 adds `magic_links.user_id` (an email-change link must know
+  whose account changes). V2 membership tables become 0006.
+- Email change: the confirmation link goes to the new address and lives one
+  hour (sign-in links: 15 minutes); the old address gets a notice at request
+  time; at most 3 requests per hour. Confirming needs no session (the link may
+  be opened on another device).
+- The seasonal letter switch writes a `consents` row each time (version
+  `seasonal-email-2026-10`, SHA-256 of the exact label); a worker test keeps
+  the label and the hash text identical.
+- Names are mirrored to the Shopify customer (`customerUpdate`); so is a
+  confirmed email change.
+- Sessions list shows device and city only (no IP); "Sign out everywhere
+  else" keeps the current session.
+- Export (step-up): profile, consents, saved, holds, passkey and session
+  metadata — never keys, token hashes or other people's data.
+- Delete (step-up + typed confirmation): personal rows erased, the user row
+  anonymised (`deleted+<id>@invalid`), consents kept without personal data,
+  every session ended, our Shopify tags (`sr-club`, `circle-waitlist`)
+  removed. Shopify's own data erasure (`customerRequestDataErasure`) is **not**
+  automated — it cannot be undone; Felix gets an email at
+  `ADMIN_NOTIFY_EMAIL` with the Shopify customer id to decide. Needs the
+  variable `ADMIN_NOTIFY_EMAIL` (Felix's work address).
+
 ## Copy for review (not quoted in the spec)
 
 ### Step-up dialog
@@ -236,6 +260,34 @@ three steps)
     after the end of your last paid month, then they expire."
   - What does the 25% apply to? — "Our collections. It does not apply to
     Small Pleasures, gift cards or seasonal capsules."
+
+### Account and privacy (spec copy used: "Delete account", "Keep my account",
+"Download my data", the §13.4 deletion text adapted for Club members, "That
+email already has an account…" for a taken address)
+- Profile: "Profile", "First name", "Last name", "Save", "Saved.", "Delivery
+  addresses are kept at checkout."
+- Email: "Change email", "New email address", "Send confirmation link", "We
+  sent a link to {email}. Your email changes once you confirm it.", "Cancel"
+- Emails: "Emails about signing in, your orders and your account are always
+  sent."; switch: "Send me the seasonal letter — one email each season. You
+  can turn it off at any time." (this exact text is hashed into the consent)
+- Links: "Privacy & data", "Privacy Policy" (storefront
+  /policies/privacy-policy), "Contact the concierge"
+- Sessions: "Active sessions", "This device", "Unknown device", "Signed in
+  with an email link / a passkey", "Last active {date}", "Sign out", "Sign
+  out everywhere else"
+- Privacy: "Privacy & data"; download body "A JSON file with your profile,
+  consents, saved pieces, holds, sign-in methods and sessions."; deletion
+  (Club): "Delete account? Your saved pieces and holds are erased and you are
+  signed out everywhere. Orders stay on record for tax purposes."; after
+  deletion on the sign-in page: "Your account has been deleted."
+- Email confirm page: "Confirming your new email…", "Your email is now
+  {email}.", "Go to your account", "This link has expired" / "Email change
+  links work once, for one hour. You can ask for a new one in your account."
+- Emails: email_change_confirm "Confirm your new email" (button "Confirm
+  email"); the notice "A change to your account email"; account_deleted "Your
+  account has been deleted"; internal "Account deleted — Shopify data to
+  review"
 
 ### Orders (spec copy used verbatim: "No orders yet", the empty-state body and
 "Explore the collections", status labels Processing / Pre-order · in

@@ -5,7 +5,7 @@ import { useEffect, useState } from "preact/hooks";
 
 export type RouteName =
   | "login" | "auth" | "home" | "orders" | "order" | "saved" | "circle"
-  | "account" | "accountSecurity" | "accountPrivacy" | "termsMembership" | "notFound";
+  | "account" | "accountSecurity" | "accountPrivacy" | "accountEmail" | "termsMembership" | "notFound";
 
 type RouteDef = { name: RouteName; pattern: string; public?: boolean };
 
@@ -13,6 +13,7 @@ type RouteDef = { name: RouteName; pattern: string; public?: boolean };
 export const ROUTES: RouteDef[] = [
   { name: "login", pattern: "/login", public: true },
   { name: "auth", pattern: "/auth", public: true },
+  { name: "accountEmail", pattern: "/account/email", public: true },
   { name: "termsMembership", pattern: "/terms/membership", public: true },
   { name: "home", pattern: "/" },
   { name: "orders", pattern: "/orders" },

@@ -6,13 +6,15 @@ import { PublicLayout, Shell } from "./ui/Shell";
 import { ErrorState, Skeleton } from "./ui/states";
 import { Login } from "./screens/Login";
 import { Auth } from "./screens/Auth";
-import { NotFound, SectionHeading } from "./screens/Placeholder";
+import { NotFound } from "./screens/Placeholder";
 import { Account } from "./screens/Account";
 import { Security } from "./screens/Security";
 import { OrderDetail, Orders } from "./screens/Orders";
 import { Home } from "./screens/Home";
 import { Saved } from "./screens/Saved";
 import { CircleScreen } from "./screens/Circle";
+import { Privacy } from "./screens/Privacy";
+import { EmailConfirm } from "./screens/EmailConfirm";
 
 type Session =
   | { status: "loading" }
@@ -29,7 +31,8 @@ const TITLES: Partial<Record<RouteName, string>> = {
   circle: copy.nav.circle,
   account: copy.nav.account,
   accountSecurity: copy.security.title,
-  accountPrivacy: copy.nav.account,
+  accountPrivacy: copy.privacy.title,
+  accountEmail: copy.account.email,
   notFound: copy.notFound.title,
 };
 
@@ -52,7 +55,7 @@ export function App() {
 
   useEffect(() => {
     // /auth signs in by itself; checking /api/me first would only race it.
-    if (match.name === "auth") setSession({ status: "anonymous" });
+    if (match.name === "auth" || match.name === "accountEmail") setSession({ status: "anonymous" });
     else void loadMe();
   }, []);
 
@@ -85,6 +88,10 @@ export function App() {
     navigate("/login", { replace: true });
   }
 
+  if (match.name === "accountEmail") {
+    return <PublicLayout><EmailConfirm /></PublicLayout>;
+  }
+
   if (match.name === "auth") {
     return (
       <PublicLayout>
@@ -100,7 +107,11 @@ export function App() {
     }
     return (
       <PublicLayout>
-        <Login returnTo={returnTo} onSignedIn={(user) => setSession({ status: "signed-in", user, circleBadge: false })} />
+        <Login
+          returnTo={returnTo}
+          notice={new URLSearchParams(loc.search).get("deleted") === "1" ? copy.privacy.deleted : null}
+          onSignedIn={(user) => setSession({ status: "signed-in", user, circleBadge: false })}
+        />
       </PublicLayout>
     );
   }
@@ -114,14 +125,27 @@ export function App() {
 
   return (
     <Shell route={match.name} email={session.user.email} circleBadge={session.circleBadge} onSignOut={signOut}>
-      <Screen route={match.name} params={match.params} search={loc.search} user={session.user} onSignOut={signOut} />
+      <Screen
+        route={match.name}
+        params={match.params}
+        search={loc.search}
+        user={session.user}
+        onSignOut={signOut}
+        onDeleted={() => {
+          setSession({ status: "anonymous" });
+          navigate("/login?deleted=1", { replace: true });
+        }}
+      />
     </Shell>
   );
 }
 
-type ScreenProps = { route: RouteName; params: Record<string, string>; search: string; user: User; onSignOut: () => void };
+type ScreenProps = {
+  route: RouteName; params: Record<string, string>; search: string; user: User;
+  onSignOut: () => void; onDeleted: () => void;
+};
 
-function Screen({ route, params, search, user, onSignOut }: ScreenProps) {
+function Screen({ route, params, search, user, onSignOut, onDeleted }: ScreenProps) {
   const email = user.email;
   switch (route) {
     case "home": return <Home user={user} />;
@@ -131,7 +155,7 @@ function Screen({ route, params, search, user, onSignOut }: ScreenProps) {
     case "circle": return <CircleScreen />;
     case "account": return <Account email={email} onSignOut={onSignOut} />;
     case "accountSecurity": return <Security email={email} />;
-    case "accountPrivacy": return <SectionHeading title={copy.nav.account} />;
+    case "accountPrivacy": return <Privacy email={email} onDeleted={onDeleted} />;
     default: return <NotFound />;
   }
 }
