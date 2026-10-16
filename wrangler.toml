@@ -24,3 +24,7 @@ binding = "DB"
 database_name = "spring-renaissance"
 database_id = "88e830cc-fc14-4ab6-ab69-e91a37698e28"
 migrations_dir = "migrations"
+
+# Plain (non-secret) configuration of the portal API.
+[vars]
+SHOPIFY_SHOP = "qyziv4-0c.myshopify.com"

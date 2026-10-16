@@ -30,10 +30,11 @@ in every table on 2026-10-15, so there is no data at risk in the gap.
 1. Record the rollback points:
    - `wrangler deployments list` → note the current version id (`V_OLD`).
    - `wrangler d1 time-travel info spring-renaissance` → note the bookmark
-     (`B_OLD`). Time Travel retention depends on the plan — check it is
-     available before continuing.
-2. `wrangler secret put SESSION_PEPPER` — a new random value (32+ bytes).
-   Without it, any request with a session cookie gets 503 `auth_unavailable`.
+     (`B_OLD`). Retention is 7 days on the Free plan: a Time Travel rollback
+     must happen within a week.
+2. Secrets: `SESSION_PEPPER` (random, 32+ bytes; without it any request with
+   a session cookie gets 503 `auth_unavailable`), `TURNSTILE_SECRET`,
+   `SHOPIFY_ADMIN_TOKEN`. `SHOPIFY_SHOP` ships in `wrangler.toml` `[vars]`.
 3. `wrangler d1 migrations apply spring-renaissance --remote` — lists
    0000–0004 as pending; 0000 is a no-op on the existing tables.
 4. **Immediately** `wrangler deploy`.

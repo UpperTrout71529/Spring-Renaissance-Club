@@ -1,11 +1,11 @@
 name: pages
 
-# Builds portal/ and publishes it to GitHub Pages (club.springrenaissance.store).
+# Builds portal/ and publishes it to GitHub Pages.
 #
-# Manual only, on purpose: today Pages serves the single-file index.html from
-# the main branch. Publishing from this workflow requires switching the repo's
-# Pages source to "GitHub Actions" and replaces that portal — Felix's call,
-# together with the Worker rollout (docs/rollout-s1.md).
+# NOT the production path: club.springrenaissance.store is served by Cloudflare
+# Pages (CNAME to spring-renaissance-club.pages.dev). Kept, manual only, as a
+# fallback; the S11 rollout goes through the Cloudflare Pages project
+# (docs/v1-decisions.md).
 #
 # Repository variables (Settings → Variables): VITE_TURNSTILE_SITE_KEY,
 # VITE_CF_BEACON_TOKEN (Cloudflare Web Analytics). Neither is a secret.

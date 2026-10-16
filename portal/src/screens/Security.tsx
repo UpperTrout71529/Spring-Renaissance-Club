@@ -6,12 +6,10 @@ import { api, ApiError } from "../api";
 import { copy } from "../copy/en";
 import { addPasskey, browserSupportsWebAuthn, deviceAuthName, isCancelled, type Passkey } from "../passkeys";
 import { EmptyState, ErrorState, Skeleton } from "../ui/states";
+import { formatDate as fmt } from "../format";
 import { StepUpDialog } from "../ui/StepUpDialog";
 import { SectionHeading } from "./Placeholder";
 import "./security.css";
-
-const fmt = (iso: string) =>
-  new Intl.DateTimeFormat(navigator.language, { month: "short", day: "numeric", year: "numeric" }).format(new Date(iso));
 
 type Load = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; passkeys: Passkey[] };
 

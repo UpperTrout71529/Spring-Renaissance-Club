@@ -1,12 +1,16 @@
-// Dates and money (spec §6.9): formatted with Intl for the visitor's locale,
-// currency always as the API says (USD). Money arrives as integer cents.
+// Dates and money. Always en-US (Felix, 16 Oct 2026): the interface is
+// English, so "Oct 2, 2026" and "$1,234.50" — never a browser-locale mix such
+// as "2 окт. 2026 г." inside English copy. Spec §6.9's per-locale formatting
+// returns with a second language. Money arrives as integer cents.
+
+const LOCALE = "en-US";
 
 export function formatDate(iso: string): string {
-  return new Intl.DateTimeFormat(navigator.language, { month: "short", day: "numeric", year: "numeric" }).format(new Date(iso));
+  return new Intl.DateTimeFormat(LOCALE, { month: "short", day: "numeric", year: "numeric" }).format(new Date(iso));
 }
 
 export function formatMoney(cents: number, currency = "USD"): string {
-  return new Intl.NumberFormat(navigator.language, { style: "currency", currency }).format(cents / 100);
+  return new Intl.NumberFormat(LOCALE, { style: "currency", currency }).format(cents / 100);
 }
 
 // Shopify CDN images at the size they are shown (spec §6.1).

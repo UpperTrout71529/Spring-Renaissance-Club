@@ -5,25 +5,38 @@ Running list for PR review (Felix). Spec: "ЛК — ТЗ v1.1" (2026-10-15).
 
 ## Open questions for Felix
 
-1. **Pre-order rule (S5).** The spec marks a line as a pre-order when it has a
-   pre-order *selling plan*. The store has no selling plans for pre-orders:
-   pre-orders are made by the theme (`snippets/sr-preorder`): any product in a
-   collection except Snowfall, Ember, Patron Membership and (since 13 Oct) the
-   catalog, with stock at 0 and "continue selling", unless the product's
-   `sr_run.hide` metafield is set. Until you choose the rule, the API follows
-   the spec literally and **no order shows "Pre-order"**. The rule lives in one
-   function (`isPreorderLine`, `src/shopify/orders.js`).
-2. **Shopify access (P0.4).** Token mechanism for "Claude Sync" still TODO.
-   The order queries need `read_customers`, `read_orders` (and
-   `read_all_orders` for orders older than 60 days), plus the fulfillment-order
-   read scopes Shopify's validator lists for `Order.fulfillments`:
+1. **Shopify access (P0.4).** Token mechanism for "Claude Sync" still TODO
+   (Felix sets the scopes and the token). Scopes the code needs now:
+   `read_customers`, `write_customers`, `read_orders`, `read_all_orders`
+   (orders older than 60 days), `read_products` (pre-order rule), and the
+   fulfillment-order reads Shopify's validator lists for `Order.fulfillments`:
    `read_assigned_fulfillment_orders`, `read_merchant_managed_fulfillment_orders`,
    `read_third_party_fulfillment_orders`, `read_marketplace_fulfillment_orders`.
+2. **Draft theme lags the live theme.** `snippets/sr-preorder` in the draft
+   WORK 4 (189096820957, last changed 7 Oct) lacks the 13 Oct catalog
+   exclusion that the live theme (189304766685) has. The API follows the
+   newer, live version. Worth syncing the draft before the next theme edit.
 
-3. **Date and money format (§6.9).** Formatted with `Intl` by the browser's
-   language, as the spec says. A visitor whose browser is set to Russian sees
-   "Placed 2 окт. 2026 г." and "1 234,50 $" inside English copy. Alternative:
-   always `en-US` until a second language exists. Current behaviour = spec.
+## Answered (16 Oct 2026)
+
+- **Pre-order rule (S5):** same as the theme's `sr-preorder`: a product in at
+  least one collection, not in `snowfall` / `catalog` / `ember`, not tagged
+  `catalog`, not `patron-membership`, `sr_run.hide` not true. A pre-order
+  selling plan (the spec's rule) still counts. One function:
+  `isPreorderProduct`, `src/shopify/orders.js`.
+- **Dates and money:** always `en-US` ("Oct 2, 2026", "$1,234.50"), not the
+  browser's language (`portal/src/format.ts`).
+- **`club.springrenaissance.store` is served by Cloudflare Pages** (CNAME to
+  `spring-renaissance-club.pages.dev`), not GitHub Pages. S11 plans the portal
+  deploy through that Pages project (build `portal/`, output `portal/dist`,
+  `VITE_*` variables set there too); `.github/workflows/pages.yml` is not the
+  production path. Cloudflare Pages can also send the CSP as a real header
+  (`_headers`) — to decide in S11.
+- **D1 Time Travel:** 7 days (Free plan). Rollback by bookmark must happen
+  within a week of the rollout.
+- **SPF:** one record at the root, one on `send.` — correct as is.
+- Done by Felix: Turnstile widget (Invisible, club.), Web Analytics, GitHub
+  `VITE_*` variables, Cloudflare Pages branch previews off.
 
 ## Decisions (my calls)
 
@@ -74,6 +87,7 @@ Running list for PR review (Felix). Spec: "ЛК — ТЗ v1.1" (2026-10-15).
   the fulfillment's creation time.
 - A missing Shopify customer link → empty list (not an error); Shopify down →
   503 `orders_unavailable`.
+- `SHOPIFY_SHOP` lives in `wrangler.toml` `[vars]` (not a secret).
 
 ## Copy for review (not quoted in the spec)
 
