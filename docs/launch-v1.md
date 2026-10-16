@@ -80,7 +80,9 @@ to back, and for the rollback scripts).
    `/admin` 403 without Access; legacy `/api/user?auth_token=x` 401; Stripe
    test event → not 500.
 6. **Portal on Cloudflare Pages** (`spring-renaissance-club`, serves
-   `club.`): build `npm ci && npm run build` in `portal/`, output
+   `club.`). **Closes security finding P1** (`docs/security-s11.md`): today this
+   project builds nothing and publishes the root of `main`, so `/worker.js`,
+   `/wrangler.toml`, `/schema.sql` are downloadable from `club.`. Set: build `npm ci && npm run build` in `portal/`, output
    `portal/dist`, variables `VITE_API_BASE=https://api.springrenaissance.store`,
    `VITE_TURNSTILE_SITE_KEY=<club. widget>`; no `VITE_CIRCLE_FAQ`. Check
    `https://club.springrenaissance.store/login` loads and a sign-in works end
