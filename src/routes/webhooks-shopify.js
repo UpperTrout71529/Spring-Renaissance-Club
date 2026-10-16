@@ -122,7 +122,13 @@ export async function shopifyWebhook(ctx) {
   }
 
   try {
-    const payload = JSON.parse(new TextDecoder().decode(raw));
+    let payload;
+    try {
+      payload = JSON.parse(new TextDecoder().decode(raw));
+    } catch {
+      // V8's SyntaxError message can quote the body (customer data).
+      throw new Error("invalid payload");
+    }
     const stmts = await processOrderCreated(ctx, payload);
     await env.DB.batch([...stmts, done("processed")]);
     return json({ ok: true });

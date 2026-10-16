@@ -193,3 +193,19 @@ test('webhooks need no Origin or X-SR-Client (server to server)', async () => {
   const res = await t.call(delivery());
   assert.equal(res.status, 200);
 });
+
+test('a body that is not JSON (but signed) fails without its content reaching the ledger', async () => {
+  const t = rig();
+  const raw = '{"email":"clara@example.com" not json';
+  const sig = createHmac('sha256', SECRET).update(raw, 'utf8').digest('base64');
+  const res = await t.call(new Request('https://w.dev/webhooks/shopify', {
+    method: 'POST',
+    headers: { 'X-Shopify-Topic': 'orders/create', 'X-Shopify-Event-Id': 'evt-bad', 'X-Shopify-Hmac-Sha256': sig },
+    body: raw,
+  }));
+  assert.equal(res.status, 500);
+  const [row] = ledger(t);
+  assert.equal(row.status, 'failed');
+  assert.equal(row.error, 'invalid payload');
+  assert.doesNotMatch(row.error, /clara/);
+});

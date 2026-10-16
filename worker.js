@@ -69,6 +69,9 @@ const securityHeaders = {
   "Referrer-Policy": "no-referrer",
 };
 
+// §13.1: logs carry no personal data; emails are masked (c***@gmail.com).
+import { maskEmail } from "./src/lib/email-address.js";
+
 export default {
   async fetch(request, env) {
     const corsHeaders = {
@@ -341,7 +344,7 @@ export default {
           ? resolved.userData.stripe_subscription_id
           : "";
         if (!subscriptionId) {
-          console.error("No subscription on file for", url.pathname, resolved.email);
+          console.error("No subscription on file for", url.pathname, maskEmail(resolved.email));
           return json({ error: "Billing changes are temporarily unavailable" }, 503);
         }
 
@@ -399,7 +402,7 @@ export default {
         // cus_guest is the placeholder written for a checkout that carried no
         // customer; Stripe has no portal for it.
         if (!customerId || customerId === "cus_guest") {
-          console.error("No Stripe customer on file for billing portal", resolved.email);
+          console.error("No Stripe customer on file for billing portal", maskEmail(resolved.email));
           return json({ error: "The billing portal is temporarily unavailable" }, 503);
         }
 
@@ -1082,7 +1085,8 @@ async function withinRateLimit(bucket, subject, limit, windowMs, env) {
       // /api/auth/request-link takes no session, so every probe used to buy
       // two permanent D1 writes for the price of one HTTP request.
       await withdrawRateEvent(insert, bucket, subject, env);
-      console.error("Rate limit hit:", bucket, subject);
+      // §13.1: no email or IP in logs — the subject is one of them.
+      console.error("Rate limit hit:", bucket);
       // P6-2: sweep here as well. The sweep used to run only on the admitted
       // path, and a sustained attacker is almost entirely refused — so the one
       // thing that removes expired rows for subjects that never come back
