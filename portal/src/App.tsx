@@ -12,6 +12,7 @@ import { Security } from "./screens/Security";
 import { OrderDetail, Orders } from "./screens/Orders";
 import { Home } from "./screens/Home";
 import { Saved } from "./screens/Saved";
+import { CircleScreen } from "./screens/Circle";
 
 type Session =
   | { status: "loading" }
@@ -127,7 +128,7 @@ function Screen({ route, params, search, user, onSignOut }: ScreenProps) {
     case "orders": return <Orders />;
     case "order": return <OrderDetail id={params.id} />;
     case "saved": return <Saved initialTab={new URLSearchParams(search).get("view") === "held" ? "held" : "saved"} />;
-    case "circle": return <SectionHeading eyebrow={copy.eyebrows.circle} title={copy.nav.circle} />;
+    case "circle": return <CircleScreen />;
     case "account": return <Account email={email} onSignOut={onSignOut} />;
     case "accountSecurity": return <Security email={email} />;
     case "accountPrivacy": return <SectionHeading title={copy.nav.account} />;

@@ -154,9 +154,9 @@ function HeldList() {
             {h.image_url && <img src={sized(h.image_url, 160)} alt="" loading="lazy" width={64} height={64} />}
           </span>
           <span class="held-meta">
-            <span>{h.title ?? copy.saved.untitled}</span>
+            <span>{h.kind === "circle_waitlist" ? copy.circle.waitlistHeld : (h.title ?? copy.saved.untitled)}</span>
             <span class="small">{copy.saved.heldSince(formatDate(h.created_at))}</span>
-            <span class="small">{copy.saved.heldNext}</span>
+            <span class="small">{h.kind === "circle_waitlist" ? copy.circle.onList : copy.saved.heldNext}</span>
           </span>
         </li>
       ))}

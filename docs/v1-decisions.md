@@ -18,11 +18,14 @@ Running list for PR review (Felix). Spec: "ЛК — ТЗ v1.1" (2026-10-15).
    fulfillment-order scopes as alternatives, so the granted ones cover
    `Order.fulfillments`. To confirm with the first real call once the
    secrets are in.
-2. **Theme change for S7 needs your "yes".** `theme/snippets/sr-save.liquid`
-   (the storefront "Save" heart) is in the repo, not uploaded. Target: the
-   draft "Spring Renaissance Latest Version - Draft" (189482795229, created
-   16 Oct; the old draft WORK 4 no longer exists). Install = upload the
-   snippet + one `{% render 'sr-save' %}` line in `snippets/sr-touch-fix`.
+2. **Circle FAQ on /circle (S8) — please read.** §6.6 asks for five answers.
+   They restate the spec's decisions (credits $1 each, store credit only;
+   Skip = skip a season's capsule, billing and credits continue, no refund;
+   cancel online any time, effective at the end of the paid month; credits
+   usable 30 days after the last paid month; 25% on the collections, not
+   Small Pleasures, gift cards or capsules). These are membership terms the
+   lawyer has not reviewed yet (P0.7). The Membership Terms link from §6.6 is
+   left out: the terms page does not exist in V1.
 
 ## Answered (16 Oct 2026)
 
@@ -124,6 +127,23 @@ Running list for PR review (Felix). Spec: "ЛК — ТЗ v1.1" (2026-10-15).
   which saves the piece on arrival.
 - The reservation form itself does not post to `/api/holds` yet: it is
   switched off in the live theme.
+- Theme (with Felix's yes, 16 Oct): in the draft "Spring Renaissance Latest
+  Version - Draft" (189482795229) — new `snippets/sr-save.liquid`, and two
+  lines appended to `snippets/sr-touch-fix.liquid` (a comment and
+  `{% render 'sr-save' %}`). Nothing else touched (no templates, no
+  sr-consult). Backup and checksums: `theme/backups/`.
+
+### S8 — Circle teaser and waitlist (V1)
+- No Welcome piece count in V1: `gift_options` is a V2 table, so
+  `sealed_count` is 0 and the copy names no number (§6.3 rule).
+- Circle price line only for saved, available pieces the 25% applies to;
+  member price = 75% of Shopify's price in cents, rounded half up; at most 3.
+- "Reserve a place" creates one `circle_waitlist` hold and tags the customer
+  `circle-waitlist` once (retried at the next sign-in if Shopify was down).
+- "Not now" folds the teaser to one line, "The Renaissance Circle · Opening
+  soon", linking to /circle, for 30 days (spec: "свёрнут до одной строки").
+- The teaser is the last block on Home; the illustration is three abstract
+  sealed envelopes (no count implied, no product photos).
 
 ## Copy for review (not quoted in the spec)
 
@@ -185,6 +205,28 @@ reservations open.")
   pre-orders will appear here."
 - Home: "Saved ({n})", "Held for you ({n})", "See all"
 - Storefront button: "Save" / "Saved"
+
+### Circle (spec copy used verbatim: "The Renaissance Circle", "A sealed
+object, chosen by you.", the two body lines, "With the Circle, {Object} would
+be ${price}.", "Learn about the Circle", "Opening soon", "Reserve a place",
+"You're on the list. We'll write once, when the Circle opens.", "Not now", the
+three steps)
+- Folded line: "The Renaissance Circle · Opening soon"
+- While sending: "Reserving…"; section titles "How it works", "Questions"
+- Held for you: "A place in the Circle"
+- FAQ answers (see open question 2):
+  - What are credits? — "Each month, $20 of your membership becomes 20
+    credits. One credit is $1 to spend on anything in the house. Credits are
+    store credit for Spring Renaissance only."
+  - What does Skip mean? — "Skip lets you pass on a season's capsule. Your
+    membership and monthly credits continue as usual, and nothing is
+    refunded."
+  - How do I cancel? — "Online, in your account, at any time. Cancelling
+    takes effect at the end of the month you have paid for."
+  - What happens to my credits if I cancel? — "They stay usable for 30 days
+    after the end of your last paid month, then they expire."
+  - What does the 25% apply to? — "Our collections. It does not apply to
+    Small Pleasures, gift cards or seasonal capsules."
 
 ### Orders (spec copy used verbatim: "No orders yet", the empty-state body and
 "Explore the collections", status labels Processing / Pre-order · in

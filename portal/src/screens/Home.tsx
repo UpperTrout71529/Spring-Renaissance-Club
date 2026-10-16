@@ -13,6 +13,7 @@ import { STOREFRONT_ORIGIN } from "../router";
 import { Link } from "../ui/Link";
 import { Skeleton } from "../ui/states";
 import type { Hold, Preorder, SavedItem } from "./Saved";
+import { CircleTeaser } from "./Circle";
 import "./home.css";
 import "./saved.css";
 
@@ -80,6 +81,9 @@ export function Home({ user }: { user: User }) {
       )}
 
       {me && <Onboarding me={me} onDismissed={setMe} />}
+
+      {/* §6.3: the invitation always sits below the useful blocks. */}
+      <CircleTeaser />
     </div>
   );
 }
