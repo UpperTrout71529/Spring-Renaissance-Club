@@ -111,6 +111,13 @@ export async function confirmEmailChange(ctx) {
 
 // GET /api/sessions → { sessions: [{ id, current, auth_method, ua_summary,
 // geo_city, created_at, last_seen_at }] } — live sessions only.
+// The id a client sees for a session is derived from, but is not, the
+// stored hash (the table's key): responses never carry database keys.
+const SESSION_ID_RE = /^[0-9a-f]{32}$/;
+async function publicSessionId(idHash) {
+  return (await sha256Hex(`session-id:${idHash}`)).slice(0, 32);
+}
+
 export async function listSessions(ctx) {
   const { env, session, json } = ctx;
   const nowIso = ctx.nowIso();
@@ -120,10 +127,10 @@ export async function listSessions(ctx) {
       ORDER BY last_seen_at DESC`
   ).bind(session.user.id, nowIso).all()).results;
   return json({
-    sessions: rows.map((r) => ({
-      id: r.id_hash, current: r.id_hash === session.idHash, auth_method: r.auth_method,
+    sessions: await Promise.all(rows.map(async (r) => ({
+      id: await publicSessionId(r.id_hash), current: r.id_hash === session.idHash, auth_method: r.auth_method,
       ua_summary: r.ua_summary, geo_city: r.geo_city, created_at: r.created_at, last_seen_at: r.last_seen_at,
-    })),
+    }))),
   });
 }
 
@@ -131,11 +138,18 @@ export async function listSessions(ctx) {
 // clears the cookie). 404 for anything else.
 export async function revokeOneSession(ctx) {
   const { env, session, params } = ctx;
+  if (!SESSION_ID_RE.test(params.id)) throw notFound();
+  // Only this person's own sessions are candidates.
+  const own = (await env.DB.prepare("SELECT id_hash FROM sessions WHERE user_id = ?1 AND revoked_at IS NULL")
+    .bind(session.user.id).all()).results;
+  let target = null;
+  for (const r of own) if ((await publicSessionId(r.id_hash)) === params.id) target = r.id_hash;
+  if (!target) throw notFound();
   const res = await env.DB.prepare(
     "UPDATE sessions SET revoked_at = ?1 WHERE id_hash = ?2 AND user_id = ?3 AND revoked_at IS NULL"
-  ).bind(ctx.nowIso(), params.id, session.user.id).run();
+  ).bind(ctx.nowIso(), target, session.user.id).run();
   if (!res.meta || res.meta.changes !== 1) throw notFound();
-  if (params.id === session.idHash) ctx.setCookie(clearedSessionCookie());
+  if (target === session.idHash) ctx.setCookie(clearedSessionCookie());
   return new Response(null, { status: 204 });
 }
 

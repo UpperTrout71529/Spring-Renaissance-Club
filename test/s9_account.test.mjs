@@ -175,9 +175,9 @@ test('S9-8: sessions: list with the current one marked; sign out one; sign out e
   const { sessions } = await body(await t.call(get('/api/sessions', { Cookie: a.cookie })));
   assert.equal(sessions.length, 3);
   assert.equal(sessions.filter((s) => s.current).length, 1);
-  assert.ok(sessions.every((s) => /^[0-9a-f]{64}$/.test(s.id)));
+  assert.ok(sessions.every((s) => /^[0-9a-f]{32}$/.test(s.id)));
 
-  const bId = sessions.find((s) => !s.current && t.rows('SELECT 1 FROM sessions WHERE id_hash = ?', s.id).length).id;
+  const bId = sessions.find((s) => !s.current).id;
   // Revoke one other session by id.
   assert.equal((await t.call(req('DELETE', `/api/sessions/${bId}`, undefined, a.as()))).status, 204);
   assert.equal((await t.call(req('DELETE', `/api/sessions/${bId}`, undefined, a.as()))).status, 404);
