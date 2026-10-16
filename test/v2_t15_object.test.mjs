@@ -57,7 +57,7 @@ async function rig({ env = {}, guard = {} } = {}) {
 }
 
 const RELEASE = {
-  label: 'Winter object', public_title: 'A members\' object', description: 'Made for the Circle.', image_url: 'https://cdn.example/x.jpg',
+  label: 'Winter object', public_title: 'A members\' object', description: 'Made for the Circle.', image_url: 'https://cdn.shopify.com/s/files/x.jpg',
   product_gid: OBJ_PRODUCT, variant_gid: OBJ_VARIANT, price_cents: 45000, edition_size: 2, unit_cost_cents: 20000, shipping_class: 'M',
   reserve_hours: 48, opens_at: new Date(T0).toISOString(), closes_at: new Date(T0 + 30 * DAY).toISOString(),
 };

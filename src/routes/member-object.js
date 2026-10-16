@@ -78,7 +78,7 @@ function normalise(body, base = {}) {
     if (has(k)) r[k] = body[k] === null ? null : String(body[k]).trim().slice(0, k === "description" ? 2000 : 200) || null;
   }
   if (has("image_url")) {
-    if (body.image_url !== null && !/^https:\/\/[^\s"'<>]+$/.test(String(body.image_url))) throw badRequest("invalid_image", "An https image link.");
+    if (body.image_url !== null && !/^https:\/\/cdn\.shopify\.com\/[^\s"'<>]+$/.test(String(body.image_url))) throw badRequest("invalid_image", "An image link from the Shopify CDN (https://cdn.shopify.com/…).");
     r.image_url = body.image_url;
   }
   if (has("product_gid")) {

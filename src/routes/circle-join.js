@@ -77,7 +77,7 @@ async function offerFor(ctx, { invitation = null } = {}) {
     joining_cents: kind === "join" ? settings.joining_cents : 0,
     discount_cents: discount,
     first_renewal_on: firstRenewalOn,
-    disclosure: disclosure({ firstChargeCents: first, monthlyCents: settings.monthly_cents, firstRenewalOn }),
+    disclosure: disclosure({ firstChargeCents: first, monthlyCents: settings.monthly_cents, firstRenewalOn, rejoin: kind === "rejoin" }),
     _prices: prices,
   };
 }

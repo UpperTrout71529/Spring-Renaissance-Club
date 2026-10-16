@@ -197,7 +197,7 @@ test('T1-9: rejoin is $20 today, monthly line only, no welcome piece needed', as
   assert.equal(j.data.kind, 'rejoin');
   assert.equal(j.data.first_charge_cents, 2000);
   assert.equal(j.data.disclosure,
-    "By joining, you agree to the Membership Terms. You'll be charged $20 today, then $20 plus applicable tax every month starting November 15, 2026, until you cancel. Cancel anytime online in your account — it takes effect at the end of your paid month.");
+    "You'll be charged $20 today, then $20 plus applicable tax every month starting November 15, 2026, until you cancel. Cancel anytime online in your account — it takes effect at the end of your paid month.");
   const c = await r.checkout(AGREE(j.data.terms_version), '/api/circle/rejoin');
   assert.equal(c.res.status, 201, JSON.stringify(c.data));
   const p = r.world.stripeCalls.find((x) => x.path === '/v1/checkout/sessions').params;

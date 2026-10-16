@@ -1,5 +1,7 @@
-// GET /api/me and PATCH /api/me (spec §8.3). V1 shape: membership is always
-// null and the Circle badge always false until V2 adds memberships.
+// GET /api/me and PATCH /api/me (spec §8.3). Club: membership null, no badge.
+// V2: { status, kind } of the current membership, and the Circle tab dot
+// (§5.4) when something waits: a sealed piece to choose, an unread reply from
+// the Maison, a payment problem, an anniversary address.
 
 import { badRequest } from "../http/errors.js";
 import { readJson } from "../http/body.js";
@@ -12,6 +14,27 @@ import { shopifyConfigured, updateCustomer } from "../shopify/admin.js";
 // person saw (§7 consents.shown_text_sha256); a test keeps the two in sync.
 export const SEASONAL_EMAIL_TEXT = "Send me the seasonal letter — one email each season. You can turn it off at any time.";
 export const SEASONAL_EMAIL_VERSION = "seasonal-email-2026-10";
+
+async function membershipSummary(env, userId) {
+  const m = await env.DB.prepare(
+    `SELECT status, kind FROM memberships WHERE user_id = ?1
+      ORDER BY CASE WHEN status IN ('active','past_due','canceling') THEN 0 ELSE 1 END, created_at DESC LIMIT 1`
+  ).bind(userId).first();
+  return m ? { status: m.status, kind: m.kind } : null;
+}
+
+async function circleDot(env, userId) {
+  const row = await env.DB.prepare(
+    `SELECT
+       EXISTS (SELECT 1 FROM memberships WHERE user_id = ?1 AND status = 'past_due') OR
+       EXISTS (SELECT 1 FROM gift_selections s JOIN memberships m ON m.id = s.membership_id
+                WHERE s.user_id = ?1 AND s.status = 'awaiting_choice' AND m.status IN ('active','past_due','canceling')) OR
+       EXISTS (SELECT 1 FROM anniversary_gifts WHERE user_id = ?1 AND status = 'awaiting_address') OR
+       EXISTS (SELECT 1 FROM concierge_messages c JOIN concierge_threads t ON t.id = c.thread_id
+                WHERE t.user_id = ?1 AND c.author = 'maison' AND c.read_at IS NULL) AS dot`
+  ).bind(userId).first();
+  return !!(row && row.dot);
+}
 
 export async function getMe({ env, session, json }) {
   const { user } = session;
@@ -27,8 +50,8 @@ export async function getMe({ env, session, json }) {
       id: user.id, email: user.email, first_name: row.first_name, last_name: row.last_name,
       tier: user.tier, created_at: row.created_at, seasonal_email_opt_in: !!row.seasonal_email_opt_in,
     },
-    membership: null,
-    badges: { circle: false },
+    membership: await membershipSummary(env, user.id),
+    badges: { circle: await circleDot(env, user.id) },
     onboarding: { passkey: !!row.passkey, saved: !!row.saved, dismissed: !!row.onboarding_dismissed_at },
   });
 }

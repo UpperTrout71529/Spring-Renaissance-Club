@@ -28,7 +28,7 @@ export function normaliseOption(body, base = {}) {
     set("shopify_variant_gid", body.shopify_variant_gid);
   }
   if (body.image_url !== undefined) {
-    if (body.image_url !== null && !/^https:\/\/[^\s"'<>]+$/.test(String(body.image_url))) throw badRequest("invalid_image", "An https image link.");
+    if (body.image_url !== null && !/^https:\/\/cdn\.shopify\.com\/[^\s"'<>]+$/.test(String(body.image_url))) throw badRequest("invalid_image", "An image link from the Shopify CDN (https://cdn.shopify.com/…).");
     set("image_url", body.image_url);
   }
   if (body.landed_cost_cents !== undefined) {

@@ -31,6 +31,7 @@ export function addMonthsIso(nowMs, months = 1) {
 }
 
 // §14.2: shown next to the button and in Stripe Checkout (custom_text.submit).
-export function disclosure({ firstChargeCents, monthlyCents, firstRenewalOn }) {
-  return `By joining, you agree to the Membership Terms. You'll be charged ${usd(firstChargeCents)} today, then ${usd(monthlyCents)} plus applicable tax every month starting ${formatLongDate(firstRenewalOn)}, until you cancel. Cancel anytime online in your account — it takes effect at the end of your paid month.`;
+// Rejoin uses §14.2's second text, which has no opening sentence.
+export function disclosure({ firstChargeCents, monthlyCents, firstRenewalOn, rejoin = false }) {
+  return `${rejoin ? "" : "By joining, you agree to the Membership Terms. "}You'll be charged ${usd(firstChargeCents)} today, then ${usd(monthlyCents)} plus applicable tax every month starting ${formatLongDate(firstRenewalOn)}, until you cancel. Cancel anytime online in your account — it takes effect at the end of your paid month.`;
 }

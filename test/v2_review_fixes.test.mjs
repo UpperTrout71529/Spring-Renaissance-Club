@@ -380,3 +380,44 @@ test('G7: the admin page may show Shopify CDN images', async () => {
   const res = await r.t.call(get('/admin', { 'Cf-Access-Jwt-Assertion': r.jwt }));
   assert.match(res.headers.get('Content-Security-Policy'), /img-src 'self' data: https:\/\/cdn\.shopify\.com/);
 });
+
+// ---- gaps found by the portal build ------------------------------------------------
+
+test('P1: /api/me shows the membership and the Circle dot (piece to choose, reply waiting, payment problem)', async () => {
+  const r = await rig();
+  let me = (await r.api('GET', '/api/me')).data;
+  assert.deepEqual([me.membership, me.badges.circle], [null, false]);
+  await r.join();
+  me = (await r.api('GET', '/api/me')).data;
+  assert.deepEqual(me.membership, { status: 'active', kind: 'join' });
+  assert.equal(me.badges.circle, true, 'the sealed piece is waiting');
+  r.t.env.DB._db.prepare("UPDATE gift_selections SET status = 'chosen'").run();
+  me = (await r.api('GET', '/api/me')).data;
+  assert.equal(me.badges.circle, false);
+  await r.api('POST', '/api/circle/concierge', { body: 'Hello' });
+  const thread = (await r.admin('/api/admin/concierge')).data.threads[0].id;
+  await r.adminSend('POST', `/api/admin/concierge/${thread}/reply`, { body: 'Welcome.' });
+  me = (await r.api('GET', '/api/me')).data;
+  assert.equal(me.badges.circle, true, 'a reply is waiting');
+  const circle = (await r.api('GET', '/api/circle')).data;
+  assert.equal(circle.concierge_unread, 1);
+});
+
+test('P2: /api/circle tells when credits stay usable while canceling', async () => {
+  const r = await rig();
+  await r.join();
+  await r.send('customer.subscription.updated', fx.subscription({ userId: r.userId, cancelAtPeriodEnd: true }));
+  const c = (await r.api('GET', '/api/circle')).data;
+  assert.equal(c.membership.ends_on, new Date(T0 + 31 * DAY).toISOString().slice(0, 10));
+  assert.equal(c.membership.credits_until, new Date(T0 + 61 * DAY).toISOString().slice(0, 10));
+});
+
+test('P3: release and gift images must come from the Shopify CDN (the portal CSP allows only that)', async () => {
+  const r = await rig();
+  const out = await r.adminSend('POST', '/api/admin/member-object/releases', { label: 'X', product_gid: P(1), variant_gid: V(11), image_url: 'https://elsewhere.example/x.jpg' });
+  assert.equal(out.res.status, 400);
+  const ok = await r.adminSend('POST', '/api/admin/member-object/releases', { label: 'X', product_gid: P(1), variant_gid: V(11), image_url: 'https://cdn.shopify.com/s/files/x.jpg' });
+  assert.equal(ok.res.status, 201);
+  const g = await r.adminSend('POST', '/api/admin/gift-options', { kind: 'anniversary', title: 'G', shopify_variant_gid: V(11), image_url: 'https://elsewhere.example/x.jpg' });
+  assert.equal(g.res.status, 400);
+});

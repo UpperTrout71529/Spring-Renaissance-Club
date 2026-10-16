@@ -27,6 +27,13 @@ export function registerCircle() {
   giftQueues.push(anniversaryQueue);
   deletionClosers.push(circleDeletion);
   memberSections.push(async (ctx, { userId }) => {
+    const row = await ctx.env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM concierge_messages c JOIN concierge_threads t ON t.id = c.thread_id
+        WHERE t.user_id = ?1 AND c.author = 'maison' AND c.read_at IS NULL`
+    ).bind(userId).first();
+    return { key: "concierge_unread", value: row ? row.n : 0 };
+  });
+  memberSections.push(async (ctx, { userId }) => {
     const g = await ctx.env.DB.prepare(
       "SELECT status FROM anniversary_gifts WHERE user_id = ?1 AND status = 'awaiting_address' LIMIT 1"
     ).bind(userId).first();

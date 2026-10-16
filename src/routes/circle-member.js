@@ -31,6 +31,11 @@ function publicMembership(m) {
     ends_on: m.status === "canceling" ? day(m.current_period_end) : m.ended_at ? day(m.ended_at) : null,
     end_reason: m.end_reason,
     credits_grace_until: day(m.credits_grace_until),
+    // Until when credits stay usable: canceling → period end + 30 days
+    // (the same rule the cancel flow states), ended → the grace date.
+    credits_until: m.status === "canceling" && m.current_period_end
+      ? day(new Date(Date.parse(m.current_period_end) + 30 * 24 * 60 * 60 * 1000).toISOString())
+      : m.status === "ended" ? day(m.credits_grace_until) : null,
     paid_months: m.paid_invoices,
   };
 }
