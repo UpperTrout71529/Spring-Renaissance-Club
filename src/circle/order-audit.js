@@ -16,7 +16,9 @@ import { raiseFlag } from "./notify.js";
 import { recordEvent } from "../lib/events.js";
 import { maskEmail } from "../lib/email-address.js";
 
-export const orderChecks = [];
+import { objectOrderCheck } from "./member-object.js";
+
+export const orderChecks = [objectOrderCheck];
 
 export async function auditOrder(svc, { order, user }) {
   const apps = (order.discountApplications && order.discountApplications.nodes) || [];

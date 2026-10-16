@@ -19,6 +19,7 @@
 import { HttpError, badRequest } from "../http/errors.js";
 import { shopifyConfigured, shopifyGraphql } from "../shopify/admin.js";
 import { auditOrder } from "../circle/order-audit.js";
+import { onDraftOrderUpdate } from "../circle/member-object.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -26,6 +27,7 @@ const ORDER_PLACED = `query OrderPlaced($id: ID!) {
   order(id: $id) {
     id
     email
+    tags
     paymentGatewayNames
     customer { id numberOfOrders }
     discountApplications(first: 10) { nodes { __typename ... on AutomaticDiscountApplication { title } } }
@@ -118,6 +120,20 @@ export async function shopifyWebhook(ctx) {
     "UPDATE webhook_events SET status = ?1, processed_at = ?2, error = ?3 WHERE event_id = ?4"
   ).bind(status, nowIso, error, eventId);
 
+  if (topic === "draft_orders/update") {
+    // V2: a completed draft marks a members' object claim paid.
+    try {
+      const payload = JSON.parse(new TextDecoder().decode(raw));
+      const gid = typeof payload.admin_graphql_api_id === "string" ? payload.admin_graphql_api_id : null;
+      const outcome = gid ? await onDraftOrderUpdate(ctx, gid) : "ignored";
+      await done(outcome === "ignored" ? "ignored" : "processed").run();
+      return json({ ok: true });
+    } catch (e) {
+      const reason = String((e && e.message) || "error").slice(0, 200);
+      await done("failed", reason).run();
+      return json({ error: { code: "webhook_failed", message: "Processing failed; Shopify will retry." } }, 500);
+    }
+  }
   if (topic !== "orders/create") {
     await done("ignored").run();
     return json({ ok: true, ignored: true });

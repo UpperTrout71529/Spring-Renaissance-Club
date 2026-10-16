@@ -10,6 +10,7 @@ import { runRetention } from "./retention.js";
 import { creditsExpiring, creditsExpiry, renewalReminders, stripeReconcile, welcomeReminders } from "./circle-jobs.js";
 import { ulid } from "../lib/ulid.js";
 import { syncMemberPrice } from "../circle/member-price.js";
+import { expireClaims, guardReleases } from "../circle/member-object.js";
 
 export const FREQUENT_CRON = "*/5 * * * *";
 export const DAILY_CRON = "15 3 * * *";
@@ -18,6 +19,7 @@ export const DAILY_CRON = "15 3 * * *";
 export const JOBS = {
   frequent: [
     { name: "member_price", run: (env, nowMs, deps) => syncMemberPrice(deps.svc) },
+    { name: "object_claims", run: (env, nowMs, deps) => expireClaims(deps.svc) },
     { name: "renewal_reminders", run: (env, nowMs, deps) => renewalReminders(deps.svc) },
     { name: "stripe_reconcile", run: (env, nowMs, deps) => stripeReconcile(deps.svc) },
   ],
@@ -25,6 +27,7 @@ export const JOBS = {
     { name: "retention", run: (env, nowMs) => runRetention(env, nowMs) },
     { name: "credits_expiry", run: (env, nowMs, deps) => creditsExpiry(deps.svc) },
     { name: "credits_expiring", run: (env, nowMs, deps) => creditsExpiring(deps.svc) },
+    { name: "object_guard", run: (env, nowMs, deps) => guardReleases(deps.svc) },
     { name: "welcome_reminders", run: (env, nowMs, deps) => welcomeReminders(deps.svc) },
   ],
 };

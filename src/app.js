@@ -40,6 +40,7 @@ import { getWelcome, postWelcome } from "./routes/circle-welcome.js";
 import { assignGift, createGiftOption, createGiftOrder, getGiftQueue, listGiftOptions, patchGiftOption } from "./routes/admin-gifts.js";
 import { getCirclePriceStatus, getEconomics, listCosts, postCatalogSync, postCirclePriceSync, putCost, putEconomics, putPriceList } from "./routes/admin-economics.js";
 import { getMeStorefront, getStorefrontCirclePrice } from "./routes/storefront.js";
+import { closeRelease, createRelease, getObject, getReleaseGuard, listReleases, openReleaseNow, patchRelease, postObjectClaim } from "./routes/member-object.js";
 
 // Route options:
 //   auth: "session"   — 401 without a live session; ctx.session is set
@@ -96,6 +97,8 @@ export const ROUTES = [
   { method: "POST", path: "/api/account/membership/portal", handler: postBillingPortal, auth: "session" },
   { method: "GET", path: "/api/circle/welcome", handler: getWelcome, auth: "session" },
   { method: "POST", path: "/api/circle/welcome", handler: postWelcome, auth: "session" },
+  { method: "GET", path: "/api/circle/object", handler: getObject, auth: "session" },
+  { method: "POST", path: "/api/circle/object/claim", handler: postObjectClaim, auth: "session" },
   { method: "GET", path: "/api/circle/join", handler: getJoin, auth: "session" },
   { method: "POST", path: "/api/circle/checkout", handler: postCheckout, auth: "session" },
   { method: "POST", path: "/api/circle/rejoin", handler: postRejoin, auth: "session" },
@@ -124,6 +127,12 @@ export const ROUTES = [
   { method: "GET", path: "/api/admin/gift-queue", handler: getGiftQueue, auth: "admin" },
   { method: "POST", path: "/api/admin/gift-queue/:id/assign", handler: assignGift, auth: "admin" },
   { method: "POST", path: "/api/admin/gift-queue/:id/create-order", handler: createGiftOrder, auth: "admin" },
+  { method: "GET", path: "/api/admin/member-object/releases", handler: listReleases, auth: "admin" },
+  { method: "POST", path: "/api/admin/member-object/releases", handler: createRelease, auth: "admin" },
+  { method: "PATCH", path: "/api/admin/member-object/releases/:id", handler: patchRelease, auth: "admin" },
+  { method: "POST", path: "/api/admin/member-object/releases/:id/open", handler: openReleaseNow, auth: "admin" },
+  { method: "POST", path: "/api/admin/member-object/releases/:id/close", handler: closeRelease, auth: "admin" },
+  { method: "GET", path: "/api/admin/member-object/guard", handler: getReleaseGuard, auth: "admin" },
   { method: "GET", path: "/admin", handler: serveAdmin, auth: "admin" },
   { method: "GET", path: "/admin/:file", handler: serveAdmin, auth: "admin" },
 ];
