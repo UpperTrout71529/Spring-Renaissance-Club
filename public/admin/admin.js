@@ -1,63 +1,17 @@
-// Admin v1 (spec §12): Overview, Members, Member detail (read-only), System.
+// Admin (spec §12; V2 Circle screens, tz-v2 §3.3): Overview, Members, Member
+// detail (with membership, credits and invoices), the Renaissance Circle
+// screens (circle.js, economics.js, gifts.js, releases.js) and System.
 // No framework, no build step. Every value from the API goes into the page
-// through textContent — never innerHTML. Dates are en-US.
+// through textContent — never innerHTML. Dates are en-US, money is USD.
 
-const main = document.getElementById("main");
-const statusEl = document.getElementById("status");
-
-function h(tag, attrs = {}, ...children) {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (v === null || v === undefined || v === false) continue;
-    if (k === "class") el.className = v;
-    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
-    else el.setAttribute(k, v === true ? "" : String(v));
-  }
-  for (const c of children.flat()) {
-    if (c === null || c === undefined || c === false) continue;
-    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
-  }
-  return el;
-}
-
-const DATE = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
-const DATETIME = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC", timeZoneName: "short" });
-const fmtDate = (iso) => (iso ? DATE.format(new Date(iso)) : "—");
-const fmtDateTime = (iso) => (iso ? DATETIME.format(new Date(iso)) : "—");
-const fmtPct = (v) => (v === null || v === undefined ? "—" : `${v}%`);
-const dash = (v) => (v === null || v === undefined || v === "" ? "—" : v);
-const fullName = (u) => [u.first_name, u.last_name].filter(Boolean).join(" ") || "—";
-
-async function api(path) {
-  const res = await fetch(path, { credentials: "same-origin", headers: { Accept: "application/json" } });
-  let data = null;
-  try { data = await res.json(); } catch { /* not JSON */ }
-  if (!res.ok) throw new Error((data && data.error && data.error.message) || `Request failed (${res.status}).`);
-  return data;
-}
-
-function render(title, ...content) {
-  main.replaceChildren(h("h1", {}, title), ...content);
-  document.title = `${title} — Spring Renaissance Admin`;
-  statusEl.textContent = `${title} loaded`;
-  main.focus();
-}
-
-function table(caption, columns, rows, empty = "Nothing yet.") {
-  if (!rows.length) return h("p", { class: "empty" }, `${caption}: ${empty}`);
-  // Focusable and named: at narrow widths the wrapper scrolls sideways and
-  // keyboard users must be able to reach it (axe scrollable-region-focusable).
-  return h("div", { class: "table-wrap", role: "region", "aria-label": caption, tabindex: "0" }, h("table", {},
-    h("caption", {}, caption),
-    h("thead", {}, h("tr", {}, columns.map((c) => h("th", { scope: "col", class: c.num ? "num" : null }, c.label)))),
-    h("tbody", {}, rows.map((r) => h("tr", {}, columns.map((c, i) => {
-      const value = c.cell(r);
-      return i === 0 ? h("th", { scope: "row" }, value) : h("td", { class: c.num ? "num" : null }, value);
-    })))),
-  ));
-}
-
-const card = (label, value, sub) => h("div", { class: "card" }, h("dt", {}, label), h("dd", {}, String(value), sub ? h("span", { class: "sub" }, sub) : null));
+import {
+  ApiError, act, api, card, dash, field, fmtDate, fmtDateTime, fmtPct, fullName, h, money, msgBox, namedForm, parseWhole,
+  refresh, render, say, section, setRouter, signedMoney, statusLabel, table, textInput, yesNo, MEMBERSHIP_STATUS,
+} from "./ui.js";
+import { circleOverview, concierge, conciergeThread, flags, invitations } from "./circle.js";
+import { costs, economics } from "./economics.js";
+import { giftPools, giftQueue } from "./gifts.js";
+import { capsules, releases } from "./releases.js";
 
 // ---- Overview ---------------------------------------------------------------
 async function overview(params) {
@@ -97,7 +51,8 @@ async function overview(params) {
       card("Repeat purchase rate, 90 days", fmtPct(r.all.rate_pct), `${r.all.repeat} of ${r.all.buyers} buyers`),
       card("Club vs no account", `${fmtPct(r.club.rate_pct)} / ${fmtPct(r.no_account.rate_pct)}`, `${r.club.buyers} Club buyers · ${r.no_account.buyers} without`),
     ),
-    h("p", { class: "lede" }, "Orders count from the day the Shopify orders/create webhook was switched on."),
+    h("p", { class: "lede" }, "Orders count from the day the Shopify orders/create webhook was switched on. The Renaissance Circle has its own overview under ",
+      h("a", { href: "#/circle" }, "Circle"), "."),
     h("h2", {}, "By week"),
     table("Weekly totals (weeks start on Monday)", [
       { label: "Week of", cell: (w) => fmtDate(`${w.week_start}T00:00:00Z`) },
@@ -112,20 +67,32 @@ async function overview(params) {
 async function members(params) {
   const q = params.get("q") || "";
   const tier = params.get("tier") || "";
+  const status = params.get("status") || "";
   const page = Number(params.get("page") || 1);
   const qs = new URLSearchParams({ page: String(page) });
   if (q) qs.set("q", q);
   if (tier) qs.set("tier", tier);
+  if (status) qs.set("status", status);
   const data = await api(`/api/admin/members?${qs}`);
   const go = (p) => { const n = new URLSearchParams(qs); n.set("page", String(p)); location.hash = `#/members?${n}`; };
 
   render("Members",
-    h("form", { class: "inline", role: "search", onsubmit: (e) => { e.preventDefault(); const f = new FormData(e.target); const n = new URLSearchParams(); if (f.get("q")) n.set("q", f.get("q")); if (f.get("tier")) n.set("tier", f.get("tier")); location.hash = `#/members?${n}`; } },
+    h("form", { class: "inline", role: "search", onsubmit: (e) => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const n = new URLSearchParams();
+      for (const k of ["q", "tier", "status"]) if (f.get(k)) n.set(k, f.get(k));
+      location.hash = `#/members?${n}`;
+    } },
       h("label", {}, "Email or name", h("input", { type: "search", name: "q", value: q, autocomplete: "off" })),
       h("label", {}, "Tier", h("select", { name: "tier" },
         h("option", { value: "", selected: !tier }, "All"),
         h("option", { value: "club", selected: tier === "club" }, "Club"),
         h("option", { value: "vip", selected: tier === "vip" }, "VIP"),
+      )),
+      h("label", {}, "Membership", h("select", { name: "status" },
+        h("option", { value: "", selected: !status }, "Any"),
+        Object.entries(MEMBERSHIP_STATUS).map(([v, label]) => h("option", { value: v, selected: status === v }, label)),
       )),
       h("button", { type: "submit" }, "Search"),
     ),
@@ -133,9 +100,9 @@ async function members(params) {
       { label: "Email", cell: (m) => h("a", { href: `#/members/${encodeURIComponent(m.id)}` }, m.email) },
       { label: "Name", cell: fullName },
       { label: "Tier", cell: (m) => (m.tier === "vip" ? "VIP" : "Club") },
-      { label: "Status", cell: (m) => dash(m.status) },
+      { label: "Membership", cell: (m) => statusLabel(m.status) },
       { label: "Since", cell: (m) => fmtDate(m.since) },
-      { label: "Balance", cell: (m) => dash(m.credits_balance_cents) },
+      { label: "Credits", num: true, cell: (m) => money(m.credits_balance_cents) },
       { label: "Next charge", cell: (m) => fmtDate(m.next_charge_at) },
     ], data.members, "no matches."),
     h("div", { class: "pager" },
@@ -145,9 +112,94 @@ async function members(params) {
   );
 }
 
+const LEDGER_KINDS = {
+  accrual: "Monthly credits", welcome_accrual: "Welcome credits", redemption: "Spent", redemption_return: "Returned", manual: "Adjustment",
+  referral: "Invitation reward", referral_reversal: "Invitation reversed", refund_reversal: "Refund", dispute_reversal: "Dispute",
+  dispute_restore: "Dispute won", expiry: "Expired",
+};
+
+// After a dispute (lost, or still open) the credits stay frozen until Felix
+// decides; lifting the freeze needs a note.
+function unfreezeForm(userId) {
+  const box = msgBox();
+  const note = textInput("memo", "", { required: true, maxlength: "200" });
+  const submit = h("button", { type: "submit" }, "Lift credit freeze");
+  const f = namedForm("Lift credit freeze", { level: "h3", class: "stack" },
+    h("p", { class: "hint" }, "Credits are frozen after a payment dispute: the member cannot spend them and the member price is paused. Lift the freeze only once you have decided the member keeps the membership."),
+    field("Note (required)", note, "Why the freeze is lifted — kept in the admin audit."),
+    h("div", { class: "actions" }, submit),
+    box,
+  );
+  f.form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const out = await act(submit, box, () => api(`/api/admin/members/${encodeURIComponent(userId)}/unfreeze`, { method: "POST", body: { memo: note.value } }));
+    if (out) await refresh("Credit freeze lifted.");
+  });
+  return [f.heading, f.form];
+}
+
+function membershipSection(ms, userId) {
+  if (!ms) return section("Membership", h("p", { class: "empty" }, "Not a member of the Renaissance Circle."));
+  return section("Membership",
+    h("dl", { class: "fields" },
+      h("dt", {}, "Status"), h("dd", {}, statusLabel(ms.status)),
+      h("dt", {}, "Kind"), h("dd", {}, ms.kind === "rejoin" ? "Rejoined" : "Joined"),
+      h("dt", {}, "Started"), h("dd", {}, fmtDate(ms.started_at)),
+      h("dt", {}, "Current period ends"), h("dd", {}, fmtDate(ms.current_period_end)),
+      h("dt", {}, "Paid invoices"), h("dd", {}, String(ms.paid_invoices ?? 0)),
+      h("dt", {}, "Consecutive paid months"), h("dd", {}, String(ms.consecutive_paid_months ?? 0)),
+      h("dt", {}, "Credits frozen"), h("dd", {}, yesNo(ms.credits_frozen)),
+      ms.cancel_requested_at ? [h("dt", {}, "Cancellation requested"), h("dd", {}, fmtDate(ms.cancel_requested_at))] : null,
+      ms.ended_at ? [h("dt", {}, "Ended"), h("dd", {}, `${fmtDate(ms.ended_at)}${ms.end_reason ? ` (${ms.end_reason.replace(/_/g, " ")})` : ""}`)] : null,
+      ms.credits_grace_until ? [h("dt", {}, "Credits usable until"), h("dd", {}, fmtDate(ms.credits_grace_until))] : null,
+    ),
+    ms.credits_frozen ? unfreezeForm(userId) : null);
+}
+
+// One Idempotency-Key per intended adjustment: a double submit or a retry
+// with the same values books once; changing a value is a new adjustment.
+const newKey = () => crypto.randomUUID();
+
+function adjustCreditsForm(userId) {
+  const box = msgBox();
+  const amount = textInput("amount", "", { inputmode: "numeric", class: "num-in" });
+  const note = textInput("memo", "", { required: true, maxlength: "200" });
+  let key = newKey();
+  for (const el of [amount, note]) el.addEventListener("input", () => { key = newKey(); });
+  const submit = h("button", { type: "submit" }, "Adjust credits");
+  const f = namedForm("Adjust credits", { level: "h3", class: "stack" },
+    field("Credits (+ or −)", amount, "Whole credits; 1 credit = $1. Use a minus sign to take credits away."),
+    field("Note (required)", note, "Shown to the member in their ledger after “Adjustment by the Maison —”."),
+    h("div", { class: "actions" }, submit),
+    box,
+  );
+  f.form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const n = parseWhole(amount.value, { signed: true });
+    if (!Number.isInteger(n) || n === 0) {
+      say(box, "error", "Whole credits, plus or minus.");
+      amount.setAttribute("aria-invalid", "true");
+      amount.focus();
+      return;
+    }
+    amount.removeAttribute("aria-invalid");
+    const out = await act(submit, box, () => api("/api/admin/credits/adjust", {
+      method: "POST", headers: { "Idempotency-Key": key }, body: { user_id: userId, amount_cents: n * 100, memo: note.value },
+    }));
+    if (out) {
+      key = newKey();
+      await refresh(out.repeated
+        ? `This adjustment was already booked once; nothing was added. Balance: ${money(out.balance_cents)}.`
+        : `Credits adjusted. Balance: ${money(out.balance_cents)}.`);
+    }
+  });
+  return [f.heading, f.form];
+}
+
 async function member(id) {
   const d = await api(`/api/admin/members/${encodeURIComponent(id)}`);
   const u = d.user;
+  const ms = d.membership;
   render(u.email,
     h("p", {}, h("a", { href: "#/members" }, "← All members")),
     h("h2", {}, "Profile"),
@@ -160,8 +212,30 @@ async function member(id) {
       h("dt", {}, "Orders"), h("dd", {}, d.shopify_admin_url
         ? h("a", { href: d.shopify_admin_url, target: "_blank", rel: "noopener noreferrer" }, "Open in Shopify Admin", h("span", { class: "visually-hidden" }, " (opens in a new tab)"))
         : "No Shopify customer linked"),
-      h("dt", {}, "Membership"), h("dd", {}, d.membership ? "VIP" : "None (VIP Circle opens in V2)"),
+      h("dt", {}, "Renaissance Circle"), h("dd", {}, ms ? statusLabel(ms.status) : "Not a member"),
     ),
+    membershipSection(ms, u.id),
+    d.credits ? section("Credits",
+      h("p", { class: "balance", "data-testid": "credit-balance" }, `Balance: ${money(d.credits.balance_cents)}`),
+      table("Credit ledger", [
+        { label: "When", cell: (l) => fmtDateTime(l.created_at) },
+        { label: "What", cell: (l) => dash(l.memo) },
+        { label: "Kind", cell: (l) => LEDGER_KINDS[l.kind] || l.kind },
+        { label: "Amount", num: true, cell: (l) => signedMoney(l.amount_cents) },
+        { label: "By", cell: (l) => (l.created_by && l.created_by.startsWith("admin:") ? l.created_by.slice(6) : "System") },
+      ], d.credits.ledger, "no entries."),
+      adjustCreditsForm(u.id),
+    ) : null,
+    ms ? section("Invoices",
+      table("Invoices", [
+        { label: "Period", cell: (i) => `${fmtDate(i.period_start)} – ${fmtDate(i.period_end)}` },
+        { label: "Paid", num: true, cell: (i) => money(i.amount_paid_cents) },
+        { label: "Status", cell: (i) => (i.status ? i.status[0].toUpperCase() + i.status.slice(1) : "—") },
+        { label: "Invoice", cell: (i) => (i.hosted_invoice_url
+          ? h("a", { href: i.hosted_invoice_url, target: "_blank", rel: "noopener noreferrer" }, "Open in Stripe", h("span", { class: "visually-hidden" }, ` for ${fmtDate(i.period_start)} (opens in a new tab)`))
+          : "—") },
+      ], d.invoices || [], "none yet."),
+    ) : null,
     h("h2", {}, "Consents"),
     table("Consents", [
       { label: "Kind", cell: (c) => c.kind },
@@ -250,25 +324,42 @@ async function system(params) {
 }
 
 // ---- Router -----------------------------------------------------------------
+const CIRCLE = {
+  "": circleOverview, economics, costs, "gift-pools": giftPools, "gift-queue": giftQueue, object: releases,
+  invitations, capsules, concierge, flags,
+};
+
 async function route() {
   const [path, query = ""] = location.hash.replace(/^#/, "").split("?");
   const params = new URLSearchParams(query);
   const parts = path.split("/").filter(Boolean);
-  const section = parts[0] || "overview";
+  const top = parts[0] || "overview";
   for (const a of document.querySelectorAll("[data-nav]")) {
-    if (a.dataset.nav === section) a.setAttribute("aria-current", "page");
+    if (a.dataset.nav === top) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  }
+  const sub = top === "circle" ? parts[1] || "" : null;
+  const subnav = document.getElementById("circle-nav");
+  subnav.hidden = sub === null;
+  for (const a of subnav.querySelectorAll("[data-sub]")) {
+    if (a.dataset.sub === sub) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   }
   try {
-    if (section === "members" && parts[1]) await member(decodeURIComponent(parts[1]));
-    else if (section === "members") await members(params);
-    else if (section === "system") await system(params);
+    if (top === "members" && parts[1]) await member(decodeURIComponent(parts[1]));
+    else if (top === "members") await members(params);
+    else if (top === "system") await system(params);
+    else if (sub === "concierge" && parts[2]) await conciergeThread(decodeURIComponent(parts[2]));
+    else if (sub !== null && CIRCLE[sub]) await CIRCLE[sub](params);
     else await overview(params);
   } catch (err) {
+    if (!(err instanceof ApiError)) console.error(err);
     render("Something went wrong", h("p", { class: "error", role: "alert" }, err.message),
       h("button", { type: "button", onclick: route }, "Try again"));
   }
 }
 
+setRouter(route);
 window.addEventListener("hashchange", route);
 route();
+
