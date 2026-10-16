@@ -19,7 +19,7 @@ fix, green. New attack tests: `test/s11_security.test.mjs` (17),
 
 | # | Finding | Proposed fix |
 |---|---|---|
-| P1 | **Production `club.springrenaissance.store` publishes the root of the `main` branch**: the Pages project `spring-renaissance-club` is wired to this repo with an empty build command and output directory, so `/worker.js`, `/wrangler.toml`, `/schema.sql`, `/README.md` are downloadable. No secrets in them (gitleaks clean), but it shows the backend's source and config, and making the repo private does **not** close it. | Production step 6 in `docs/launch-v1.md`: set the build to `cd portal && npm ci && npm run build`, output `portal/dist` (or deploy `portal/dist` with wrangler and switch Git builds off). Until then, nothing else in `main` should be added that is not meant to be public. |
+| P1 (**closed 16 Oct**, see "Applied in production") | **Production `club.springrenaissance.store` published the root of the `main` branch**: the Pages project `spring-renaissance-club` is wired to this repo with an empty build command and output directory, so `/worker.js`, `/wrangler.toml`, `/schema.sql`, `/README.md` are downloadable. No secrets in them (gitleaks clean), but it shows the backend's source and config, and making the repo private does **not** close it. | Production step 6 in `docs/launch-v1.md`: set the build to `cd portal && npm ci && npm run build`, output `portal/dist` (or deploy `portal/dist` with wrangler and switch Git builds off). Until then, nothing else in `main` should be added that is not meant to be public. |
 
 ## Table: item → where → test → result
 
@@ -140,8 +140,26 @@ is limited to 3 an hour, so it is not a usable enumeration oracle.
 - **WAF rate limit** — "LK auth: 20 per 10s per IP on /api/auth/*" on api. and
   api-staging., Block 10 s: form filled, but the dashboard's Deploy is gated by
   Cloudflare's human check, so Felix saves it.
-- **P1** — waiting: see the question in the report (the new portal's API is not
-  live yet).
+- **P1 — closed (16 Oct 2026).** Felix chose to keep the old Private Client
+  Portal on `club.` until the V1 launch. The Pages project
+  `spring-renaissance-club` now builds `main` with
+  `mkdir -p _site && cp index.html _site/index.html && <decode _worker.js>`,
+  output `_site`. `_site/_worker.js` (source: `docs/club-interim-worker.js`)
+  serves `/` (and `/index.html`) from assets and answers every other path
+  with 404 `no-store` before any asset lookup. Why the Worker: the first build
+  (index.html + 404.html only) was correct on the deployment URL, but `club.`
+  kept serving the four previously requested files from the Pages asset cache
+  (per data centre, up to a week); purges by URL, by hostname and Purge
+  Everything did not reach it. After deployment `a2111778` and one more URL
+  purge of `/worker.js` (zone cache): `/worker.js`, `/wrangler.toml`,
+  `/schema.sql`, `/README.md`, `/docs/`, any other path → 404; `/` → 200,
+  byte-identical to before (MD5 8ea9b215…); `/?auth_token=<invalid>` → the
+  page's "Session expired" state with the request-link form; the form posts to
+  the Worker → 202 and shows its notice (checked in Chrome).
+  Rollback: Pages → deployment `df5242b7` (15 Oct) "Rollback to this
+  deployment" and clear the build command/output (the old state exposes P1
+  again). At the V1 launch: build `portal/` → `portal/dist` instead
+  (`docs/launch-v1.md` step 6) and drop the interim worker.
 
 ## Recommended next (not done)
 
