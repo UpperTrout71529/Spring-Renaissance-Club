@@ -48,3 +48,4 @@ printed; nothing deleted (legacy VIP off by flag); no purchases.
   Two background agents: portal Circle screens (portal/) and admin screens (public/admin/) — they do not commit; review their files, run portal unit + e2e and the admin e2e config (port 4444), then commit.
   A read-only backend review agent is running; fix its confirmed findings with tests.
   Left: integrate UI work, deploy club-staging (portal build:staging → Pages project spring-renaissance-club-staging), staging smoke, report (docs/v2-report.md + vault copy).
+- 16 Oct (night): independent backend review → 13 findings fixed with regression tests (07b569f, D40); migration 0012 on staging; suite 556/556. Waiting for the portal and admin UI agents (both told about: early access API, capsule step-up, object 'creating' status, admin unfreeze, adjust Idempotency-Key).
