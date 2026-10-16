@@ -69,19 +69,35 @@ export async function objectView(ctx, kind) {
   else if (claim && ACTIVE.includes(claim.status)) reason = "already_claimed";
   else if (!rel.guard_ok) reason = "paused";
   else if (left === 0) reason = "sold_out";
+  const memberPrice = kind === "early_access" ? await earlyAccessPrice(env, rel) : rel.price_cents;
   const release = {
     id: rel.id, title: rel.public_title || null, description: rel.description, image_url: rel.image_url,
     price_cents: rel.price_cents, closes_at: rel.closes_at, sold_out: left === 0, one_per_member: true,
     ...(rel.show_remaining ? { remaining: left } : {}),
-    ...(kind === "early_access" ? { public_release_at: rel.public_release_at, ships_note: rel.ships_note } : {}),
+    ...(kind === "early_access" ? { public_release_at: rel.public_release_at, ships_note: rel.ships_note || null, member_price_cents: memberPrice } : {}),
   };
   return { release, claim: claimView(claim), can_claim: reason === null, reason };
+}
+
+// Early access (T21, D39): the Circle price when the piece passes rule 2
+// (circle_price_items eligible), otherwise the full price.
+export async function earlyAccessPrice(env, rel) {
+  const item = await env.DB.prepare("SELECT eligible, circle_price_cents FROM circle_price_items WHERE variant_gid = ?1").bind(rel.variant_gid).first();
+  return item && item.eligible && Number.isInteger(item.circle_price_cents) ? item.circle_price_cents : rel.price_cents;
+}
+
+// Every 5 minutes: a release past its closing time closes (early access closes
+// at the public release, when Felix publishes the piece).
+export async function closeReleases(svc) {
+  const res = await svc.env.DB.prepare("UPDATE member_object_releases SET status = 'closed', updated_at = ?1 WHERE status = 'open' AND closes_at <= ?1")
+    .bind(svc.nowIso()).run();
+  return { closed: (res.meta && res.meta.changes) || 0 };
 }
 
 const unavailable = () => new HttpError(503, "object_unavailable", "We couldn't reserve the piece just now. Please try again in a moment.");
 
 // Creates (or returns) the member's claim. extra: { lineOverride(rel) } for early access.
-export async function claimRelease(ctx, { releaseId, kind, priceFor = (rel) => rel.price_cents, note = "Circle members' object", tags = ["circle-object"] }) {
+export async function claimRelease(ctx, { releaseId, kind, note = "Circle members' object", tags = ["circle-object"] }) {
   const { env, session } = ctx;
   const userId = session.user.id;
   const nowMs = ctx.now();
@@ -96,7 +112,7 @@ export async function claimRelease(ctx, { releaseId, kind, priceFor = (rel) => r
   if (!shopifyConfigured(env)) throw unavailable();
 
   const id = ctx.newId();
-  const price = priceFor(rel);
+  const price = kind === "early_access" ? await earlyAccessPrice(env, rel) : rel.price_cents;
   const reservedUntil = new Date(nowMs + rel.reserve_hours * HOUR_MS).toISOString();
   let ins;
   try {
@@ -245,8 +261,9 @@ export async function objectOrderCheck(svc, { order, user }) {
   const lineVariants = ((order.lineItems && order.lineItems.nodes) || []).map((l) => l.variant && l.variant.id).filter(Boolean);
   if (!lineVariants.length) return;
   const { results } = await env.DB.prepare(
-    "SELECT id, variant_gid FROM member_object_releases WHERE variant_gid IN (SELECT value FROM json_each(?1))"
-  ).bind(JSON.stringify(lineVariants)).all();
+    `SELECT id, variant_gid FROM member_object_releases WHERE variant_gid IN (SELECT value FROM json_each(?1))
+       AND (kind = 'members_object' OR (kind = 'early_access' AND status <> 'draft' AND closes_at > ?2))`
+  ).bind(JSON.stringify(lineVariants), svc.nowIso()).all();
   if (!results.length) return;
   const claimIds = (order.tags || []).map((t) => (/^circle-claim-([0-9A-Z]{26})$/.exec(t) || [])[1]).filter(Boolean);
   let legit = false;

@@ -8,6 +8,8 @@ import { loadSettings } from "../circle/economics-store.js";
 import { minObjectPrice, objectCheck } from "../circle/economics.js";
 import { claimRelease, objectView, releaseCounts, runGuard } from "../circle/member-object.js";
 
+const EARLY_WINDOW_HOURS = 48; // D39
+
 const GID_PRODUCT = /^gid:\/\/shopify\/Product\/\d+$/;
 const GID_VARIANT = /^gid:\/\/shopify\/ProductVariant\/\d+$/;
 const REQUIRED_TO_OPEN = ["price_cents", "edition_size", "unit_cost_cents", "shipping_class", "reserve_hours", "opens_at", "closes_at"];
@@ -17,6 +19,19 @@ const LOCKED_WHEN_OPEN = ["product_gid", "variant_gid", "price_cents", "edition_
 
 export async function getObject(ctx) {
   return ctx.json(await objectView(ctx, "members_object"));
+}
+
+export async function getEarlyAccess(ctx) {
+  return ctx.json(await objectView(ctx, "early_access"));
+}
+
+export async function postEarlyAccessClaim(ctx) {
+  const body = await readJson(ctx.request);
+  if (typeof body.release_id !== "string") throw badRequest("invalid_request", "Which release?");
+  const out = await claimRelease(ctx, { releaseId: body.release_id, kind: "early_access", note: "Circle early access", tags: ["circle-early-access"] });
+  const c = out.claim;
+  return ctx.json({ status: c.status, invoice_url: c.status === "invoiced" ? c.invoice_url : null,
+    reserved_until: c.status === "invoiced" ? c.reserved_until : null }, out.status);
 }
 
 export async function postObjectClaim(ctx) {
@@ -145,6 +160,19 @@ export async function openReleaseNow(ctx) {
   const rel = await env.DB.prepare("SELECT * FROM member_object_releases WHERE id = ?1").bind(params.id).first();
   if (!rel) throw notFound();
   if (rel.status === "open") throw conflict("already_open", "This release is open.");
+  if (rel.kind === "early_access") {
+    // D39: the members' window is the 48 hours before the public release, unless Felix set it.
+    if (!rel.public_release_at) {
+      const e = new HttpError(422, "release_incomplete", "Set the public release time first.");
+      e.explanation = { missing: ["public_release_at"] };
+      throw e;
+    }
+    const opens = rel.opens_at || new Date(Date.parse(rel.public_release_at) - EARLY_WINDOW_HOURS * 3600 * 1000).toISOString();
+    const closes = rel.closes_at || rel.public_release_at;
+    await env.DB.prepare("UPDATE member_object_releases SET opens_at = ?1, closes_at = ?2 WHERE id = ?3").bind(opens, closes, rel.id).run();
+    rel.opens_at = opens;
+    rel.closes_at = closes;
+  }
   const missing = REQUIRED_TO_OPEN.filter((k) => rel[k] === null || rel[k] === undefined);
   if (missing.length) {
     const e = new HttpError(422, "release_incomplete", "Fill in every figure before opening.");

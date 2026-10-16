@@ -98,7 +98,7 @@ async function catalogRows(env) {
 // Variants that are a members' object (T15 table, if present).
 async function memberObjectVariants(env) {
   try {
-    const { results } = await env.DB.prepare("SELECT variant_gid FROM member_object_releases").all();
+    const { results } = await env.DB.prepare("SELECT variant_gid FROM member_object_releases WHERE kind = 'members_object'").all();
     return new Set(results.map((r) => r.variant_gid));
   } catch {
     return new Set();

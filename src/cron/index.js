@@ -10,7 +10,7 @@ import { runRetention } from "./retention.js";
 import { creditsExpiring, creditsExpiry, renewalReminders, stripeReconcile, welcomeReminders } from "./circle-jobs.js";
 import { ulid } from "../lib/ulid.js";
 import { syncMemberPrice } from "../circle/member-price.js";
-import { expireClaims, guardReleases } from "../circle/member-object.js";
+import { closeReleases, expireClaims, guardReleases } from "../circle/member-object.js";
 import { registerCircle } from "../circle/register.js";
 import { announceCapsules } from "../circle/capsules.js";
 
@@ -23,6 +23,7 @@ export const DAILY_CRON = "15 3 * * *";
 export const JOBS = {
   frequent: [
     { name: "member_price", run: (env, nowMs, deps) => syncMemberPrice(deps.svc) },
+    { name: "close_releases", run: (env, nowMs, deps) => closeReleases(deps.svc) },
     { name: "object_claims", run: (env, nowMs, deps) => expireClaims(deps.svc) },
     { name: "renewal_reminders", run: (env, nowMs, deps) => renewalReminders(deps.svc) },
     { name: "stripe_reconcile", run: (env, nowMs, deps) => stripeReconcile(deps.svc) },

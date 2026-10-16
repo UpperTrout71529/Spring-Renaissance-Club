@@ -46,7 +46,7 @@ import { decideInvitation, getInvite, listInvitations } from "./circle/invitatio
 import { adminRoomImage, deleteRoom, getConcierge, getRoomImage, getThread, listRooms, listThreads, postConcierge, replyThread, uploadRoom } from "./circle/concierge.js";
 import { adjustCredits, circleOverview, listFlags, resolveFlag } from "./routes/admin-circle.js";
 import { claimCapsule, createCapsule, deleteSkip, getCapsules, listCapsulesAdmin, listSkips, patchCapsule, postSkip } from "./circle/capsules.js";
-import { closeRelease, createRelease, getObject, getReleaseGuard, listReleases, openReleaseNow, patchRelease, postObjectClaim } from "./routes/member-object.js";
+import { closeRelease, createRelease, getEarlyAccess, getObject, getReleaseGuard, listReleases, openReleaseNow, patchRelease, postEarlyAccessClaim, postObjectClaim } from "./routes/member-object.js";
 
 // Route options:
 //   auth: "session"   — 401 without a live session; ctx.session is set
@@ -104,6 +104,8 @@ export const ROUTES = [
   { method: "GET", path: "/api/circle/welcome", handler: getWelcome, auth: "session" },
   { method: "POST", path: "/api/circle/welcome", handler: postWelcome, auth: "session" },
   { method: "GET", path: "/api/circle/object", handler: getObject, auth: "session" },
+  { method: "GET", path: "/api/circle/early-access", handler: getEarlyAccess, auth: "session" },
+  { method: "POST", path: "/api/circle/early-access/claim", handler: postEarlyAccessClaim, auth: "session" },
   { method: "POST", path: "/api/circle/object/claim", handler: postObjectClaim, auth: "session" },
   { method: "GET", path: "/api/circle/anniversary", handler: getAnniversary, auth: "session" },
   { method: "POST", path: "/api/circle/anniversary", handler: postAnniversary, auth: "session" },
