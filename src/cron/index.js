@@ -12,6 +12,7 @@ import { ulid } from "../lib/ulid.js";
 import { syncMemberPrice } from "../circle/member-price.js";
 import { expireClaims, guardReleases } from "../circle/member-object.js";
 import { registerCircle } from "../circle/register.js";
+import { announceCapsules } from "../circle/capsules.js";
 
 registerCircle();
 
@@ -31,6 +32,7 @@ export const JOBS = {
     { name: "credits_expiry", run: (env, nowMs, deps) => creditsExpiry(deps.svc) },
     { name: "credits_expiring", run: (env, nowMs, deps) => creditsExpiring(deps.svc) },
     { name: "object_guard", run: (env, nowMs, deps) => guardReleases(deps.svc) },
+    { name: "capsule_announce", run: (env, nowMs, deps) => announceCapsules(deps.svc) },
     { name: "welcome_reminders", run: (env, nowMs, deps) => welcomeReminders(deps.svc) },
   ],
 };

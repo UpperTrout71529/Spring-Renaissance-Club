@@ -11,6 +11,12 @@
 -- ============================================================================
 
 -- V2 Circle tables first (same list as scripts/rollback/v2_down.sql).
+DROP TABLE IF EXISTS room_photos;
+DROP TABLE IF EXISTS concierge_messages;
+DROP TABLE IF EXISTS concierge_threads;
+DROP TABLE IF EXISTS skips;
+DROP TABLE IF EXISTS capsule_claims;
+DROP TABLE IF EXISTS capsules;
 DROP TABLE IF EXISTS referral_coupons;
 DROP TABLE IF EXISTS referrals;
 DROP TABLE IF EXISTS referral_codes;
@@ -35,7 +41,7 @@ DROP TABLE IF EXISTS cancellations;
 DROP TABLE IF EXISTS redemptions;
 DROP TABLE IF EXISTS credit_ledger;
 DROP TABLE IF EXISTS memberships;
-DELETE FROM d1_migrations WHERE name IN ('0006_membership.sql', '0007_economics_gifts.sql', '0008_member_price.sql', '0009_member_object.sql', '0010_referrals.sql');
+DELETE FROM d1_migrations WHERE name IN ('0006_membership.sql', '0007_economics_gifts.sql', '0008_member_price.sql', '0009_member_object.sql', '0010_referrals.sql', '0011_capsules_concierge.sql');
 
 DROP TABLE IF EXISTS step_up_codes;
 DROP TABLE IF EXISTS webauthn_challenges;

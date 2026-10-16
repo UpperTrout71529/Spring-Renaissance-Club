@@ -43,6 +43,7 @@ import { getMeStorefront, getStorefrontCirclePrice } from "./routes/storefront.j
 import { assignAnniversary, createAnniversaryOrder, getAnniversary, postAnniversary } from "./circle/anniversary.js";
 import { registerCircle } from "./circle/register.js";
 import { decideInvitation, getInvite, listInvitations } from "./circle/invitations.js";
+import { claimCapsule, createCapsule, deleteSkip, getCapsules, listCapsulesAdmin, listSkips, patchCapsule, postSkip } from "./circle/capsules.js";
 import { closeRelease, createRelease, getObject, getReleaseGuard, listReleases, openReleaseNow, patchRelease, postObjectClaim } from "./routes/member-object.js";
 
 // Route options:
@@ -105,6 +106,11 @@ export const ROUTES = [
   { method: "GET", path: "/api/circle/anniversary", handler: getAnniversary, auth: "session" },
   { method: "POST", path: "/api/circle/anniversary", handler: postAnniversary, auth: "session" },
   { method: "GET", path: "/api/circle/invite", handler: getInvite, auth: "session" },
+  { method: "GET", path: "/api/circle/capsules", handler: getCapsules, auth: "session" },
+  { method: "POST", path: "/api/circle/capsules/:id/claim", handler: claimCapsule, auth: "session" },
+  { method: "GET", path: "/api/circle/skips", handler: listSkips, auth: "session" },
+  { method: "POST", path: "/api/circle/skips", handler: postSkip, auth: "session" },
+  { method: "DELETE", path: "/api/circle/skips/:capsule_id", handler: deleteSkip, auth: "session" },
   { method: "GET", path: "/api/circle/join", handler: getJoin, auth: "session" },
   { method: "POST", path: "/api/circle/checkout", handler: postCheckout, auth: "session" },
   { method: "POST", path: "/api/circle/rejoin", handler: postRejoin, auth: "session" },
@@ -143,6 +149,9 @@ export const ROUTES = [
   { method: "POST", path: "/api/admin/anniversary/:id/create-order", handler: createAnniversaryOrder, auth: "admin" },
   { method: "GET", path: "/api/admin/invitations", handler: listInvitations, auth: "admin" },
   { method: "PATCH", path: "/api/admin/invitations/:id", handler: decideInvitation, auth: "admin" },
+  { method: "GET", path: "/api/admin/capsules", handler: listCapsulesAdmin, auth: "admin" },
+  { method: "POST", path: "/api/admin/capsules", handler: createCapsule, auth: "admin" },
+  { method: "PATCH", path: "/api/admin/capsules/:id", handler: patchCapsule, auth: "admin" },
   { method: "GET", path: "/admin", handler: serveAdmin, auth: "admin" },
   { method: "GET", path: "/admin/:file", handler: serveAdmin, auth: "admin" },
 ];
