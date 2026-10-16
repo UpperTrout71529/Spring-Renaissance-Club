@@ -1,0 +1,489 @@
+{%- comment -%}
+  SPRING RENAISSANCE — sr-footer.liquid
+  Colophon. Gazette sign-up row, four-column navigation ledger,
+  base bar with copyright, legal menu and payment marks.
+
+  Install: Edit code > Sections > Add a new section > name it
+  "sr-footer", paste this file whole. Then Theme editor >
+  Footer group > Add section > "SR — Footer", and remove or hide
+  the theme's default Footer section so only one renders.
+
+  Renders as <footer> via "tag": "footer" in the schema.
+{%- endcomment -%}
+
+{% style %}
+  #shopify-section-{{ section.id }}{
+    --sr-ground:{{ section.settings.bg_color }};
+    --sr-ink:{{ section.settings.text_color }};
+    --sr-accent:{{ section.settings.accent_color }};
+    --sr-hair:{{ section.settings.text_color }}22;
+    --sr-serif:'Cormorant Garamond','Times New Roman',Georgia,serif;
+    --sr-sans:'Inter','Montserrat',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  }
+
+  #shopify-section-{{ section.id }} .sr-foot{
+    background:var(--sr-ground);color:var(--sr-ink);
+    padding:{{ section.settings.padding_top }}px 20px {{ section.settings.padding_bottom }}px;
+  }
+  #shopify-section-{{ section.id }} .sr-foot *{box-sizing:border-box;}
+  #shopify-section-{{ section.id }} .sr-foot__inner{
+    max-width:{{ section.settings.max_width }}px;margin:0 auto;
+  }
+  #shopify-section-{{ section.id }} .sr-foot__vh{
+    position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+    overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;
+  }
+
+  /* ---------- shared kicker ---------- */
+  #shopify-section-{{ section.id }} .sr-foot__kicker{
+    display:flex;align-items:center;gap:13px;margin:0 0 18px;
+    font-family:var(--sr-sans);font-weight:500;font-size:10px;
+    letter-spacing:.26em;text-transform:uppercase;color:var(--sr-accent);
+  }
+  #shopify-section-{{ section.id }} .sr-foot__kicker::after{
+    content:"";flex:1 1 auto;height:1px;background:var(--sr-hair);
+  }
+
+  /* ---------- 1. gazette ---------- */
+  #shopify-section-{{ section.id }} .sr-foot__gazette{
+    display:grid;grid-template-columns:1fr;gap:34px;
+    padding:0 0 52px;border-bottom:1px solid var(--sr-hair);
+  }
+  #shopify-section-{{ section.id }} .sr-foot__h{
+    font-family:var(--sr-serif);font-weight:300;
+    font-size:clamp(1.9rem,6.4vw,2.9rem);line-height:1.05;
+    margin:0 0 14px;
+  }
+  #shopify-section-{{ section.id }} .sr-foot__lede{
+    font-family:var(--sr-sans);font-size:.93rem;line-height:1.85;
+    opacity:.72;margin:0;max-width:46ch;
+  }
+
+  #shopify-section-{{ section.id }} .sr-foot__field{
+    display:flex;align-items:stretch;gap:12px;
+    border-bottom:1px solid var(--sr-hair);
+    transition:border-color .5s cubic-bezier(.22,1,.36,1);
+  }
+  #shopify-section-{{ section.id }} .sr-foot__field:focus-within{border-bottom-color:var(--sr-ink);}
+  #shopify-section-{{ section.id }} .sr-foot__input{
+    flex:1 1 auto;min-width:0;
+    background:transparent;border:0;border-radius:0;
+    padding:14px 0;color:var(--sr-ink);
+    font-family:var(--sr-sans);font-size:13px;
+    letter-spacing:.12em;text-transform:uppercase;
+    -webkit-appearance:none;appearance:none;
+  }
+  #shopify-section-{{ section.id }} .sr-foot__input::placeholder{color:var(--sr-ink);opacity:.38;}
+  #shopify-section-{{ section.id }} .sr-foot__input:focus{outline:0;}
+  #shopify-section-{{ section.id }} .sr-foot__send{
+    flex:0 0 auto;
+    background:transparent;border:0;border-radius:0;
+    padding:14px 2px 14px 14px;cursor:pointer;
+    color:var(--sr-ink);font-size:15px;line-height:1;
+    transition:color .5s cubic-bezier(.22,1,.36,1);
+  }
+  #shopify-section-{{ section.id }} .sr-foot__send:hover{color:var(--sr-accent);}
+  #shopify-section-{{ section.id }} .sr-foot__send:focus-visible{
+    outline:1px solid var(--sr-accent);outline-offset:3px;
+  }
+  #shopify-section-{{ section.id }} .sr-foot__arrow{
+    display:inline-block;
+    transition:transform .5s cubic-bezier(.22,1,.36,1);
+  }
+  #shopify-section-{{ section.id }} .sr-foot__send:hover .sr-foot__arrow{transform:translateX(6px);}
+
+  #shopify-section-{{ section.id }} .sr-foot__msg{
+    margin:14px 0 0;
+    font-family:var(--sr-sans);font-size:11px;line-height:1.7;
+    letter-spacing:.08em;
+  }
+  #shopify-section-{{ section.id }} .sr-foot__msg--ok{color:var(--sr-accent);}
+  #shopify-section-{{ section.id }} .sr-foot__msg--err{color:var(--sr-ink);opacity:.75;}
+  #shopify-section-{{ section.id }} .sr-foot__fine{
+    margin:16px 0 0;
+    font-family:var(--sr-sans);font-size:11px;line-height:1.7;opacity:.5;
+  }
+
+  /* ---------- 2. navigation ledger ---------- */
+  #shopify-section-{{ section.id }} .sr-foot__nav{
+    display:grid;grid-template-columns:1fr;gap:0;
+    padding:8px 0 0;
+  }
+  #shopify-section-{{ section.id }} .sr-foot__col{
+    padding:36px 0 0;
+  }
+  #shopify-section-{{ section.id }} .sr-foot__list{
+    list-style:none;margin:0;padding:0;
+  }
+  #shopify-section-{{ section.id }} .sr-foot__list li{margin:0 0 13px;}
+  #shopify-section-{{ section.id }} .sr-foot__list li:last-child{margin-bottom:0;}
+  #shopify-section-{{ section.id }} .sr-foot__link{
+    display:inline-block;text-decoration:none;color:var(--sr-ink);
+    font-family:var(--sr-sans);font-size:12px;font-weight:400;
+    letter-spacing:.12em;text-transform:uppercase;
+    opacity:.74;
+    transition:transform .5s cubic-bezier(.22,1,.36,1),
+               color .5s cubic-bezier(.22,1,.36,1),
+               opacity .5s cubic-bezier(.22,1,.36,1);
+  }
+  #shopify-section-{{ section.id }} .sr-foot__link:hover{
+    transform:translateX(4px);color:var(--sr-accent);opacity:1;
+  }
+  #shopify-section-{{ section.id }} .sr-foot__link:focus-visible{
+    outline:1px solid var(--sr-accent);outline-offset:4px;opacity:1;
+  }
+
+  #shopify-section-{{ section.id }} .sr-foot__monogram{
+    font-family:var(--sr-serif);font-weight:300;
+    font-size:clamp(1.5rem,5.2vw,1.9rem);line-height:1.05;
+    margin:0 0 16px;
+  }
+  #shopify-section-{{ section.id }} .sr-foot__note{
+    font-family:var(--sr-serif);font-style:italic;font-weight:300;
+    font-size:1rem;line-height:1.7;opacity:.72;margin:0 0 18px;max-width:34ch;
+  }
+  #shopify-section-{{ section.id }} .sr-foot__address{
+    font-style:normal;
+    font-family:var(--sr-sans);font-size:11px;line-height:1.9;
+    letter-spacing:.16em;text-transform:uppercase;opacity:.55;
+  }
+
+  /* ---------- 3. base bar ---------- */
+  #shopify-section-{{ section.id }} .sr-foot__base{
+    display:flex;flex-direction:column;align-items:center;gap:22px;
+    margin-top:56px;padding-top:28px;
+    border-top:1px solid var(--sr-hair);
+    text-align:center;
+  }
+  #shopify-section-{{ section.id }} .sr-foot__copy{
+    margin:0;
+    font-family:var(--sr-sans);font-size:10px;font-weight:500;
+    letter-spacing:.2em;text-transform:uppercase;opacity:.5;
+  }
+  #shopify-section-{{ section.id }} .sr-foot__legal{
+    list-style:none;margin:0;padding:0;
+    display:flex;flex-wrap:wrap;justify-content:center;gap:10px 22px;
+  }
+  #shopify-section-{{ section.id }} .sr-foot__legal-link{
+    text-decoration:none;color:var(--sr-ink);
+    font-family:var(--sr-sans);font-size:10px;font-weight:500;
+    letter-spacing:.2em;text-transform:uppercase;opacity:.5;
+    transition:color .5s cubic-bezier(.22,1,.36,1),opacity .5s cubic-bezier(.22,1,.36,1);
+  }
+  #shopify-section-{{ section.id }} .sr-foot__legal-link:hover{color:var(--sr-accent);opacity:1;}
+  #shopify-section-{{ section.id }} .sr-foot__legal-link:focus-visible{
+    outline:1px solid var(--sr-accent);outline-offset:4px;opacity:1;
+  }
+
+  #shopify-section-{{ section.id }} .sr-foot__pay{
+    list-style:none;margin:0;padding:0;
+    display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px;
+  }
+  #shopify-section-{{ section.id }} .sr-foot__pay svg{
+    display:block;width:34px;height:22px;
+    filter:grayscale(1);opacity:.45;
+    transition:filter .5s cubic-bezier(.22,1,.36,1),opacity .5s cubic-bezier(.22,1,.36,1);
+  }
+  #shopify-section-{{ section.id }} .sr-foot__pay li:hover svg{filter:grayscale(0);opacity:.9;}
+
+  /* ---------- 4. social marks ---------- */
+  #shopify-section-{{ section.id }} .sr-foot__social{
+    list-style:none;margin:22px 0 0;padding:0;
+    display:flex;flex-wrap:wrap;gap:18px;
+  }
+  #shopify-section-{{ section.id }} .sr-foot__social a{
+    display:block;color:var(--sr-ink);opacity:.55;
+    transition:color .5s cubic-bezier(.22,1,.36,1),
+               opacity .5s cubic-bezier(.22,1,.36,1),
+               transform .5s cubic-bezier(.22,1,.36,1);
+  }
+  #shopify-section-{{ section.id }} .sr-foot__social a:hover{
+    color:var(--sr-accent);opacity:1;transform:translateY(-2px);
+  }
+  #shopify-section-{{ section.id }} .sr-foot__social a:focus-visible{
+    outline:1px solid var(--sr-accent);outline-offset:4px;opacity:1;
+  }
+  #shopify-section-{{ section.id }} .sr-foot__social svg{
+    display:block;width:17px;height:17px;fill:currentColor;
+  }
+
+  /* ---------- breakpoints ---------- */
+  @media (min-width:600px){
+    #shopify-section-{{ section.id }} .sr-foot__nav{
+      grid-template-columns:repeat(2,1fr);column-gap:{{ section.settings.gap_x }}px;
+    }
+  }
+
+  @media (min-width:900px){
+    #shopify-section-{{ section.id }} .sr-foot{padding-left:40px;padding-right:40px;}
+    #shopify-section-{{ section.id }} .sr-foot__gazette{
+      grid-template-columns:1.05fr 1fr;
+      column-gap:{{ section.settings.gap_x }}px;
+      align-items:end;
+      padding-bottom:64px;
+    }
+    #shopify-section-{{ section.id }} .sr-foot__nav{
+      grid-template-columns:repeat(4,1fr);
+    }
+    #shopify-section-{{ section.id }} .sr-foot__col{padding-top:56px;}
+    #shopify-section-{{ section.id }} .sr-foot__base{
+      flex-direction:row;justify-content:space-between;
+      gap:32px;margin-top:72px;padding-top:32px;text-align:left;
+    }
+    #shopify-section-{{ section.id }} .sr-foot__legal{justify-content:flex-start;}
+    #shopify-section-{{ section.id }} .sr-foot__pay{justify-content:flex-end;}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    #shopify-section-{{ section.id }} .sr-foot *{transition-duration:.01ms !important;}
+  }
+{% endstyle %}
+
+<div class="sr-foot">
+  <div class="sr-foot__inner">
+
+    {%- comment -%} 1 — Private Gazette {%- endcomment -%}
+    {%- if section.settings.show_gazette -%}
+      <div class="sr-foot__gazette">
+
+        <div>
+          {%- if section.settings.gazette_kicker != blank -%}
+            <p class="sr-foot__kicker">{{ section.settings.gazette_kicker }}</p>
+          {%- endif -%}
+          {%- if section.settings.gazette_heading != blank -%}
+            <h2 class="sr-foot__h">{{ section.settings.gazette_heading }}</h2>
+          {%- endif -%}
+          {%- if section.settings.gazette_lede != blank -%}
+            <p class="sr-foot__lede">{{ section.settings.gazette_lede }}</p>
+          {%- endif -%}
+        </div>
+
+        <div>
+          {%- form 'customer', id: 'sr-gazette', class: 'sr-foot__form' -%}
+            <input type="hidden" name="contact[tags]" value="newsletter">
+
+            <label class="sr-foot__vh" for="sr-gazette-email-{{ section.id }}">
+              {{ section.settings.gazette_placeholder | default: 'Email address' }}
+            </label>
+
+            <div class="sr-foot__field">
+              <input class="sr-foot__input"
+                     id="sr-gazette-email-{{ section.id }}"
+                     type="email"
+                     name="contact[email]"
+                     value="{{ form.email }}"
+                     placeholder="{{ section.settings.gazette_placeholder | escape }}"
+                     autocomplete="email"
+                     autocorrect="off"
+                     autocapitalize="off"
+                     spellcheck="false"
+                     required>
+              <button class="sr-foot__send" type="submit" aria-label="{{ section.settings.gazette_submit_label | escape }}">
+                <span class="sr-foot__arrow" aria-hidden="true">&rarr;</span>
+              </button>
+            </div>
+
+            {%- if form.posted_successfully? -%}
+              <p class="sr-foot__msg sr-foot__msg--ok">{{ section.settings.gazette_success }}</p>
+            {%- elsif form.errors -%}
+              <p class="sr-foot__msg sr-foot__msg--err">
+                {{ form.errors.translated_fields.email | capitalize }} {{ form.errors.messages.email }}
+              </p>
+            {%- endif -%}
+
+            {%- if section.settings.gazette_fine != blank -%}
+              <p class="sr-foot__fine">{{ section.settings.gazette_fine }}</p>
+            {%- endif -%}
+          {%- endform -%}
+        </div>
+
+      </div>
+    {%- endif -%}
+
+    {%- comment -%} 2 — navigation ledger {%- endcomment -%}
+    {%- if section.blocks.size > 0 -%}
+      <div class="sr-foot__nav">
+        {%- for block in section.blocks -%}
+
+          {%- case block.type -%}
+
+            {%- when 'link_list' -%}
+              <nav class="sr-foot__col"
+                   aria-label="{{ block.settings.heading | default: 'Footer menu' | escape }}"
+                   {{ block.shopify_attributes }}>
+                {%- if block.settings.heading != blank -%}
+                  <p class="sr-foot__kicker">{{ block.settings.heading }}</p>
+                {%- endif -%}
+                {%- assign menu = block.settings.menu -%}
+                {%- if menu != blank and menu.links.size > 0 -%}
+                  <ul class="sr-foot__list" role="list">
+                    {%- for link in menu.links -%}
+                      <li>
+                        <a class="sr-foot__link" href="{{ link.url }}"
+                           {% if link.current %}aria-current="page"{% endif %}>{{ link.title }}</a>
+                      </li>
+                    {%- endfor -%}
+                  </ul>
+                {%- endif -%}
+              </nav>
+
+            {%- when 'brand_info' -%}
+              <div class="sr-foot__col" {{ block.shopify_attributes }}>
+                {%- if block.settings.kicker != blank -%}
+                  <p class="sr-foot__kicker">{{ block.settings.kicker }}</p>
+                {%- endif -%}
+                {%- if block.settings.heading != blank -%}
+                  <p class="sr-foot__monogram">{{ block.settings.heading }}</p>
+                {%- endif -%}
+                {%- if block.settings.note != blank -%}
+                  <p class="sr-foot__note">{{ block.settings.note }}</p>
+                {%- endif -%}
+                {%- if block.settings.address != blank -%}
+                  <address class="sr-foot__address">{{ block.settings.address }}</address>
+                {%- endif -%}
+                {%- capture social_marks -%}
+                  {%- if block.settings.social_instagram != blank -%}
+                    <li><a href="{{ block.settings.social_instagram }}" target="_blank" rel="noopener" aria-label="Instagram">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.8.25 2.23.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.06.41 2.23.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.25 1.8-.41 2.23-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.16-1.06.36-2.23.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.8-.25-2.23-.41-.56-.22-.96-.48-1.38-.9-.42-.42-.68-.82-.9-1.38-.16-.42-.36-1.06-.41-2.23-.06-1.27-.07-1.65-.07-4.85s.01-3.58.07-4.85c.05-1.17.25-1.8.41-2.23.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.16 1.06-.36 2.23-.41 1.27-.06 1.65-.07 4.85-.07M12 0C8.74 0 8.33.01 7.05.07 5.78.13 4.9.33 4.14.63c-.79.3-1.46.72-2.12 1.38C1.36 2.67.94 3.34.63 4.14.33 4.9.13 5.78.07 7.05.01 8.33 0 8.74 0 12s.01 3.67.07 4.95c.06 1.27.26 2.15.56 2.91.3.79.72 1.46 1.38 2.12.66.66 1.33 1.08 2.12 1.38.76.3 1.64.5 2.91.56C8.33 23.99 8.74 24 12 24s3.67-.01 4.95-.07c1.27-.06 2.15-.26 2.91-.56.79-.3 1.46-.72 2.12-1.38.66-.66 1.08-1.33 1.38-2.12.3-.76.5-1.64.56-2.91.06-1.28.07-1.69.07-4.95s-.01-3.67-.07-4.95c-.06-1.27-.26-2.15-.56-2.91-.3-.79-.72-1.46-1.38-2.12-.66-.66-1.33-1.08-2.12-1.38-.76-.3-1.64-.5-2.91-.56C15.67.01 15.26 0 12 0z M12 5.84a6.16 6.16 0 1 0 0 12.32 6.16 6.16 0 0 0 0-12.32zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8z M18.41 4.15a1.44 1.44 0 1 0 0 2.88 1.44 1.44 0 0 0 0-2.88z"/></svg>
+                    </a></li>
+                  {%- endif -%}
+                  {%- if block.settings.social_pinterest != blank -%}
+                    <li><a href="{{ block.settings.social_pinterest }}" target="_blank" rel="noopener" aria-label="Pinterest">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12c0 4.24 2.64 7.86 6.36 9.32-.09-.79-.17-2 .03-2.86.18-.78 1.18-4.97 1.18-4.97s-.3-.6-.3-1.5c0-1.4.81-2.45 1.83-2.45.86 0 1.28.65 1.28 1.43 0 .87-.55 2.17-.84 3.38-.24 1.01.51 1.83 1.5 1.83 1.8 0 3.19-1.9 3.19-4.65 0-2.43-1.75-4.13-4.24-4.13-2.89 0-4.58 2.17-4.58 4.4 0 .87.33 1.81.75 2.32.08.1.1.19.07.29-.08.32-.25.99-.28 1.13-.04.18-.15.22-.34.13-1.25-.58-2.03-2.4-2.03-3.87 0-3.15 2.29-6.04 6.6-6.04 3.47 0 6.16 2.47 6.16 5.77 0 3.44-2.17 6.22-5.19 6.22-1.01 0-1.96-.53-2.29-1.15l-.62 2.37c-.22.87-.83 1.96-1.24 2.62.93.29 1.92.44 2.95.44 5.52 0 10-4.48 10-10S17.52 2 12 2z"/></svg>
+                    </a></li>
+                  {%- endif -%}
+                  {%- if block.settings.social_tiktok != blank -%}
+                    <li><a href="{{ block.settings.social_tiktok }}" target="_blank" rel="noopener" aria-label="TikTok">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.6 5.82A4.28 4.28 0 0 1 15.54 3h-3.09v12.4a2.59 2.59 0 0 1-2.59 2.5 2.59 2.59 0 0 1 0-5.18c.27 0 .53.04.77.12v-3.2a5.8 5.8 0 0 0-.77-.05 5.77 5.77 0 1 0 5.77 5.77V9.01a7.35 7.35 0 0 0 4.29 1.37V7.3a4.29 4.29 0 0 1-3.32-1.48z"/></svg>
+                    </a></li>
+                  {%- endif -%}
+                  {%- if block.settings.social_facebook != blank -%}
+                    <li><a href="{{ block.settings.social_facebook }}" target="_blank" rel="noopener" aria-label="Facebook">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 21v-8h2.7l.4-3h-3.1V8.06c0-.87.24-1.46 1.49-1.46h1.72V3.92c-.3-.04-1.32-.13-2.5-.13-2.48 0-4.18 1.51-4.18 4.29V10H7.3v3h2.73v8h3.47z"/></svg>
+                    </a></li>
+                  {%- endif -%}
+                  {%- if block.settings.social_youtube != blank -%}
+                    <li><a href="{{ block.settings.social_youtube }}" target="_blank" rel="noopener" aria-label="YouTube">
+                      <svg viewBox="0 0 24 24" fill-rule="evenodd" aria-hidden="true"><path d="M23 12s0-3.4-.44-5.04a2.6 2.6 0 0 0-1.83-1.84C19.1 4.68 12 4.68 12 4.68s-7.1 0-8.73.44a2.6 2.6 0 0 0-1.83 1.84C1 8.6 1 12 1 12s0 3.4.44 5.04c.24.9.95 1.6 1.83 1.84 1.63.44 8.73.44 8.73.44s7.1 0 8.73-.44a2.6 2.6 0 0 0 1.83-1.84C23 15.4 23 12 23 12zM9.75 15.02V8.98L15.5 12l-5.75 3.02z"/></svg>
+                    </a></li>
+                  {%- endif -%}
+                {%- endcapture -%}
+                {%- if social_marks != blank -%}
+                  <ul class="sr-foot__social" role="list">{{ social_marks }}</ul>
+                {%- endif -%}
+              </div>
+
+          {%- endcase -%}
+
+        {%- endfor -%}
+      </div>
+    {%- endif -%}
+
+    {%- comment -%} 3 — base bar {%- endcomment -%}
+    <div class="sr-foot__base">
+
+      <p class="sr-foot__copy">
+        &copy; {{ 'now' | date: '%Y' }} {{ section.settings.copyright_name | default: shop.name }}
+      </p>
+
+      {%- comment -%} LK spec §9.2.7: Account → the member portal. {%- endcomment -%}
+      {%- assign legal = section.settings.legal_menu -%}
+      {%- assign account_url = section.settings.account_url | default: 'https://club.springrenaissance.store' -%}
+      <nav aria-label="{{ section.settings.account_label | default: 'Account' | escape }} and legal">
+        <ul class="sr-foot__legal" role="list">
+          <li><a class="sr-foot__legal-link" href="{{ account_url }}">{{ section.settings.account_label | default: 'Account' }}</a></li>
+          {%- if legal != blank and legal.links.size > 0 -%}
+            {%- for link in legal.links -%}
+              <li><a class="sr-foot__legal-link" href="{{ link.url }}">{{ link.title }}</a></li>
+            {%- endfor -%}
+          {%- endif -%}
+        </ul>
+      </nav>
+
+      {%- if section.settings.show_payment_icons and shop.enabled_payment_types.size > 0 -%}
+        <ul class="sr-foot__pay" role="list">
+          {%- for type in shop.enabled_payment_types -%}
+            <li>{{ type | payment_type_svg_tag: class: 'sr-foot__pay-svg' }}</li>
+          {%- endfor -%}
+        </ul>
+      {%- endif -%}
+
+    </div>
+
+  </div>
+</div>
+
+{% schema %}
+{
+  "name": "SR — Footer",
+  "tag": "footer",
+  "class": "sr-section",
+  "max_blocks": 4,
+  "settings": [
+    { "type": "header", "content": "Private Gazette" },
+    { "type": "checkbox", "id": "show_gazette", "label": "Show sign-up row", "default": true },
+    { "type": "text", "id": "gazette_kicker", "label": "Kicker", "default": "Correspondence" },
+    { "type": "text", "id": "gazette_heading", "label": "Heading", "default": "Private Gazette" },
+    { "type": "textarea", "id": "gazette_lede", "label": "Intro",
+      "default": "Notes on new castings, allocations and the objects we are living with. Sent rarely, never resold." },
+    { "type": "text", "id": "gazette_placeholder", "label": "Field placeholder", "default": "Email address" },
+    { "type": "text", "id": "gazette_submit_label", "label": "Submit button label (screen readers)", "default": "Subscribe" },
+    { "type": "text", "id": "gazette_success", "label": "Success message", "default": "You are on the list. The next gazette will find you." },
+    { "type": "textarea", "id": "gazette_fine", "label": "Fine print", "default": "Unsubscribe in one click, any time." },
+
+    { "type": "header", "content": "Base bar" },
+    { "type": "text", "id": "copyright_name", "label": "Copyright name", "info": "Leave blank to use the store name.", "default": "Spring Renaissance" },
+    { "type": "link_list", "id": "legal_menu", "label": "Legal menu", "info": "Shipping, refund, privacy, terms." },
+    { "type": "text", "id": "account_label", "label": "Account link label", "default": "Account" },
+    { "type": "url", "id": "account_url", "label": "Account link", "info": "Leave empty for the member portal, https://club.springrenaissance.store." },
+    { "type": "checkbox", "id": "show_payment_icons", "label": "Show payment marks", "default": true },
+
+    { "type": "header", "content": "Colour & layout" },
+    { "type": "color", "id": "bg_color", "label": "Background", "default": "#1A1918" },
+    { "type": "color", "id": "text_color", "label": "Text", "default": "#FBFBF9" },
+    { "type": "color", "id": "accent_color", "label": "Accent", "default": "#9A7B52" },
+    { "type": "range", "id": "gap_x", "label": "Column gap", "min": 24, "max": 140, "step": 4, "unit": "px", "default": 64 },
+    { "type": "range", "id": "max_width", "label": "Max width", "min": 900, "max": 1600, "step": 20, "unit": "px", "default": 1440 },
+    { "type": "range", "id": "padding_top", "label": "Padding top", "min": 0, "max": 200, "step": 4, "unit": "px", "default": 96 },
+    { "type": "range", "id": "padding_bottom", "label": "Padding bottom", "min": 0, "max": 200, "step": 4, "unit": "px", "default": 56 }
+  ],
+  "blocks": [
+    {
+      "type": "link_list",
+      "name": "Menu column",
+      "settings": [
+        { "type": "text", "id": "heading", "label": "Column kicker", "default": "Objects" },
+        { "type": "link_list", "id": "menu", "label": "Menu" }
+      ]
+    },
+    {
+      "type": "brand_info",
+      "name": "Brand column",
+      "settings": [
+        { "type": "text", "id": "kicker", "label": "Kicker", "default": "Colophon" },
+        { "type": "text", "id": "heading", "label": "Monogram", "default": "Spring Renaissance" },
+        { "type": "textarea", "id": "note", "label": "Archival note",
+          "default": "Numbered editions, cast in small batches and retired when the run closes." },
+        { "type": "textarea", "id": "address", "label": "Address", "default": "New York · Est. 2026" },
+        { "type": "header", "content": "Social" },
+        { "type": "url", "id": "social_instagram", "label": "Instagram" },
+        { "type": "url", "id": "social_pinterest", "label": "Pinterest" },
+        { "type": "url", "id": "social_tiktok", "label": "TikTok" },
+        { "type": "url", "id": "social_facebook", "label": "Facebook" },
+        { "type": "url", "id": "social_youtube", "label": "YouTube" }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "name": "SR — Footer",
+      "blocks": [
+        { "type": "brand_info" },
+        { "type": "link_list", "settings": { "heading": "Objects" } },
+        { "type": "link_list", "settings": { "heading": "The Circle" } },
+        { "type": "link_list", "settings": { "heading": "Notes" } }
+      ]
+    }
+  ]
+}
+{% endschema %}

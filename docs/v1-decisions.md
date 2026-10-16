@@ -3,21 +3,23 @@
 Running list for PR review (Felix). Spec: "ЛК — ТЗ v1.1" (2026-10-15).
 "My call" = not defined in the spec, decided during the build.
 
-## Status — where the build stands (16 Oct 2026, after S10)
+## Status — where the build stands (16 Oct 2026, S11 in progress)
 
 - Branch `feat/lk-v1`, PR #11 into `feat/d1-state`. S9 pushed (`0db05cc`);
   S10 pushed with this update. Felix's rule since 16 Oct: push after each task
   when all tests are green; ask only before Shopify theme (draft
   189482795229 only) or Cloudflare changes.
-- Done: P0.3, S1–S10.
+- Done: P0.3, S1–S10. S11: local QA, security pass, staging D1 done; staging
+  deploy and the theme edits wait for access/approval — see `docs/launch-v1.md`.
 - Tests after S10: worker `npm test` 320/320; portal unit 13; e2e (all four
   projects) — see the PR comment for the run; the Circle FAQ strings are
   absent from a production build.
 - Theme: only the draft 189482795229 was touched (S7: `snippets/sr-save.liquid`,
   2 lines in `snippets/sr-touch-fix.liquid`; backup in `theme/backups/`).
   Felix edits templates and sr-consult there in parallel — do not touch them.
-- Nothing deployed: no production migrations, no Worker deploy, Pages not
-  switched, no Access app or webhook subscription created.
+- Nothing in production changed. Staging: D1 `spring-renaissance-staging`
+  created and migrated (16 Oct, Felix allowed staging work); KV, Worker,
+  Pages and the staging DNS names wait (`docs/launch-v1.md` §1).
 
 ### What is left in V1 (spec §17.3)
 - **S11 — QA and V1 launch:** staging (separate Worker env + D1 + KV, a
@@ -46,6 +48,10 @@ skills used. So far: shopify-admin (all Admin GraphQL validated), shopify-liquid
 accessibility checks were done with wrangler `--local`, axe and Lighthouse
 rather than the plugin skills; superpowers process skills not invoked
 formally (TDD and mutation checks done by hand) — to use from S10 on.
+S11: superpowers:test-driven-development, cloudflare (+ wrangler: staging
+env, dry runs), cloudflare:web-perf (Lighthouse LCP/CLS), shopify-liquid
+(docs search; its validator still lacks a dependency → theme-check-node),
+Cloudflare connector for the staging D1.
 S10: superpowers:test-driven-development, cloudflare (+ cloudflare-one for
 the Access JWT, wrangler for the assets config and a `--dry-run` build),
 shopify-admin (OrderPlaced query validated), design:accessibility-review
@@ -283,6 +289,28 @@ shopify-admin (OrderPlaced query validated), design:accessibility-review
   are (the piece shows "No longer available" when it sells out). Other topics
   (`orders/updated`, `customers/update` — §9.2.8) are acknowledged and marked
   `ignored` in V1.
+
+### S11 — QA and launch (in progress)
+- Staging is a separate Worker env (`[env.staging]`), D1 and KV; Shopify is
+  off there so test sign-ins never touch the live store. The real
+  same-site cookie check needs `api-staging.` + `club-staging.` on our
+  domain (workers.dev/pages.dev are cross-site) — DNS, so it waits for "yes".
+- Staging Turnstile uses Cloudflare's published always-pass test keys
+  rather than a new widget.
+- Migrations applied to the staging D1 through the Cloudflare connector, with
+  wrangler's `d1_migrations` rows written alongside, so wrangler treats them
+  as applied.
+- LCP: measured with Lighthouse's simulated Slow 4G on signed-in Home; the
+  e2e server compresses like Pages. Home now reuses App's `/api/me` once
+  and holds the blocks under the order block until it resolves (no CLS).
+- Retention cron (§13.2) added: 03:15 UTC daily, the slot V2's credit expiry
+  will share.
+- Theme (draft 189482795229, **not uploaded — waiting for Felix's yes**):
+  header Account → plain link to the portal instead of Shopify's
+  `<shopify-account>`; footer base bar gets "Account" (label and URL as
+  section settings, URL empty = the portal). Files in
+  `theme/draft-189482795229/`, originals in `theme/backups/`
+  (MD5 b91377a4… and db05bb15…, matching Shopify's).
 
 ## Copy for review (not quoted in the spec)
 
