@@ -56,8 +56,16 @@ one code path an unauthenticated caller can reach.
 `wrangler.toml` carries the bindings. Secrets are set only with
 `wrangler secret put`: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
 `GEMINI_API_KEY`, `RESEND_API_KEY`, `ADMIN_SECRET`, `PORTAL_ORIGIN`,
-`SESSION_PEPPER`, `TURNSTILE_SECRET`, `SHOPIFY_ADMIN_TOKEN`. Plain vars:
-`SHOPIFY_SHOP` and the optional ones in `.dev.vars.example`.
+`SESSION_PEPPER`, `TURNSTILE_SECRET`, `SHOPIFY_CLIENT_ID`,
+`SHOPIFY_CLIENT_SECRET`. Plain vars: `SHOPIFY_SHOP` (in `wrangler.toml`) and
+the optional ones in `.dev.vars.example`.
+
+Shopify access: "Claude Sync" is a Dev Dashboard app with no permanent token.
+`src/shopify/admin.js` exchanges the client ID and secret for an access token
+(client credentials grant, `POST https://{shop}/admin/oauth/access_token`,
+24 hours), keeps it in memory and in KV (`shopify_token:v1`), refreshes it 5
+minutes before expiry and once more on a 401. A permanent
+`SHOPIFY_ADMIN_TOKEN` is still honoured if set instead.
 
 ## Portal API (`src/`)
 

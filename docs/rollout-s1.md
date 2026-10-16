@@ -34,7 +34,8 @@ in every table on 2026-10-15, so there is no data at risk in the gap.
      must happen within a week.
 2. Secrets: `SESSION_PEPPER` (random, 32+ bytes; without it any request with
    a session cookie gets 503 `auth_unavailable`), `TURNSTILE_SECRET`,
-   `SHOPIFY_ADMIN_TOKEN`. `SHOPIFY_SHOP` ships in `wrangler.toml` `[vars]`.
+   `SHOPIFY_CLIENT_ID`, `SHOPIFY_CLIENT_SECRET` (Claude Sync). `SHOPIFY_SHOP`
+   ships in `wrangler.toml` `[vars]`.
 3. `wrangler d1 migrations apply spring-renaissance --remote` — lists
    0000–0004 as pending; 0000 is a no-op on the existing tables.
 4. **Immediately** `wrangler deploy`.

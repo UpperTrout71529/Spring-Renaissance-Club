@@ -5,13 +5,19 @@ Running list for PR review (Felix). Spec: "ЛК — ТЗ v1.1" (2026-10-15).
 
 ## Open questions for Felix
 
-1. **Shopify access (P0.4).** Token mechanism for "Claude Sync" still TODO
-   (Felix sets the scopes and the token). Scopes the code needs now:
-   `read_customers`, `write_customers`, `read_orders`, `read_all_orders`
-   (orders older than 60 days), `read_products` (pre-order rule), and the
-   fulfillment-order reads Shopify's validator lists for `Order.fulfillments`:
-   `read_assigned_fulfillment_orders`, `read_merchant_managed_fulfillment_orders`,
-   `read_third_party_fulfillment_orders`, `read_marketplace_fulfillment_orders`.
+1. **Shopify access (P0.4) — code done, secrets pending.** "Claude Sync"
+   (Dev Dashboard app, version claude-sync-2) has no permanent token; the
+   Worker now gets a 24-hour token by the client credentials grant and
+   refreshes it (`src/shopify/admin.js`). Felix puts `SHOPIFY_CLIENT_ID` and
+   `SHOPIFY_CLIENT_SECRET` with `wrangler secret put`. Granted scopes (16 Oct):
+   read/write_customers, read_orders, read_all_orders, read_assigned /
+   merchant_managed / third_party_fulfillment_orders, read_fulfillments,
+   read_products, read/write_gift_cards, write_draft_orders,
+   read/write_discounts. `read_marketplace_fulfillment_orders` does not exist
+   as a grantable scope (Shopify refused it); the validator lists the
+   fulfillment-order scopes as alternatives, so the granted ones cover
+   `Order.fulfillments`. To confirm with the first real call once the
+   secrets are in.
 2. **Draft theme lags the live theme.** `snippets/sr-preorder` in the draft
    WORK 4 (189096820957, last changed 7 Oct) lacks the 13 Oct catalog
    exclusion that the live theme (189304766685) has. The API follows the

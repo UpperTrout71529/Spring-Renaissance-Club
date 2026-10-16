@@ -1,7 +1,9 @@
 # Secrets are NOT configured here — only via `wrangler secret put`:
 #   STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, GEMINI_API_KEY,
 #   RESEND_API_KEY, ADMIN_SECRET, PORTAL_ORIGIN   (legacy worker.js)
-#   SESSION_PEPPER, TURNSTILE_SECRET, SHOPIFY_ADMIN_TOKEN   (portal API, src/)
+#   SESSION_PEPPER, TURNSTILE_SECRET,
+#   SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET   (portal API, src/; "Claude Sync"
+#   gets a 24-hour token from these — src/shopify/admin.js)
 # Portal vars (not secret): SHOPIFY_SHOP (*.myshopify.com), and optionally
 #   SHOPIFY_API_VERSION, SESSION_IDLE_DAYS, PORTAL_URL. See .dev.vars.example.
 # The same list is documented in the worker.js header and README; keep them in sync.
