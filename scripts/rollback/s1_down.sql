@@ -10,6 +10,17 @@
 --   wrangler d1 execute spring-renaissance --remote --file=scripts/rollback/s1_down.sql
 -- ============================================================================
 
+-- V2 Circle tables first (same list as scripts/rollback/v2_down.sql).
+DROP TABLE IF EXISTS admin_flags;
+DROP TABLE IF EXISTS stripe_disputes;
+DROP TABLE IF EXISTS stripe_payments;
+DROP TABLE IF EXISTS membership_invoices;
+DROP TABLE IF EXISTS cancellations;
+DROP TABLE IF EXISTS redemptions;
+DROP TABLE IF EXISTS credit_ledger;
+DROP TABLE IF EXISTS memberships;
+DELETE FROM d1_migrations WHERE name IN ('0006_membership.sql');
+
 DROP TABLE IF EXISTS step_up_codes;
 DROP TABLE IF EXISTS webauthn_challenges;
 DROP TABLE IF EXISTS admin_audit;

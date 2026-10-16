@@ -1,17 +1,17 @@
 // Worker entry point (wrangler.toml `main`). See src/app.js.
-// scheduled: the daily cron trigger (wrangler.toml [triggers]) — data
-// retention, spec §13.2 (src/cron/retention.js).
+// scheduled: the cron triggers (wrangler.toml [triggers]) — every five
+// minutes and daily at 03:15 UTC, dispatched in src/cron/index.js.
 import { createApp } from "./app.js";
-import { runRetention } from "./cron/retention.js";
+import { runScheduled } from "./cron/index.js";
 
 const app = createApp();
 
 export default {
   fetch: app.fetch,
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runRetention(env, event.scheduledTime || Date.now()).then(
-      (removed) => console.log("retention", JSON.stringify(removed)),
-      (e) => console.error("retention failed", e && e.name, e && e.message),
+    ctx.waitUntil(runScheduled(env, event.scheduledTime || Date.now(), event.cron).then(
+      (summary) => console.log("cron", event.cron, JSON.stringify(summary)),
+      (e) => console.error("cron failed", event.cron, e && e.name, e && e.message),
     ));
   },
 };

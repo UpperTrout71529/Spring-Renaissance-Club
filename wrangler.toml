@@ -40,6 +40,9 @@ crons = ["15 3 * * *"]
 # Plain (non-secret) configuration of the portal API.
 [vars]
 SHOPIFY_SHOP = "qyziv4-0c.myshopify.com"
+# V2 §14: the legacy VIP system in worker.js is retired by this switch (its
+# code stays). Remove the line to bring it back.
+LEGACY_VIP = "off"
 
 # Admin page (spec §12): public/admin/ via Workers Static Assets. Every
 # request runs the Worker first, so nothing under public/ is served without
@@ -81,6 +84,7 @@ binding = "CLIENT_KV"
 id = "040632c868394ca1a5b273703c1a6660"
 
 [env.staging.vars]
+LEGACY_VIP = "off"
 PORTAL_URL = "https://club-staging.springrenaissance.store"
 ALLOWED_ORIGINS = "https://club-staging.springrenaissance.store"
 PASSKEY_RP_ID = "springrenaissance.store"

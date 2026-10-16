@@ -106,7 +106,18 @@ export function createApp({
     async fetch(request, env, executionCtx) {
       const url = new URL(request.url);
       const match = router.match(request.method, url.pathname);
-      if (!match) return legacy.fetch(request, env, executionCtx);
+      if (!match) {
+        // V2 §14: LEGACY_VIP = "off" retires the old VIP system (worker.js:
+        // /api/user/*, the Gemini curator, the old sign-in link and the
+        // catch-all Stripe webhook) without deleting it. Unset = unchanged.
+        if (env && env.LEGACY_VIP === "off") {
+          return new Response(JSON.stringify(errorBody("legacy_retired", "This service has moved.")), {
+            status: 410,
+            headers: { ...SECURITY_HEADERS, "Content-Type": "application/json", ...corsHeaders(request.headers.get("Origin"), env) },
+          });
+        }
+        return legacy.fetch(request, env, executionCtx);
+      }
 
       const origin = request.headers.get("Origin");
       const baseHeaders = { ...SECURITY_HEADERS, ...corsHeaders(origin, env) };
