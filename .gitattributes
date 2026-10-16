@@ -1,1 +1,3 @@
 * text=auto eol=lf
+# Theme files are kept byte-for-byte as Shopify has them (MD5 checks before upload).
+theme/** -text
