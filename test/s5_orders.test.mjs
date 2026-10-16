@@ -230,3 +230,44 @@ test("S5-11: a cached order is never served to another user", async () => {
   const res = await t.call(get('/api/orders/5023', { Cookie: cookie }));
   assert.equal(res.status, 404);
 });
+
+test('S5-12: the pre-order rule mirrors the theme (snippets/sr-preorder, 13 Oct)', async () => {
+  const { isPreorderProduct } = await import('../src/shopify/orders.js');
+  const p = (extra = {}) => ({ handle: 'pierre-blanche', tags: [], collections: { nodes: [{ handle: 'objects' }] }, srRunHide: null, ...extra });
+  assert.equal(isPreorderProduct(p()), true);
+  assert.equal(isPreorderProduct(p({ collections: { nodes: [] } })), false, 'no collection');
+  for (const h of ['snowfall', 'catalog', 'ember']) {
+    assert.equal(isPreorderProduct(p({ collections: { nodes: [{ handle: 'objects' }, { handle: h }] } })), false, h);
+  }
+  assert.equal(isPreorderProduct(p({ tags: ['catalog'] })), false, 'tag catalog');
+  assert.equal(isPreorderProduct(p({ handle: 'patron-membership' })), false, 'membership');
+  assert.equal(isPreorderProduct(p({ srRunHide: { value: 'true' } })), false, 'sr_run.hide');
+  assert.equal(isPreorderProduct(p({ srRunHide: { value: 'false' } })), true);
+  assert.equal(isPreorderProduct(null), false, 'deleted product');
+});
+
+test('S5-13: an unfulfilled order of a made-to-order piece is "preorder"; a catalog piece is not', async () => {
+  const world = shopWorld();
+  const run = { handle: 'pierre-blanche', tags: [], collections: { nodes: [{ handle: 'objects' }] }, srRunHide: null };
+  const cat = { handle: 'le-vase-livre', tags: ['catalog'], collections: { nodes: [{ handle: 'catalog' }] }, srRunHide: null };
+  const base = world.fetch;
+  world.fetch = async (url, init = {}) => {
+    const res = await base(url, init);
+    if (!String(url).includes('myshopify.com') || !/CustomerOrders|OrderDetail/.test(init.body)) return res;
+    const data = await res.json();
+    const tag = (o, product) => o.lineItems.nodes.forEach((l) => { l.product = product; });
+    if (data.data.customer) data.data.customer.orders.nodes.forEach((o, i) => tag(o, i === 3 ? cat : run));
+    if (data.data.order) tag(data.data.order, run);
+    return Response.json(data);
+  };
+  const t = setup({ world });
+  const h = await clara(t);
+  const { orders } = await body(await t.call(get('/api/orders', h)));
+  assert.equal(orders[0].status, 'shipped');        // already shipped: no longer "pre-order"
+  assert.equal(orders[0].is_preorder, true);
+  assert.equal(orders[3].status, 'processing');     // catalog piece
+  assert.equal(orders[3].is_preorder, false);
+  assert.equal(orders[4].status, 'preorder');
+  const { order } = await body(await t.call(get('/api/orders/5023', h)));
+  assert.equal(order.line_items[0].is_preorder, true);
+});

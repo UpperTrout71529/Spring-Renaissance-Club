@@ -1,5 +1,6 @@
 // Orders and tracking from Shopify Admin GraphQL (spec §9.2.3). Both
-// operations validated against the 2026-07 schema with Shopify's validator.
+// operations validated against the 2026-07 schema with Shopify's validator
+// (scopes: read_customers, read_orders, read_products, fulfillment-order reads).
 
 import { shopifyGraphql } from "./admin.js";
 
@@ -15,7 +16,7 @@ const CUSTOMER_ORDERS = `query CustomerOrders($id: ID!, $first: Int!, $after: St
         currentSubtotalLineItemsQuantity
         totalPriceSet { shopMoney { amount currencyCode } }
         fulfillments(first: 10) { displayStatus }
-        lineItems(first: 20) { nodes { image { url } sellingPlan { name sellingPlanId } } }
+        lineItems(first: 20) { nodes { image { url } sellingPlan { name sellingPlanId } product { handle tags collections(first: 50) { nodes { handle } } srRunHide: metafield(namespace: "sr_run", key: "hide") { value } } } }
       }
       pageInfo { hasNextPage endCursor }
     }
@@ -40,6 +41,7 @@ const ORDER_DETAIL = `query OrderDetail($id: ID!) {
         image { url }
         originalUnitPriceSet { shopMoney { amount currencyCode } }
         sellingPlan { name sellingPlanId }
+        product { handle tags collections(first: 50) { nodes { handle } } srRunHide: metafield(namespace: "sr_run", key: "hide") { value } }
       }
     }
     fulfillments(first: 10) {
@@ -68,13 +70,28 @@ export function numericId(gid) {
   return m ? m[1] : null;
 }
 
-// Spec §6.4: a line is a pre-order when it carries a pre-order selling plan.
-// The store currently sells pre-orders through the theme (sr-preorder), not
-// selling plans, so this is false for every line until Felix confirms the
-// rule — see docs/v1-decisions.md. Kept as one function so the rule changes
-// in one place.
+// Spec §6.4 marks a line as a pre-order by its selling plan. This store sells
+// pre-orders through the theme instead (snippets/sr-preorder, live theme,
+// 13 Oct 2026), so the same product rule is mirrored here (Felix, 16 Oct):
+// a product is made to order when it is in at least one collection, not in
+// "snowfall", "catalog" or "ember", not tagged "catalog", not the membership
+// product, and its sr_run.hide metafield is not true. A pre-order selling plan
+// still counts, as the spec says.
+const NOT_PREORDER_COLLECTIONS = ["snowfall", "catalog", "ember"];
+
+export function isPreorderProduct(product) {
+  if (!product) return false;
+  const collections = ((product.collections && product.collections.nodes) || []).map((c) => c.handle);
+  if (!collections.length) return false;
+  if (collections.some((h) => NOT_PREORDER_COLLECTIONS.includes(h))) return false;
+  if ((product.tags || []).includes("catalog")) return false;
+  if (product.handle === "patron-membership") return false;
+  if (product.srRunHide && product.srRunHide.value === "true") return false;
+  return true;
+}
+
 export function isPreorderLine(line) {
-  return !!(line && line.sellingPlan);
+  return !!(line && (line.sellingPlan || isPreorderProduct(line.product)));
 }
 
 const LIVE = (f) => f && f.displayStatus !== "CANCELED";
