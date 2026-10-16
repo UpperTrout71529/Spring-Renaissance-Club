@@ -40,6 +40,8 @@ import { getWelcome, postWelcome } from "./routes/circle-welcome.js";
 import { assignGift, createGiftOption, createGiftOrder, getGiftQueue, listGiftOptions, patchGiftOption } from "./routes/admin-gifts.js";
 import { getCirclePriceStatus, getEconomics, listCosts, postCatalogSync, postCirclePriceSync, putCost, putEconomics, putPriceList } from "./routes/admin-economics.js";
 import { getMeStorefront, getStorefrontCirclePrice } from "./routes/storefront.js";
+import { assignAnniversary, createAnniversaryOrder, getAnniversary, postAnniversary } from "./circle/anniversary.js";
+import { registerCircle } from "./circle/register.js";
 import { closeRelease, createRelease, getObject, getReleaseGuard, listReleases, openReleaseNow, patchRelease, postObjectClaim } from "./routes/member-object.js";
 
 // Route options:
@@ -99,6 +101,8 @@ export const ROUTES = [
   { method: "POST", path: "/api/circle/welcome", handler: postWelcome, auth: "session" },
   { method: "GET", path: "/api/circle/object", handler: getObject, auth: "session" },
   { method: "POST", path: "/api/circle/object/claim", handler: postObjectClaim, auth: "session" },
+  { method: "GET", path: "/api/circle/anniversary", handler: getAnniversary, auth: "session" },
+  { method: "POST", path: "/api/circle/anniversary", handler: postAnniversary, auth: "session" },
   { method: "GET", path: "/api/circle/join", handler: getJoin, auth: "session" },
   { method: "POST", path: "/api/circle/checkout", handler: postCheckout, auth: "session" },
   { method: "POST", path: "/api/circle/rejoin", handler: postRejoin, auth: "session" },
@@ -133,9 +137,13 @@ export const ROUTES = [
   { method: "POST", path: "/api/admin/member-object/releases/:id/open", handler: openReleaseNow, auth: "admin" },
   { method: "POST", path: "/api/admin/member-object/releases/:id/close", handler: closeRelease, auth: "admin" },
   { method: "GET", path: "/api/admin/member-object/guard", handler: getReleaseGuard, auth: "admin" },
+  { method: "POST", path: "/api/admin/anniversary/:id/assign", handler: assignAnniversary, auth: "admin" },
+  { method: "POST", path: "/api/admin/anniversary/:id/create-order", handler: createAnniversaryOrder, auth: "admin" },
   { method: "GET", path: "/admin", handler: serveAdmin, auth: "admin" },
   { method: "GET", path: "/admin/:file", handler: serveAdmin, auth: "admin" },
 ];
+
+registerCircle();
 
 const SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",

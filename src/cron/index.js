@@ -11,6 +11,9 @@ import { creditsExpiring, creditsExpiry, renewalReminders, stripeReconcile, welc
 import { ulid } from "../lib/ulid.js";
 import { syncMemberPrice } from "../circle/member-price.js";
 import { expireClaims, guardReleases } from "../circle/member-object.js";
+import { registerCircle } from "../circle/register.js";
+
+registerCircle();
 
 export const FREQUENT_CRON = "*/5 * * * *";
 export const DAILY_CRON = "15 3 * * *";
