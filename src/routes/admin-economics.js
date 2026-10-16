@@ -2,7 +2,7 @@
 // (docs/tz-v2-circle.md §3.3, §5.3, §12). Every write is audited.
 
 import { readJson } from "../http/body.js";
-import { badRequest, notFound, serviceUnavailable } from "../http/errors.js";
+import { HttpError, badRequest, notFound } from "../http/errors.js";
 import { shopifyConfigured } from "../shopify/admin.js";
 import { syncCatalog } from "../shopify/catalog.js";
 import { economicsSnapshot, exclusionFor, loadSettings, recomputeItems, saveSettings } from "../circle/economics-store.js";
@@ -129,7 +129,7 @@ export async function putPriceList(ctx) {
 }
 
 export async function postCatalogSync(ctx) {
-  if (!shopifyConfigured(ctx.env)) throw serviceUnavailable("shopify_not_configured");
+  if (!shopifyConfigured(ctx.env)) throw new HttpError(503, "shopify_not_configured", "Shopify is not configured here.");
   const out = await syncCatalog(ctx.env, ctx.fetch, ctx.nowIso(), ctx.newId());
   await audit(ctx, "catalog_synced", "shopify", out);
   const items = await recompute(ctx);

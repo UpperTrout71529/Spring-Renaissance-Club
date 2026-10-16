@@ -167,11 +167,10 @@ export async function openReleaseNow(ctx) {
       e.explanation = { missing: ["public_release_at"] };
       throw e;
     }
-    const opens = rel.opens_at || new Date(Date.parse(rel.public_release_at) - EARLY_WINDOW_HOURS * 3600 * 1000).toISOString();
-    const closes = rel.closes_at || rel.public_release_at;
-    await env.DB.prepare("UPDATE member_object_releases SET opens_at = ?1, closes_at = ?2 WHERE id = ?3").bind(opens, closes, rel.id).run();
-    rel.opens_at = opens;
-    rel.closes_at = closes;
+    // Computed here, saved only when the release really opens (a failed
+    // Open leaves the draft as Felix left it).
+    rel.opens_at = rel.opens_at || new Date(Date.parse(rel.public_release_at) - EARLY_WINDOW_HOURS * 3600 * 1000).toISOString();
+    rel.closes_at = rel.closes_at || rel.public_release_at;
   }
   const missing = REQUIRED_TO_OPEN.filter((k) => rel[k] === null || rel[k] === undefined);
   if (missing.length) {
@@ -197,8 +196,9 @@ export async function openReleaseNow(ctx) {
   const other = await env.DB.prepare(
     "SELECT 1 AS yes FROM member_object_releases WHERE id <> ?1 AND kind = ?2 AND status IN ('open','closed') AND substr(opens_at, 1, 4) = ?3 LIMIT 1"
   ).bind(rel.id, rel.kind, year).first();
-  await env.DB.prepare("UPDATE member_object_releases SET status = 'open', guard_ok = 1, guard_checked_at = ?1, guard_reasons = '[]', updated_at = ?1 WHERE id = ?2")
-    .bind(ctx.nowIso(), rel.id).run();
+  await env.DB.prepare(
+    "UPDATE member_object_releases SET status = 'open', opens_at = ?3, closes_at = ?4, guard_ok = 1, guard_checked_at = ?1, guard_reasons = '[]', updated_at = ?1 WHERE id = ?2"
+  ).bind(ctx.nowIso(), rel.id, rel.opens_at, rel.closes_at).run();
   await audit(ctx, "release_opened", rel.id, null);
   return ctx.json({ status: "open", warning: other && rel.kind === "members_object" ? "This is the second release this year (the object is one a year)." : null });
 }

@@ -152,16 +152,17 @@ export async function economicsBasis(env, settings) {
   ).all();
   let W = null;
   let ship = null;
+  let shipEstimate = null;
   if (welcome.length) {
     let worst = null;
     for (const w of welcome) {
       const s = shippingFor(w.shipping_class, settings);
       if (!s || !Number.isInteger(w.landed_cost_cents)) { worst = null; break; }
-      if (!worst || w.landed_cost_cents + s.cents > worst.W + worst.s) worst = { W: w.landed_cost_cents, s: s.cents };
+      if (!worst || w.landed_cost_cents + s.cents > worst.W + worst.s) worst = { W: w.landed_cost_cents, s: s.cents, est: s.estimate };
     }
-    if (worst) { W = worst.W; ship = worst.s; }
+    if (worst) { W = worst.W; ship = worst.s; shipEstimate = worst.est; }
   }
-  return { kPpm, missingCost, variantCount: variants.length, welcomeActive: welcome.length, W, ship, variants };
+  return { kPpm, missingCost, variantCount: variants.length, welcomeActive: welcome.length, W, ship, shipEstimate, variants };
 }
 
 // ---- saving ------------------------------------------------------------------------
@@ -222,7 +223,7 @@ export async function economicsSnapshot(env) {
   const referral = referralCheck({ D: s.referral_discount_cents, R: s.referral_reward_cents, W: b.W, s: b.ship, kPpm: b.kPpm }, s);
 
   const { results: items } = await env.DB.prepare(
-    `SELECT i.variant_gid, i.handle, c.product_title, c.variant_title, i.price_cents, i.reason, i.max_cost_cents, i.eligible
+    `SELECT i.variant_gid, i.handle, c.product_title, c.variant_title, i.price_cents, i.reason, i.max_cost_cents, i.eligible, i.shipping_estimate
        FROM circle_price_items i JOIN catalog_variants c ON c.variant_gid = i.variant_gid
        JOIN circle_price_list l ON l.variant_gid = i.variant_gid`
   ).all();
@@ -259,12 +260,13 @@ export async function economicsSnapshot(env) {
     worst_item: worstItem && { variant_gid: worstItem.variant_gid, handle: worstItem.handle, cost_ratio_ppm: Math.ceil(worstItem.ratio * 1e6) },
     referral,
     anniversary_budget_cents: anniversaryBudget(b.kPpm, s),
-    welcome_basis: { landed_cost_cents: b.W, shipping_cents: b.ship },
+    welcome_basis: { landed_cost_cents: b.W, shipping_cents: b.ship, shipping_estimate: b.shipEstimate },
     circle_price: {
       eligible: items.filter((i) => i.eligible).length,
       excluded: items.filter((i) => !i.eligible).map((i) => ({
         variant_gid: i.variant_gid, handle: i.handle, title: [i.product_title, i.variant_title].filter(Boolean).join(" — "),
         price_cents: i.price_cents, reason: i.reason, max_cost_cents: i.max_cost_cents,
+        shipping_estimate: i.shipping_estimate === null ? null : !!i.shipping_estimate,
       })),
     },
     needs_data: needs,

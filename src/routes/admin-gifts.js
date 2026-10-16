@@ -127,8 +127,9 @@ export async function assignGift(ctx) {
   if (!sel) throw notFound();
   if (sel.status !== "awaiting_choice") throw conflict("already_chosen", "This piece has already been chosen.");
   if (ctx.now() - Date.parse(sel.created_at) < ASSIGN_AFTER_DAYS * DAY_MS) throw conflict("too_early", "The member has 14 days to choose.");
-  const opt = await env.DB.prepare("SELECT id FROM gift_options WHERE id = ?1 AND kind = 'welcome' AND active = 1").bind(body.gift_option_id).first();
-  if (!opt) throw conflict("option_unavailable", "Choose an active welcome piece.");
+  const opt = await env.DB.prepare("SELECT * FROM gift_options WHERE id = ?1 AND kind = 'welcome' AND active = 1").bind(body.gift_option_id).first();
+  const { settings } = await loadSettings(env);
+  if (!opt || !welcomeCheck(opt, settings).ok) throw conflict("option_unavailable", "Choose an active welcome piece within the cap.");
   await env.DB.prepare(
     "UPDATE gift_selections SET gift_option_id = ?1, status = 'chosen', chosen_at = ?2, updated_at = ?2 WHERE id = ?3 AND status = 'awaiting_choice'"
   ).bind(opt.id, ctx.nowIso(), sel.id).run();
@@ -145,7 +146,7 @@ export async function createGiftOrder(ctx) {
   if (!sel) throw notFound();
   if (sel.status !== "chosen") throw conflict("not_ready", sel.status === "order_created" ? "The order already exists." : "No piece has been chosen yet.");
   if (!sel.shipping_json) throw conflict("needs_address", "There is no delivery address for this piece.");
-  if (!shopifyConfigured(env)) throw serviceUnavailable("shopify_not_configured");
+  if (!shopifyConfigured(env)) throw new HttpError(503, "shopify_not_configured", "Shopify is not configured here.");
   // Claim first: a second click finds the row no longer 'chosen'.
   const claim = await env.DB.prepare("UPDATE gift_selections SET status = 'order_created', updated_at = ?1 WHERE id = ?2 AND status = 'chosen'")
     .bind(ctx.nowIso(), sel.id).run();

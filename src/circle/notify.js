@@ -35,7 +35,7 @@ export async function raiseFlag(svc, { kind, dedupeKey, userId = null, ref = nul
   const res = await svc.env.DB.prepare(
     `INSERT OR IGNORE INTO admin_flags (id, kind, dedupe_key, user_id, ref, details_json, status, created_at)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'open', ?7)`
-  ).bind(svc.newId(), kind, dedupeKey, userId, ref, details ? JSON.stringify(details) : null, svc.nowIso()).run();
+  ).bind(svc.newId(), kind, dedupeKey, userId, ref, JSON.stringify({ ...(details || {}), title, lines }), svc.nowIso()).run();
   if (res.meta && res.meta.changes === 1) {
     await notifyFelix(svc, { dedupeKey: `flag:${dedupeKey}`, title, lines }).catch((e) => console.error("flag email failed", e && e.name));
   }

@@ -151,7 +151,7 @@ export async function getMetrics(ctx) {
 // before any file is served.
 const ADMIN_FILE = /^[a-z0-9-]+\.(html|js|css|svg)$/;
 const ADMIN_CSP = [
-  "default-src 'none'", "script-src 'self'", "style-src 'self'", "img-src 'self' data:",
+  "default-src 'none'", "script-src 'self'", "style-src 'self'", "img-src 'self' data: https://cdn.shopify.com",
   "connect-src 'self'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'",
 ].join("; ");
 

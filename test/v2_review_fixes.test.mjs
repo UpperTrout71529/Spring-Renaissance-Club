@@ -321,3 +321,62 @@ test('R13: a double-submitted credit adjustment with the same Idempotency-Key is
   assert.equal(b.res.status, 200);
   assert.equal(r.balance(), 2500);
 });
+
+// ---- gaps found by the admin agent -------------------------------------------------
+
+test('G1: a failed early-access Open leaves the draft dates untouched', async () => {
+  const r = await rig();
+  const c = await r.adminSend('POST', '/api/admin/member-object/releases', { kind: 'early_access', label: 'EA', product_gid: P(1), variant_gid: V(11),
+    price_cents: null, public_release_at: new Date(T0 + 3 * DAY).toISOString() });
+  const o = await r.adminSend('POST', `/api/admin/member-object/releases/${c.data.release.id}/open`, {});
+  assert.equal(o.res.status, 422);
+  const rel = r.t.rows('SELECT opens_at, closes_at FROM member_object_releases')[0];
+  assert.deepEqual([rel.opens_at, rel.closes_at], [null, null]);
+});
+
+test('G4: flags keep their readable title and lines for the admin screen', async () => {
+  const r = await rig();
+  await r.join();
+  await r.send('charge.dispute.created', { id: 'dp_g', object: 'dispute', charge: 'ch_in_1', payment_intent: 'pi_in_1', amount: 5000 });
+  await r.send('charge.dispute.closed', { id: 'dp_g', object: 'dispute', charge: 'ch_in_1', payment_intent: 'pi_in_1', amount: 5000, status: 'lost' });
+  const f = r.t.rows("SELECT details_json FROM admin_flags WHERE kind = 'dispute_lost'")[0];
+  const d = JSON.parse(f.details_json);
+  assert.equal(d.title, 'A payment dispute was lost');
+  assert.ok(Array.isArray(d.lines) && d.lines.length >= 1);
+});
+
+test('G6: assigning a welcome piece re-checks the $25 cap with today\'s shipping', async () => {
+  const r = await rig({ catalog: [catalogProduct({ id: 3, handle: 'small-candle', tags: ['catalog'], variants: [{ id: 31, price: '24.00' }] })] });
+  const a = (await r.adminSend('POST', '/api/admin/gift-options', { kind: 'welcome', title: 'Candle', shopify_variant_gid: V(31), landed_cost_cents: 1400, shipping_class: 'S', active: true })).data.option.id;
+  await r.join();
+  await r.adminSend('PUT', '/api/admin/economics', { changes: { shipping: { S: { cents: 1200, estimate: false } } } }); // 1400 + 1200 > 2500
+  const sel = r.t.rows('SELECT id FROM gift_selections')[0].id;
+  r.t.setNow(T0 + 15 * DAY);
+  const out = await r.adminSend('POST', `/api/admin/gift-queue/${sel}/assign`, { gift_option_id: a });
+  assert.equal(out.res.status, 409);
+  assert.equal(out.data.error.code, 'option_unavailable');
+});
+
+test('G3: without Shopify, catalog sync and the welcome order say so plainly', async () => {
+  const r = await rig({ env: { SHOPIFY_SHOP: '' } });
+  const out = await r.adminSend('POST', '/api/admin/catalog/sync', {});
+  assert.equal(out.res.status, 503);
+  assert.equal(out.data.error.code, 'shopify_not_configured');
+  assert.equal(out.data.error.message, 'Shopify is not configured here.');
+});
+
+test('G5: the Economics snapshot marks figures that rest on estimated shipping', async () => {
+  const r = await rig();
+  await r.adminSend('PUT', '/api/admin/economics', { changes: { shipping: { S: { cents: 1000, estimate: true } } } });
+  await r.adminSend('PUT', '/api/admin/costs', { variant_gid: V(11), cost_cents: 9000, shipping_class: 'S' });
+  await r.adminSend('PUT', '/api/admin/circle-price/list', { product_gid: P(1), on_list: true });
+  const s = (await r.admin('/api/admin/economics')).data;
+  assert.equal(s.circle_price.excluded[0].shipping_estimate, true);
+  assert.equal(s.welcome_basis.shipping_estimate, null, 'no welcome pieces yet');
+});
+
+test('G7: the admin page may show Shopify CDN images', async () => {
+  const r = await rig({ env: { ASSETS: { fetch: async () => new Response('<!doctype html>', { headers: { 'Content-Type': 'text/html' } }) } } });
+  const res = await r.t.call(get('/admin', { 'Cf-Access-Jwt-Assertion': r.jwt }));
+  assert.match(res.headers.get('Content-Security-Policy'), /img-src 'self' data: https:\/\/cdn\.shopify\.com/);
+});
