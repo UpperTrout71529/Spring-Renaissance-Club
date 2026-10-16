@@ -41,11 +41,21 @@ export function App() {
   const match = matchPath(loc.pathname);
   const [session, setSession] = useState<Session>({ status: "loading" });
   const firstRender = useRef(true);
+  // The /api/me answer from page load, handed to Home once so its first
+  // render does not ask again (S11: one request less on the LCP path). Later
+  // visits to Home fetch fresh data.
+  const bootMe = useRef<Me | null>(null);
+  const takeBootMe = () => {
+    const me = bootMe.current;
+    bootMe.current = null;
+    return me;
+  };
 
   async function loadMe() {
     setSession({ status: "loading" });
     try {
       const me = await api<Me>("/api/me");
+      bootMe.current = me;
       setSession({ status: "signed-in", user: me.user, circleBadge: me.badges.circle });
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) setSession({ status: "anonymous" });
@@ -130,6 +140,7 @@ export function App() {
         params={match.params}
         search={loc.search}
         user={session.user}
+        takeBootMe={takeBootMe}
         onSignOut={signOut}
         onDeleted={() => {
           setSession({ status: "anonymous" });
@@ -142,13 +153,13 @@ export function App() {
 
 type ScreenProps = {
   route: RouteName; params: Record<string, string>; search: string; user: User;
-  onSignOut: () => void; onDeleted: () => void;
+  takeBootMe: () => Me | null; onSignOut: () => void; onDeleted: () => void;
 };
 
-function Screen({ route, params, search, user, onSignOut, onDeleted }: ScreenProps) {
+function Screen({ route, params, search, user, takeBootMe, onSignOut, onDeleted }: ScreenProps) {
   const email = user.email;
   switch (route) {
-    case "home": return <Home user={user} />;
+    case "home": return <Home user={user} takeBootMe={takeBootMe} />;
     case "orders": return <Orders />;
     case "order": return <OrderDetail id={params.id} />;
     case "saved": return <Saved initialTab={new URLSearchParams(search).get("view") === "held" ? "held" : "saved"} />;

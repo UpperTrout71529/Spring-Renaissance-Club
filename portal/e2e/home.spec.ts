@@ -157,3 +157,45 @@ test("axe: Home has no WCAG 2.2 A/AA violations", async ({ page }) => {
   await expect(page.getByRole("region", { name: "Make it yours" })).toBeVisible();
   expect(await a11yViolations(page)).toEqual([]);
 });
+
+test("S11: a fresh load of Home asks /api/me once; coming back to Home asks again (fresh onboarding state)", async ({ page }) => {
+  const calls = await mockMe(page);
+  await mockCards(page, []);
+  await mockOrders(page, { pages: [[]] });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1, name: /Clara/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Make it yours" })).toBeVisible();
+  await page.waitForTimeout(300);
+  expect(calls).toEqual(["GET"]);
+
+  await page.getByRole("button", { name: "Dismiss" }).click();
+  await expect(page.getByRole("heading", { name: "Make it yours" })).toHaveCount(0);
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Orders" }).click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Home" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: /Clara/ })).toBeVisible();
+  await page.waitForTimeout(300);
+  expect(calls).toEqual(["GET", "PATCH", "GET"]);
+  await expect(page.getByRole("heading", { name: "Make it yours" })).toHaveCount(0);
+});
+
+test("S11 (CLS): a slow orders answer does not move the blocks below it", async ({ page }) => {
+  await mockMe(page);
+  await mockCards(page, []);
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  await page.route("**/api/orders**", async (r) => {
+    await gate;
+    await r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ orders: [], next_cursor: null }) });
+  });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1, name: /Clara/ })).toBeVisible();
+  await page.waitForTimeout(300);
+  const card = page.getByRole("region", { name: "Make it yours" });
+  const before = (await card.count()) ? (await card.boundingBox())!.y : null;
+  release();
+  await expect(card).toBeVisible();
+  await page.waitForTimeout(300);
+  const after = (await card.boundingBox())!.y;
+  // Either the card waits for the order block, or it never moves.
+  if (before !== null) expect(after).toBe(before);
+});

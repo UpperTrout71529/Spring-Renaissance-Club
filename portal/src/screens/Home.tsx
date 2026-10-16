@@ -30,8 +30,8 @@ function monthYear(iso: string) {
   return new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric" }).format(new Date(iso));
 }
 
-export function Home({ user }: { user: User }) {
-  const [me, setMe] = useState<Me | null>(null);
+export function Home({ user, takeBootMe }: { user: User; takeBootMe?: () => Me | null }) {
+  const [me, setMe] = useState<Me | null>(() => takeBootMe?.() ?? null);
   const [order, setOrder] = useState<OrderDetail | null | "loading">("loading");
   const [cards, setCards] = useState<GiftCards | null>(null);
   const [saved, setSaved] = useState<SavedItem[]>([]);
@@ -39,7 +39,7 @@ export function Home({ user }: { user: User }) {
 
   useEffect(() => {
     // Each block loads on its own; one that fails simply does not show.
-    api<Me>("/api/me").then(setMe).catch(() => {});
+    if (!me) api<Me>("/api/me").then(setMe).catch(() => {});
     api<GiftCards>("/api/gift-cards").then(setCards).catch(() => {});
     api<{ items: SavedItem[] }>("/api/wishlist").then((r) => setSaved(r.items)).catch(() => {});
     api<{ holds: Hold[]; preorders: Preorder[] }>("/api/holds").then((r) => setHeld(r.holds.length + r.preorders.length)).catch(() => {});
@@ -68,22 +68,29 @@ export function Home({ user }: { user: User }) {
       {order === "loading" && <Skeleton lines={3} label={copy.home.loading} />}
       {order && order !== "loading" && <OnItsWay order={order} />}
 
-      {cards && cards.cards.length > 0 && cards.total_balance_cents > 0 && <GiftCardRow cards={cards} />}
+      {/* Everything below waits for the order block: when the skeleton turns
+          into nothing (no active order), blocks already drawn under it would
+          jump up (S11, CLS). */}
+      {order !== "loading" && (
+        <>
+          {cards && cards.cards.length > 0 && cards.total_balance_cents > 0 && <GiftCardRow cards={cards} />}
 
-      {saved.length > 0 && <SavedStrip items={saved} />}
-      {held > 0 && (
-        <section class="home-strip home-card" aria-labelledby="home-held">
-          <div class="home-strip-head">
-            <p id="home-held" class="eyebrow">{copy.saved.count(copy.saved.tabHeld, held)}</p>
-            <Link href="/saved?view=held">{copy.saved.seeAll}</Link>
-          </div>
-        </section>
+          {saved.length > 0 && <SavedStrip items={saved} />}
+          {held > 0 && (
+            <section class="home-strip home-card" aria-labelledby="home-held">
+              <div class="home-strip-head">
+                <p id="home-held" class="eyebrow">{copy.saved.count(copy.saved.tabHeld, held)}</p>
+                <Link href="/saved?view=held">{copy.saved.seeAll}</Link>
+              </div>
+            </section>
+          )}
+
+          {me && <Onboarding me={me} onDismissed={setMe} />}
+
+          {/* §6.3: the invitation always sits below the useful blocks. */}
+          <CircleTeaser />
+        </>
       )}
-
-      {me && <Onboarding me={me} onDismissed={setMe} />}
-
-      {/* §6.3: the invitation always sits below the useful blocks. */}
-      <CircleTeaser />
     </div>
   );
 }

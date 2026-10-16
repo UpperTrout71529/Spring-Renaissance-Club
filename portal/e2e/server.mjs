@@ -12,6 +12,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
+import { gzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { createApp } from "../../src/app.js";
 import { makeEnv } from "../../test/harness.mjs";
@@ -85,23 +86,34 @@ const TYPES = {
   ".woff2": "font/woff2", ".woff": "font/woff", ".svg": "image/svg+xml", ".png": "image/png",
 };
 
-function serveStatic(pathname, res) {
+// Cloudflare Pages compresses text responses; so does this server, so that
+// Lighthouse's throttled transfer times match production rather than an
+// uncompressed bundle (fonts and images are already compressed formats).
+function send(req, res, status, type, body) {
+  const headers = { "Content-Type": type };
+  if (/^(text\/|application\/json)/.test(type) && /\bgzip\b/.test(req.headers["accept-encoding"] || "")) {
+    body = gzipSync(body);
+    headers["Content-Encoding"] = "gzip";
+    headers["Vary"] = "Accept-Encoding";
+  }
+  res.writeHead(status, headers);
+  res.end(body);
+}
+
+function serveStatic(req, pathname, res) {
   const file = normalize(join(DIST, decodeURIComponent(pathname)));
   if (file.startsWith(DIST + sep) && existsSync(file) && extname(file)) {
-    res.writeHead(200, { "Content-Type": TYPES[extname(file)] || "application/octet-stream" });
-    res.end(readFileSync(file));
+    send(req, res, 200, TYPES[extname(file)] || "application/octet-stream", readFileSync(file));
     return;
   }
   // GitHub Pages behaviour: /login is served from login.html (200); unknown
   // paths get 404.html with status 404.
   const page = pathname === "/" ? join(DIST, "index.html") : normalize(join(DIST, `${decodeURIComponent(pathname).replace(/\/+$/, "")}.html`));
   if (page.startsWith(DIST + sep) && existsSync(page)) {
-    res.writeHead(200, { "Content-Type": TYPES[".html"] });
-    res.end(readFileSync(page));
+    send(req, res, 200, TYPES[".html"], readFileSync(page));
     return;
   }
-  res.writeHead(404, { "Content-Type": TYPES[".html"] });
-  res.end(readFileSync(join(DIST, "404.html")));
+  send(req, res, 404, TYPES[".html"], readFileSync(join(DIST, "404.html")));
 }
 
 async function body(req) {
@@ -161,7 +173,7 @@ const server = createServer(certificate(), async (req, res) => {
       await Promise.all(pending);
       return;
     }
-    serveStatic(url.pathname, res);
+    serveStatic(req, url.pathname, res);
   } catch (e) {
     console.error("e2e server error", e);
     res.writeHead(500);
