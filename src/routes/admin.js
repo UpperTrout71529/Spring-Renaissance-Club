@@ -22,6 +22,8 @@ export async function listMembers(ctx) {
   const q = (url.searchParams.get("q") || "").trim().slice(0, 100);
   const tier = url.searchParams.get("tier") || "";
   if (tier && !["club", "vip"].includes(tier)) throw badRequest("invalid_tier", "Unknown tier.");
+  const status = url.searchParams.get("status") || "";
+  if (status && !["pending", "active", "past_due", "canceling", "ended", "ended_expired"].includes(status)) throw badRequest("invalid_status", "Unknown status.");
   const page = Math.max(1, Math.min(1000, Number.parseInt(url.searchParams.get("page") || "1", 10) || 1));
 
   const where = ["deleted_at IS NULL"];
@@ -36,16 +38,25 @@ export async function listMembers(ctx) {
     args.push(tier);
     where.push(`tier = ?${args.length}`);
   }
+  if (status) {
+    args.push(status);
+    where.push(`(SELECT m.status FROM memberships m WHERE m.user_id = users.id ORDER BY m.created_at DESC LIMIT 1) = ?${args.length}`);
+  }
   args.push(PAGE_SIZE + 1, (page - 1) * PAGE_SIZE);
   const { results } = await env.DB.prepare(
-    `SELECT id, email, first_name, last_name, tier, created_at, last_login_at FROM users
+    `SELECT id, email, first_name, last_name, tier, created_at, last_login_at,
+            (SELECT m.status FROM memberships m WHERE m.user_id = users.id ORDER BY m.created_at DESC LIMIT 1) AS membership_status,
+            (SELECT m.current_period_end FROM memberships m WHERE m.user_id = users.id AND m.status = 'active' ORDER BY m.created_at DESC LIMIT 1) AS next_charge_at,
+            CASE WHEN EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = users.id)
+                 THEN (SELECT COALESCE(SUM(l.amount_cents), 0) FROM credit_ledger l WHERE l.user_id = users.id) END AS balance_cents
+       FROM users
      WHERE ${where.join(" AND ")} ORDER BY created_at DESC, id DESC LIMIT ?${args.length - 1} OFFSET ?${args.length}`
   ).bind(...args).all();
 
   const members = results.slice(0, PAGE_SIZE).map((u) => ({
     id: u.id, email: u.email, first_name: u.first_name, last_name: u.last_name,
-    tier: u.tier, status: null, since: u.created_at, last_login_at: u.last_login_at,
-    credits_balance_cents: null, next_charge_at: null,
+    tier: u.tier, status: u.membership_status ?? null, since: u.created_at, last_login_at: u.last_login_at,
+    credits_balance_cents: u.balance_cents ?? null, next_charge_at: u.next_charge_at ?? null,
   }));
   return json({ members, page, has_more: results.length > PAGE_SIZE });
 }
@@ -79,9 +90,24 @@ export async function getMember(ctx) {
     all("SELECT name, props_json, created_at FROM events WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 20", user.id),
   ]);
 
+  const membership = await env.DB.prepare(
+    `SELECT id, kind, status, started_at, current_period_end, cancel_requested_at, ended_at, end_reason, credits_grace_until,
+            paid_invoices, consecutive_paid_months, credits_frozen FROM memberships WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 1`
+  ).bind(user.id).first();
+  let credits = null;
+  let invoices = [];
+  if (membership) {
+    const bal = await env.DB.prepare("SELECT COALESCE(SUM(amount_cents), 0) AS b FROM credit_ledger WHERE user_id = ?1").bind(user.id).first();
+    credits = {
+      balance_cents: bal.b,
+      ledger: await all("SELECT created_at, memo, kind, amount_cents, created_by FROM credit_ledger WHERE user_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 50", user.id),
+    };
+    invoices = await all(`SELECT i.period_start, i.period_end, i.amount_paid_cents, i.status, i.hosted_invoice_url FROM membership_invoices i
+      JOIN memberships m ON m.id = i.membership_id WHERE m.user_id = ?1 ORDER BY i.period_start DESC LIMIT 24`, user.id);
+  }
   await audit(ctx, "member_viewed", user.id);
   return json({
-    user, membership: null, credits: null,
+    user, membership: membership || null, credits, invoices,
     shopify_admin_url: shopifyAdminUrl(env, user.shopify_customer_id),
     consents, sessions, passkeys, saved, holds, emails, events,
   });
