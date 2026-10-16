@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api, ApiError, type Me, type User } from "./api";
 import { copy } from "./copy/en";
-import { matchPath, navigate, STOREFRONT_ORIGIN, useLocation, type RouteName } from "./router";
+import { matchPath, navigate, useLocation, type RouteName } from "./router";
 import { PublicLayout, Shell } from "./ui/Shell";
-import { EmptyState, ErrorState, Skeleton } from "./ui/states";
+import { ErrorState, Skeleton } from "./ui/states";
 import { Login } from "./screens/Login";
 import { Auth } from "./screens/Auth";
 import { NotFound, SectionHeading } from "./screens/Placeholder";
@@ -11,6 +11,7 @@ import { Account } from "./screens/Account";
 import { Security } from "./screens/Security";
 import { OrderDetail, Orders } from "./screens/Orders";
 import { Home } from "./screens/Home";
+import { Saved } from "./screens/Saved";
 
 type Session =
   | { status: "loading" }
@@ -112,31 +113,20 @@ export function App() {
 
   return (
     <Shell route={match.name} email={session.user.email} circleBadge={session.circleBadge} onSignOut={signOut}>
-      <Screen route={match.name} params={match.params} user={session.user} onSignOut={signOut} />
+      <Screen route={match.name} params={match.params} search={loc.search} user={session.user} onSignOut={signOut} />
     </Shell>
   );
 }
 
-type ScreenProps = { route: RouteName; params: Record<string, string>; user: User; onSignOut: () => void };
+type ScreenProps = { route: RouteName; params: Record<string, string>; search: string; user: User; onSignOut: () => void };
 
-function Screen({ route, params, user, onSignOut }: ScreenProps) {
+function Screen({ route, params, search, user, onSignOut }: ScreenProps) {
   const email = user.email;
   switch (route) {
     case "home": return <Home user={user} />;
     case "orders": return <Orders />;
     case "order": return <OrderDetail id={params.id} />;
-    // Empty state until the data arrives with S7.
-    case "saved":
-      return (
-        <>
-          <SectionHeading eyebrow={copy.eyebrows.saved} title={copy.nav.saved} />
-          <EmptyState
-            title={copy.saved.emptyTitle}
-            body={copy.saved.emptyBody}
-            action={<a class="button button-secondary" href={STOREFRONT_ORIGIN}>{copy.saved.emptyAction}</a>}
-          />
-        </>
-      );
+    case "saved": return <Saved initialTab={new URLSearchParams(search).get("view") === "held" ? "held" : "saved"} />;
     case "circle": return <SectionHeading eyebrow={copy.eyebrows.circle} title={copy.nav.circle} />;
     case "account": return <Account email={email} onSignOut={onSignOut} />;
     case "accountSecurity": return <Security email={email} />;

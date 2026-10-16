@@ -2,9 +2,8 @@
 // against the real Worker: add a passkey, sign in without an email, remove a
 // key only after step-up (passkey, or the emailed code).
 
-import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { isMobile, lastStepUpCode, signInByLink } from "./helpers";
+import { a11yViolations, isMobile, lastStepUpCode, signInByLink } from "./helpers";
 
 test.skip(({ browserName }) => browserName !== "chromium", "virtual authenticator needs the Chrome DevTools Protocol");
 
@@ -85,8 +84,7 @@ test("removing a passkey asks for step-up; confirming with the passkey removes i
 
   const dialog = page.getByRole("dialog", { name: "Confirm it's you" });
   await expect(dialog).toBeVisible();
-  const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
-  expect(results.violations.map((v) => v.id)).toEqual([]);
+  expect(await a11yViolations(page)).toEqual([]);
 
   await dialog.getByRole("button", { name: "Confirm with your device" }).click();
   await expect(dialog).toBeHidden();
@@ -124,6 +122,5 @@ test("axe: Sign-in & security has no WCAG 2.2 A/AA violations", async ({ page, r
   await openSecurity(page);
   await page.getByRole("button", { name: "Add a passkey" }).click();
   await expect(page.getByRole("button", { name: /^Remove / })).toHaveCount(1);
-  const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
-  expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+  expect(await a11yViolations(page)).toEqual([]);
 });

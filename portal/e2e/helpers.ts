@@ -75,3 +75,12 @@ export async function mockOrders(page: Page, { pages = [] as unknown[][], detail
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ orders, next_cursor: next }) });
   });
 }
+
+// axe after the 200 ms appear animations have finished: mid-fade text is
+// semi-transparent and would be measured as low contrast.
+export async function a11yViolations(page: Page): Promise<string[]> {
+  const { default: AxeBuilder } = await import("@axe-core/playwright");
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== "running"));
+  const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
+  return results.violations.map((v) => `${v.id}: ${v.help}`);
+}

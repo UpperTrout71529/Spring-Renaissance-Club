@@ -104,6 +104,7 @@ test("deep links survive the GitHub Pages 404 fallback", async ({ page }) => {
 test("empty Orders and Saved show the spec's empty states", async ({ page }) => {
   await mockSignedIn(page);
   await mockOrders(page, { pages: [[]] });
+  await page.route("**/api/wishlist**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: '{"items":[]}' }));
   await page.goto("/orders");
   await expect(page.getByRole("heading", { level: 2, name: "No orders yet" })).toBeVisible();
   await expect(page.getByText("When you place an order with this email, it will appear here — with tracking.")).toBeVisible();

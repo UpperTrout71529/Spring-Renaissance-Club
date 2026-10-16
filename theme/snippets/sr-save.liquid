@@ -1,0 +1,111 @@
+{%- comment -%}
+  SR: "Save" (heart) on product pages → the customer's Saved in the account
+  portal (club.springrenaissance.store). Spec "ЛК — ТЗ v1.1" §9.2.7, task S7.
+
+  Install (DRAFT theme only — Felix publishes): upload this file as
+  snippets/sr-save.liquid and add one line to snippets/sr-touch-fix.liquid,
+  next to the sr-preorder render:
+    {% render 'sr-save' %}
+
+  Behaviour:
+  - asks the account API which pieces are saved (cookie of
+    api.springrenaissance.store, same site as the storefront) and shows
+    "Save" / "Saved";
+  - a click saves or removes; signed out → the account sign-in, which brings
+    the visitor back to this product with ?sr_save=1, and the piece is saved
+    on arrival;
+  - nothing on pages that are not product pages, and nothing for the
+    membership product.
+{%- endcomment -%}
+{%- if request.page_type == 'product' and product.handle != 'patron-membership' -%}
+  <template id="sr-save-tpl">
+    <button type="button" class="sr-save" data-sr-save aria-pressed="false">
+      <svg class="sr-save__icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+        <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"
+          fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+      </svg>
+      <span data-sr-save-label>Save</span>
+    </button>
+  </template>
+  <style>
+    .sr-save{display:inline-flex;align-items:center;gap:8px;min-height:44px;margin:0 0 16px;padding:0 4px;background:none;border:0;color:inherit;font:inherit;font-size:13px;letter-spacing:.12em;text-transform:uppercase;cursor:pointer}
+    .sr-save[aria-pressed="true"] .sr-save__icon path{fill:currentColor}
+    .sr-save[disabled]{opacity:.5;cursor:default}
+    .sr-save:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+  </style>
+  <script>
+  (function () {
+    var API = 'https://api.springrenaissance.store';
+    var PORTAL = 'https://club.springrenaissance.store';
+    var HANDLE = {{ product.handle | json }};
+
+    function call(method, path, body) {
+      var opts = { method: method, credentials: 'include', headers: {} };
+      if (method !== 'GET') opts.headers['X-SR-Client'] = 'portal';
+      if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+      return fetch(API + path, opts);
+    }
+
+    function signIn() {
+      var back = new URL(window.location.href);
+      back.searchParams.set('sr_save', '1');
+      window.location.href = PORTAL + '/login?return_to=' + encodeURIComponent(back.toString());
+    }
+
+    function go() {
+      var tpl = document.getElementById('sr-save-tpl');
+      if (!tpl) return;
+      var main = document.querySelector('main') || document.body;
+      var form = main.querySelector('form[action*="/cart/add"]');
+      var btn = tpl.content.firstElementChild.cloneNode(true);
+      if (form && form.parentNode) form.parentNode.insertBefore(btn, form);
+      else (main.querySelector('h1') || main).insertAdjacentElement('afterend', btn);
+
+      var label = btn.querySelector('[data-sr-save-label]');
+      function show(saved) {
+        btn.setAttribute('aria-pressed', saved ? 'true' : 'false');
+        label.textContent = saved ? 'Saved' : 'Save';
+      }
+
+      function save() {
+        btn.disabled = true;
+        return call('POST', '/api/wishlist', { product_handle: HANDLE, source: 'storefront' })
+          .then(function (r) {
+            if (r.status === 401) return signIn();
+            if (r.ok) show(true);
+          })
+          .catch(function () {})
+          .finally(function () { btn.disabled = false; });
+      }
+
+      btn.addEventListener('click', function () {
+        if (btn.getAttribute('aria-pressed') === 'true') {
+          btn.disabled = true;
+          call('DELETE', '/api/wishlist/' + encodeURIComponent(HANDLE))
+            .then(function (r) { if (r.status === 401) return signIn(); if (r.ok) show(false); })
+            .catch(function () {})
+            .finally(function () { btn.disabled = false; });
+        } else {
+          save();
+        }
+      });
+
+      // Back from sign-in: save the piece the visitor asked for, then tidy the URL.
+      var url = new URL(window.location.href);
+      if (url.searchParams.get('sr_save') === '1') {
+        url.searchParams.delete('sr_save');
+        history.replaceState(null, '', url.toString());
+        save();
+        return;
+      }
+
+      call('GET', '/api/wishlist/handles')
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) { if (data && data.handles) show(data.handles.indexOf(HANDLE) !== -1); })
+        .catch(function () {});
+    }
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
+  })();
+  </script>
+{%- endif -%}

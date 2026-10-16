@@ -1,8 +1,7 @@
 // /login and /auth against a mocked API (§6.2, §10.1), plus axe on /login.
 
-import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { mockSignedOut, stubTurnstile, USER } from "./helpers";
+import { a11yViolations, mockSignedOut, stubTurnstile, USER } from "./helpers";
 
 const TOKEN = "T".repeat(43);
 
@@ -14,10 +13,7 @@ test("axe: /login has no WCAG 2.2 A/AA violations", async ({ page }) => {
   await mockSignedOut(page);
   await page.goto("/login");
   await expect(page.getByRole("heading", { name: "Your account" })).toBeVisible();
-  const results = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
-    .analyze();
-  expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+  expect(await a11yViolations(page)).toEqual([]);
 });
 
 test("axe: the sent state has no violations either", async ({ page }) => {
@@ -27,8 +23,7 @@ test("axe: the sent state has no violations either", async ({ page }) => {
   await page.getByLabel("Email address").fill("clara@example.com");
   await page.getByRole("button", { name: "Email me a sign-in link" }).click();
   await expect(page.getByRole("heading", { name: "Check your inbox" })).toBeVisible();
-  const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
-  expect(results.violations.map((v) => v.id)).toEqual([]);
+  expect(await a11yViolations(page)).toEqual([]);
 });
 
 test("login: sends email, Turnstile token and return_to; shows Check your inbox", async ({ page }) => {

@@ -18,10 +18,11 @@ Running list for PR review (Felix). Spec: "ЛК — ТЗ v1.1" (2026-10-15).
    fulfillment-order scopes as alternatives, so the granted ones cover
    `Order.fulfillments`. To confirm with the first real call once the
    secrets are in.
-2. **Draft theme lags the live theme.** `snippets/sr-preorder` in the draft
-   WORK 4 (189096820957, last changed 7 Oct) lacks the 13 Oct catalog
-   exclusion that the live theme (189304766685) has. The API follows the
-   newer, live version. Worth syncing the draft before the next theme edit.
+2. **Theme change for S7 needs your "yes".** `theme/snippets/sr-save.liquid`
+   (the storefront "Save" heart) is in the repo, not uploaded. Target: the
+   draft "Spring Renaissance Latest Version - Draft" (189482795229, created
+   16 Oct; the old draft WORK 4 no longer exists). Install = upload the
+   snippet + one `{% render 'sr-save' %}` line in `snippets/sr-touch-fix`.
 
 ## Answered (16 Oct 2026)
 
@@ -95,6 +96,35 @@ Running list for PR review (Felix). Spec: "ЛК — ТЗ v1.1" (2026-10-15).
   503 `orders_unavailable`.
 - `SHOPIFY_SHOP` lives in `wrangler.toml` `[vars]` (not a secret).
 
+### S6 — Home and gift cards
+- `GET /api/me` adds `user.created_at` and `onboarding.dismissed`;
+  `PATCH /api/me` accepts only `{ onboarding_dismissed: true }` for now.
+- Gift cards bought for someone else (recipient set to another customer) are
+  not counted in the buyer's balance; disabled cards are left out.
+- The gift card row is hidden unless there is a card with a balance; it
+  expands to the cards (last 4 only).
+- "Make it yours" sits after the order and gift card blocks (usefulness
+  first); greeting splits the day at 5, 12 and 18.
+- A date without a time (gift card expiry) is formatted in UTC so it never
+  shows a day early.
+
+### S7 — Saved and Held for you
+- Extra endpoints: `GET /api/wishlist/handles` (cheap, D1 only, for the
+  storefront hearts) and `POST /api/holds` (spec §9.2.7 mentions it, §8.3
+  does not list it).
+- "No longer available" = product not active, not on the online store, or no
+  variant for sale (archived / unpublished / sold out / deleted).
+- Import of "Let us hold these for you": the form keeps the pieces only as
+  customer tags `reserve-<handle>[-<variant>]` (live theme,
+  `sections/sr-reserve-intercept.liquid`, currently `hold_mode` off). They
+  become holds at each sign-in, once per piece. Quantities are not in
+  Shopify, so they are not imported.
+- The storefront heart is on product pages only (not on collection cards);
+  signed out, it sends the visitor to sign in and back with `?sr_save=1`,
+  which saves the piece on arrival.
+- The reservation form itself does not post to `/api/holds` yet: it is
+  switched off in the live theme.
+
 ## Copy for review (not quoted in the spec)
 
 ### Step-up dialog
@@ -135,6 +165,26 @@ Running list for PR review (Felix). Spec: "ЛК — ТЗ v1.1" (2026-10-15).
 
 ### Account screen
 - "Sign-in & security", "Sign out"
+
+### Home (spec copy used: "Good evening, {name}", "Welcome back", "Club member
+since …", "On its way", "Track parcel", "Gift card balance", and the three
+§6.10 items "Account created" / "Add Face ID for faster sign-in" / "Save a
+piece you love")
+- "Good morning" / "Good afternoon" (the spec shows only "Good evening")
+- "View order"; "Card ending {last4}"; "Expires {date}"
+- "Make it yours" progress "{n} of 3 done"; "Dismiss"; "Add Touch ID / a
+  passkey for faster sign-in" on non-iPhone devices
+
+### Saved (spec copy used: "Saved", "Held for you", "No longer available",
+"Nothing saved yet", its body and "Browse the store", "We'll write when
+reservations open.")
+- "This piece" when Shopify no longer knows the product
+- Heart button (screen readers): "Remove {title} from Saved"
+- "Held since {date}"; "Order #{n} · Pre-order"
+- Empty Held: "Nothing held for you" / "Pieces we hold for you and your
+  pre-orders will appear here."
+- Home: "Saved ({n})", "Held for you ({n})", "See all"
+- Storefront button: "Save" / "Saved"
 
 ### Orders (spec copy used verbatim: "No orders yet", the empty-state body and
 "Explore the collections", status labels Processing / Pre-order · in

@@ -12,7 +12,9 @@ import { deviceAuthName } from "../passkeys";
 import { STOREFRONT_ORIGIN } from "../router";
 import { Link } from "../ui/Link";
 import { Skeleton } from "../ui/states";
+import type { Hold, Preorder, SavedItem } from "./Saved";
 import "./home.css";
+import "./saved.css";
 
 type OrderSummary = { id: string; name: string; status: string; items_count: number };
 type OrderDetail = OrderSummary & {
@@ -31,11 +33,15 @@ export function Home({ user }: { user: User }) {
   const [me, setMe] = useState<Me | null>(null);
   const [order, setOrder] = useState<OrderDetail | null | "loading">("loading");
   const [cards, setCards] = useState<GiftCards | null>(null);
+  const [saved, setSaved] = useState<SavedItem[]>([]);
+  const [held, setHeld] = useState(0);
 
   useEffect(() => {
     // Each block loads on its own; one that fails simply does not show.
     api<Me>("/api/me").then(setMe).catch(() => {});
     api<GiftCards>("/api/gift-cards").then(setCards).catch(() => {});
+    api<{ items: SavedItem[] }>("/api/wishlist").then((r) => setSaved(r.items)).catch(() => {});
+    api<{ holds: Hold[]; preorders: Preorder[] }>("/api/holds").then((r) => setHeld(r.holds.length + r.preorders.length)).catch(() => {});
     (async () => {
       try {
         const { orders } = await api<{ orders: OrderSummary[] }>("/api/orders");
@@ -62,6 +68,16 @@ export function Home({ user }: { user: User }) {
       {order && order !== "loading" && <OnItsWay order={order} />}
 
       {cards && cards.cards.length > 0 && cards.total_balance_cents > 0 && <GiftCardRow cards={cards} />}
+
+      {saved.length > 0 && <SavedStrip items={saved} />}
+      {held > 0 && (
+        <section class="home-strip home-card" aria-labelledby="home-held">
+          <div class="home-strip-head">
+            <p id="home-held" class="eyebrow">{copy.saved.count(copy.saved.tabHeld, held)}</p>
+            <Link href="/saved?view=held">{copy.saved.seeAll}</Link>
+          </div>
+        </section>
+      )}
 
       {me && <Onboarding me={me} onDismissed={setMe} />}
     </div>
@@ -95,6 +111,26 @@ function OnItsWay({ order }: { order: OrderDetail }) {
         ) : null}
         <Link href={`/orders/${order.id}`} class={parcel?.tracking_url ? "button-link" : "button button-secondary"}>{copy.home.viewOrder}</Link>
       </div>
+    </section>
+  );
+}
+
+// §6.3: a ribbon of 3–6 saved pieces.
+function SavedStrip({ items }: { items: SavedItem[] }) {
+  return (
+    <section class="home-strip home-card" aria-labelledby="home-saved">
+      <div class="home-strip-head">
+        <p id="home-saved" class="eyebrow">{copy.saved.count(copy.saved.tabSaved, items.length)}</p>
+        <Link href="/saved">{copy.saved.seeAll}</Link>
+      </div>
+      <ul class="saved-ribbon">
+        {items.slice(0, 6).map((i) => (
+          <li key={i.product_handle} class={i.available ? "saved-card" : "saved-card is-unavailable"}>
+            <span class="saved-image">{i.image_url && <img src={sized(i.image_url, 320)} alt="" loading="lazy" width={160} height={160} />}</span>
+            <span class="saved-title">{i.title ?? copy.saved.untitled}</span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

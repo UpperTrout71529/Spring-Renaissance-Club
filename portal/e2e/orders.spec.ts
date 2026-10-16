@@ -1,9 +1,8 @@
 // S5 acceptance in the portal (§6.4): list with Load more, detail with every
 // tracking number, no invented dates, help mailto, 404 and error states, axe.
 
-import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
-import { mockOrders, mockSignedIn } from "./helpers";
+import { a11yViolations, mockOrders, mockSignedIn } from "./helpers";
 
 const summary = (n: number, extra: Record<string, unknown> = {}) => ({
   id: String(5000 + n), name: `#${1000 + n}`, created_at: "2026-10-02T09:00:00Z", total_cents: 8800, currency: "USD",
@@ -73,8 +72,7 @@ test("detail: every tracking number, Track with {Carrier}, an arrival date only 
   const help = page.getByRole("link", { name: "Need help with this order?" });
   await expect(help).toHaveAttribute("href", "mailto:concierge@springrenaissance.store?subject=Order%20%231023");
 
-  const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
-  expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+  expect(await a11yViolations(page)).toEqual([]);
 
   await page.getByRole("link", { name: "Back to orders" }).click();
   await expect(page).toHaveURL(/\/orders$/);
@@ -100,6 +98,5 @@ test("axe: the orders list has no WCAG 2.2 A/AA violations", async ({ page }) =>
   await mockOrders(page, { pages });
   await page.goto("/orders");
   await expect(page.locator(".order-card")).toHaveCount(10);
-  const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
-  expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+  expect(await a11yViolations(page)).toEqual([]);
 });
