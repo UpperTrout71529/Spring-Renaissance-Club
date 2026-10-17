@@ -1,0 +1,617 @@
+/*
+ * ------------------------------------------------------------
+ * IMPORTANT: The contents of this file are auto-generated.
+ *
+ * This file may be updated by the Shopify admin theme editor
+ * or related systems. Please exercise caution as any changes
+ * made to this file may be overwritten.
+ * ------------------------------------------------------------
+ */
+{
+  "sections": {
+    "main": {
+      "type": "product-information",
+      "blocks": {
+        "media-gallery": {
+          "type": "_product-media-gallery",
+          "disabled": true,
+          "static": true,
+          "settings": {
+            "media_presentation": "grid",
+            "media_columns": "two",
+            "image_gap": 0,
+            "large_first_image": true,
+            "icons_style": "arrows",
+            "slideshow_controls_style": "thumbnails",
+            "slideshow_mobile_controls_style": "dots",
+            "thumbnail_position": "bottom",
+            "thumbnail_width": 48,
+            "thumbnail_radius": 0,
+            "aspect_ratio": "1/1.25",
+            "constrain_to_viewport": false,
+            "media_fit": "cover",
+            "media_radius": 0,
+            "extend_media": true,
+            "zoom": true,
+            "video_loop": true,
+            "hide_variants": false,
+            "padding-block-start": 0,
+            "padding-block-end": 0,
+            "padding-inline-start": 0,
+            "padding-inline-end": 0
+          },
+          "blocks": {}
+        },
+        "product-details": {
+          "type": "_product-details",
+          "disabled": true,
+          "static": true,
+          "settings": {
+            "width": "fill",
+            "custom_width": 100,
+            "width_mobile": "fill",
+            "custom_width_mobile": 100,
+            "height": "fit",
+            "details_position": "flex-start",
+            "gap": 24,
+            "sticky_details_desktop": true,
+            "background_media": "none",
+            "video_position": "cover",
+            "background_image_position": "cover",
+            "border": "none",
+            "border_width": 1,
+            "border_opacity": 100,
+            "border_radius": 0,
+            "padding-block-start": 48,
+            "padding-block-end": 48,
+            "padding-inline-start": 0,
+            "padding-inline-end": 0
+          },
+          "blocks": {}
+        }
+      },
+      "disabled": true,
+      "settings": {
+        "content_width": "content-center-aligned",
+        "desktop_media_position": "left",
+        "equal_columns": false,
+        "limit_details_width": true,
+        "gap": 48,
+        "enable_sticky_add_to_cart": false,
+        "background_color": "{{ settings.color_palette.background }}",
+        "padding-block-start": 0,
+        "padding-block-end": 0
+      }
+    },
+    "sr_patron_tiers_BiUh9r": {
+      "type": "sr-patron-tiers",
+      "blocks": {
+        "standard_line_3HwxG6": {
+          "type": "standard_line",
+          "settings": {
+            "label": "Le Vase Livre, numbered edition",
+            "value": "$85",
+            "note": "",
+            "included": true
+          }
+        },
+        "standard_line_mmr7bC": {
+          "type": "standard_line",
+          "settings": {
+            "label": "Monthly credit",
+            "value": "None",
+            "note": "",
+            "included": false
+          }
+        },
+        "standard_line_aLmm6j": {
+          "type": "standard_line",
+          "settings": {
+            "label": "Member pricing on future releases",
+            "value": "None",
+            "note": "",
+            "included": false
+          }
+        },
+        "standard_line_88GK6c": {
+          "type": "standard_line",
+          "settings": {
+            "label": "Allocation held on limited runs",
+            "value": "None",
+            "note": "",
+            "included": false
+          }
+        },
+        "patron_line_JKfKPy": {
+          "type": "patron_line",
+          "settings": {
+            "label": "Le Vase Livre, numbered edition",
+            "value": "$85 value",
+            "note": "Numbered 001–300, hardcover packaging, digital certificate of authenticity.",
+            "included": true
+          }
+        },
+        "patron_line_88VePy": {
+          "type": "patron_line",
+          "settings": {
+            "label": "Credit toward the seasonal capsule",
+            "value": "$20 / month",
+            "note": "Accrues from the first month and carries forward in full.",
+            "included": true
+          }
+        },
+        "patron_line_Ayrxfn": {
+          "type": "patron_line",
+          "settings": {
+            "label": "Member pricing on every future release",
+            "value": "25–50% off",
+            "note": "",
+            "included": true
+          }
+        },
+        "patron_line_MyaAf4": {
+          "type": "patron_line",
+          "settings": {
+            "label": "Allocation held on limited editions",
+            "value": "Automatic",
+            "note": "Your piece is reserved before the public release opens.",
+            "included": true
+          }
+        },
+        "patron_line_LEFnYr": {
+          "type": "patron_line",
+          "settings": {
+            "label": "Living Library quarterly edition",
+            "value": "Included",
+            "note": "",
+            "included": true
+          }
+        },
+        "patron_line_bDyXF8": {
+          "type": "patron_line",
+          "settings": {
+            "label": "Concierge styling correspondence",
+            "value": "Included",
+            "note": "",
+            "included": true
+          }
+        }
+      },
+      "block_order": [
+        "standard_line_3HwxG6",
+        "standard_line_mmr7bC",
+        "standard_line_aLmm6j",
+        "standard_line_88GK6c",
+        "patron_line_JKfKPy",
+        "patron_line_88VePy",
+        "patron_line_Ayrxfn",
+        "patron_line_MyaAf4",
+        "patron_line_LEFnYr",
+        "patron_line_bDyXF8"
+      ],
+      "name": "SR — Patron Tiers",
+      "settings": {
+        "eyebrow": "Enrolment",
+        "heading": "Two ways to begin",
+        "standfirst": "<p>One buys an object. The other opens an account with the atelier, and returns the price of that object to you in credit before the first quarter closes.</p>",
+        "standard_kicker": "Without membership",
+        "standard_name": "One-time purchase",
+        "standard_price": "$85",
+        "standard_price_note": "once",
+        "standard_desc": "Le Vase Livre, first edition, delivered once. Nothing accrues and nothing is held for you.",
+        "standard_product": "le-vase-livre",
+        "standard_url": "",
+        "standard_cta": "Purchase the vase",
+        "standard_reassure": "",
+        "patron_badge": "Best value",
+        "patron_kicker": "The Patron Society",
+        "patron_name": "Patron membership",
+        "patron_price": "$50",
+        "patron_price_after": "today, then $20 monthly",
+        "patron_price_note": "Cancel any month — accrued credit stays yours",
+        "patron_desc": "The welcome vase arrives immediately. Every month after adds $20 of credit toward the seasonal capsule and holds your allocation on limited releases.",
+        "patron_product": "patron-membership",
+        "patron_selling_plan": "",
+        "patron_url": "",
+        "patron_cta": "Claim membership — $50 today",
+        "patron_reassure": "No lock-in. Pause or cancel from your account in two clicks.",
+        "sold_out_label": "Enrolment closed",
+        "show_calc": true,
+        "calc_label": "Credit accrued",
+        "calc_monthly": "20",
+        "calc_symbol": "$",
+        "calc_max_months": 12,
+        "calc_eligible_months": 2,
+        "calc_month_single": "month of membership",
+        "calc_month_plural": "months of membership",
+        "calc_status_under": "One more month and the seasonal capsule is yours this quarter.",
+        "calc_status_over": "Seasonal capsule secured for this quarter.",
+        "bg_color": "#f9f8f3",
+        "text_color": "#111111",
+        "muted_color": "#6b675f",
+        "accent_color": "#c89d7c",
+        "border_color": "#ddd8cc",
+        "feature_bg": "#111111",
+        "feature_text": "#f9f8f3",
+        "font_stack": "'Cormorant Garamond', 'Cormorant', Garamond, 'Times New Roman', serif",
+        "tracking": 18,
+        "max_width": 1320,
+        "padding_top": 96,
+        "padding_bottom": 104
+      }
+    },
+    "sr_archival_roadmap_i9zijy": {
+      "type": "sr-archival-roadmap",
+      "blocks": {
+        "milestone_CmqgmY": {
+          "type": "milestone",
+          "settings": {
+            "period": "Spring 2026",
+            "title": "Le Vase Livre",
+            "description": "Optical acrylic book vase, seamless hydro-cast. First edition of 300.",
+            "status": "live",
+            "status_override": "",
+            "members_note": "Included with membership as the welcome gift.",
+            "link_label": "",
+            "link_url": ""
+          }
+        },
+        "milestone_7fjwmn": {
+          "type": "milestone",
+          "settings": {
+            "period": "Summer 2026",
+            "title": "The Atelier Vignette",
+            "description": "Four-piece nocturne set: cast metal sculpture, fluid-wave print, ceramic knot holder, two tapers.",
+            "status": "reserved",
+            "status_override": "",
+            "members_note": "Members allocated first. Public release only if units remain.",
+            "link_label": "",
+            "link_url": ""
+          }
+        },
+        "milestone_QQH8b9": {
+          "type": "milestone",
+          "settings": {
+            "period": "Autumn 2026",
+            "title": "Classical Anatomy",
+            "description": "Torso on a steel rod and base plate. Obsidian composite or chalk alabaster.",
+            "status": "upcoming",
+            "status_override": "",
+            "members_note": "Member pricing applies from the first hour.",
+            "link_label": "",
+            "link_url": ""
+          }
+        },
+        "milestone_Tj4fyV": {
+          "type": "milestone",
+          "settings": {
+            "period": "Winter 2026",
+            "title": "Harmonic Contour",
+            "description": "Polished brass ribbon-wave on a crystalline marble cube.",
+            "status": "upcoming",
+            "status_override": "",
+            "members_note": "Private allocation. Waitlist opens to members only.",
+            "link_label": "",
+            "link_url": ""
+          }
+        },
+        "milestone_M4P3r4": {
+          "type": "milestone",
+          "settings": {
+            "period": "Spring 2027",
+            "title": "Decadent Heritage",
+            "description": "L'Amphore Parée and L'Acanthe Pétrifiée. Forty pieces across the two.",
+            "status": "upcoming",
+            "status_override": "",
+            "members_note": "Forty pieces. Members hold every one of them at release.",
+            "link_label": "",
+            "link_url": ""
+          }
+        }
+      },
+      "block_order": [
+        "milestone_CmqgmY",
+        "milestone_7fjwmn",
+        "milestone_QQH8b9",
+        "milestone_Tj4fyV",
+        "milestone_M4P3r4"
+      ],
+      "name": "SR — Archival Roadmap",
+      "settings": {
+        "eyebrow": "Release calendar",
+        "heading": "The 2026–2027 archive",
+        "standfirst": "<p>Each run is cast once and retired. Members are allocated before a release opens; everyone else meets it already closed.</p>",
+        "footnote": "Dates are indicative. Members are notified by correspondence two weeks before any release opens.",
+        "layout": "horizontal",
+        "show_arrows": true,
+        "card_width": 340,
+        "image_ratio": "4 / 5",
+        "prev_label": "Earlier releases",
+        "next_label": "Later releases",
+        "label_live": "Available now",
+        "label_reserved": "Reserved for members",
+        "label_upcoming": "Upcoming",
+        "label_closed": "Edition closed",
+        "bg_color": "#f9f8f3",
+        "text_color": "#111111",
+        "muted_color": "#6b675f",
+        "accent_color": "#c89d7c",
+        "border_color": "#ddd8cc",
+        "font_stack": "'Cormorant Garamond', 'Cormorant', Garamond, 'Times New Roman', serif",
+        "tracking": 18,
+        "max_width": 1320,
+        "padding_top": 96,
+        "padding_bottom": 96
+      }
+    },
+    "sr_curator_guide_VtHjGm": {
+      "type": "sr-curator-guide",
+      "blocks": {
+        "chapter_T8zp9N": {
+          "type": "chapter",
+          "settings": {
+            "title": "Light as a material",
+            "note": "Where to place acrylic so it collects the afternoon rather than reflecting it."
+          }
+        },
+        "chapter_3zQLHQ": {
+          "type": "chapter",
+          "settings": {
+            "title": "The single object",
+            "note": "Why one sculptural piece outperforms a grouping of five."
+          }
+        },
+        "chapter_77fmDd": {
+          "type": "chapter",
+          "settings": {
+            "title": "Stems and proportion",
+            "note": "Cutting to the vessel, not to the bouquet."
+          }
+        },
+        "chapter_wLMRDF": {
+          "type": "chapter",
+          "settings": {
+            "title": "Seasonal rotation",
+            "note": "What to change quarterly, and what should never move."
+          }
+        }
+      },
+      "block_order": [
+        "chapter_T8zp9N",
+        "chapter_3zQLHQ",
+        "chapter_77fmDd",
+        "chapter_wLMRDF"
+      ],
+      "name": "SR — Curator's Guide",
+      "settings": {
+        "eyebrow": "Complimentary edition",
+        "title": "The Living Library",
+        "subtitle": "A curator's guide to spatial aesthetics",
+        "description": "<p>Twenty-eight pages on the interplay of natural light, optical acrylic and cut stems — how to place a single sculptural object so a room reorganises itself around it.</p>",
+        "spec_line": "28 pages | PDF | Quarterly edition",
+        "fine_print": "One email, the guide attached, and the quarterly edition when it publishes. Unsubscribe in a click.",
+        "cover_stamp": "Vol. 01",
+        "cover_ratio": "3 / 4",
+        "layout": "standard",
+        "pdf_url": "",
+        "download_label": "Open the guide",
+        "gate_email": true,
+        "customer_tags": "living-library, lead-magnet",
+        "field_email": "Email",
+        "email_placeholder": "you@example.com",
+        "submit_label": "Request the guide",
+        "auto_open": false,
+        "success_message": "The guide is yours. It is also on its way to your inbox.",
+        "error_message": "This could not be sent:",
+        "bg_color": "#f9f8f3",
+        "text_color": "#111111",
+        "muted_color": "#6b675f",
+        "accent_color": "#c89d7c",
+        "border_color": "#ddd8cc",
+        "font_stack": "'Cormorant Garamond', 'Cormorant', Garamond, 'Times New Roman', serif",
+        "tracking": 18,
+        "max_width": 1240,
+        "padding_top": 96,
+        "padding_bottom": 96
+      }
+    },
+    "sr_patron_faq_prbhgK": {
+      "type": "sr-patron-faq",
+      "blocks": {
+        "question_EPjpeL": {
+          "type": "question",
+          "settings": {
+            "question": "How does the $20 monthly membership work?",
+            "answer": "<p>Each month adds $20 of credit to your account. The credit is yours to spend on any release, and it accumulates toward the seasonal capsule delivered at the close of each quarter.</p>",
+            "pin": "",
+            "open_by_default": true
+          }
+        },
+        "question_fDQnUH": {
+          "type": "question",
+          "settings": {
+            "question": "Can I pause or cancel at any time?",
+            "answer": "<p>Yes, from your account, in two clicks. There is no minimum term, no cancellation fee and no call to make. Pausing keeps your accrued credit intact.</p>",
+            "pin": "No lock-in",
+            "open_by_default": false
+          }
+        },
+        "question_PWimBx": {
+          "type": "question",
+          "settings": {
+            "question": "Does my monthly credit ever expire?",
+            "answer": "<p>No. Credit carries forward in full for as long as your membership is active, and it applies to any release at member pricing.</p>",
+            "pin": "Carries forward in full",
+            "open_by_default": false
+          }
+        },
+        "question_7y6h9f": {
+          "type": "question",
+          "settings": {
+            "question": "When does my welcome vase arrive?",
+            "answer": "<p>Le Vase Livre is dispatched within 24 to 48 hours of enrolment, individually numbered between 001 and 300, in hardcover packaging with a digital certificate of authenticity.</p>",
+            "pin": "",
+            "open_by_default": false
+          }
+        },
+        "question_cqgW4T": {
+          "type": "question",
+          "settings": {
+            "question": "What do I need to receive the seasonal capsule?",
+            "answer": "<p>An active membership for at least two months before the quarter closes. Enrol later than that and the capsule ships to the members who held their place through the quarter; yours begins accruing for the next one.</p>",
+            "pin": "Two months before quarter end",
+            "open_by_default": false
+          }
+        },
+        "question_9UdLzM": {
+          "type": "question",
+          "settings": {
+            "question": "How does member pricing apply to future releases?",
+            "answer": "<p>Member rates of 25 to 50 percent are applied automatically at checkout while your membership is active. Nothing to enter and no code to remember.</p>",
+            "pin": "",
+            "open_by_default": false
+          }
+        },
+        "question_9mNdcy": {
+          "type": "question",
+          "settings": {
+            "question": "What happens to my allocation on limited editions?",
+            "answer": "<p>Your piece is reserved before the public release opens and held for a set window. You are notified by correspondence; if you pass, the allocation returns to the run.</p>",
+            "pin": "",
+            "open_by_default": false
+          }
+        }
+      },
+      "block_order": [
+        "question_EPjpeL",
+        "question_fDQnUH",
+        "question_PWimBx",
+        "question_7y6h9f",
+        "question_cqgW4T",
+        "question_9UdLzM",
+        "question_9mNdcy"
+      ],
+      "name": "SR — Patron FAQ",
+      "settings": {
+        "eyebrow": "Before you enrol",
+        "heading": "Questions members ask",
+        "standfirst": "<p>Everything about the membership in plain terms. If something is still unclear, the concierge answers within a day.</p>",
+        "contact_label": "Write to the concierge",
+        "contact_url": "",
+        "layout": "split",
+        "single_open": true,
+        "sticky_offset": 40,
+        "enable_schema_markup": true,
+        "answer_size": 16,
+        "bg_color": "#f9f8f3",
+        "text_color": "#111111",
+        "muted_color": "#6b675f",
+        "accent_color": "#c89d7c",
+        "border_color": "#ddd8cc",
+        "font_stack": "'Cormorant Garamond', 'Cormorant', Garamond, 'Times New Roman', serif",
+        "tracking": 18,
+        "max_width": 1240,
+        "padding_top": 96,
+        "padding_bottom": 104
+      }
+    },
+    "sr_patron_notes_hgdryy": {
+      "type": "sr-patron-notes",
+      "blocks": {
+        "note_cWQibp": {
+          "type": "note",
+          "settings": {
+            "name": "Victoria S.",
+            "place": "Miami, FL",
+            "date": "Aug 27, 2026",
+            "verified": false,
+            "quote": "The welcome package arrived faster than expected. The vase holds the afternoon light in a way the photographs do not quite capture.",
+            "piece": "Le Vase Livre — No. 042",
+            "image_url_1": "https://cdn.shopify.com/s/files/1/0817/2581/7053/files/ai_vase_review_char.jpg?v=1787053483",
+            "image_url_2": ""
+          }
+        },
+        "note_mXpfhe": {
+          "type": "note",
+          "settings": {
+            "name": "Clara D.",
+            "place": "Austin, TX",
+            "date": "Sep 3, 2026",
+            "verified": false,
+            "quote": "I was unsure about a decor membership. Opening the box settled it — the piece is heavier and clearer than I expected.",
+            "piece": "Le Vase Livre — No. 118",
+            "image_url_1": "https://cdn.shopify.com/s/files/1/0817/2581/7053/files/ai_vase_review_rachel.jpg?v=1787053483",
+            "image_url_2": ""
+          }
+        },
+        "note_UpThc6": {
+          "type": "note",
+          "settings": {
+            "name": "David L.",
+            "place": "Seattle, WA",
+            "date": "Aug 29, 2026",
+            "verified": false,
+            "quote": "Receiving the book vase as the welcome gift set the tone. It reads as an object, not a purchase.",
+            "piece": "Le Vase Livre — No. 076",
+            "image_url_1": "https://cdn.shopify.com/s/files/1/0817/2581/7053/files/David_L.jpg?v=1787053485",
+            "image_url_2": "https://cdn.shopify.com/s/files/1/0817/2581/7053/files/Rachel_2.png?v=1787053484"
+          }
+        }
+      },
+      "block_order": [
+        "note_cWQibp",
+        "note_mXpfhe",
+        "note_UpThc6"
+      ],
+      "name": "SR — Patron Notes",
+      "settings": {
+        "eyebrow": "Member correspondence",
+        "heading": "Notes from the Society",
+        "count_note": "Unboxing impressions from verified members",
+        "verified_label": "Verified member",
+        "columns": "3",
+        "grid_gap": 20,
+        "single_image_ratio": "4 / 5",
+        "show_share": true,
+        "share_label": "Share an impression",
+        "modal_title": "Share an impression",
+        "modal_intro": "Tell us how the piece landed in your space. Selected notes are published with your first name and city.",
+        "field_name": "Name",
+        "field_email": "Email",
+        "field_place": "City and state",
+        "field_message": "Your impression",
+        "consent_label": "You may publish this with my first name and city.",
+        "submit_label": "Send impression",
+        "close_label": "Close",
+        "photo_note": "Have a photo? Reply to our confirmation email and attach it — we will place it with your note.",
+        "success_message": "Thank you. Your note has reached the concierge and will be read within 24 hours.",
+        "error_message": "This could not be sent:",
+        "bg_color": "#f9f8f3",
+        "card_bg": "#ffffff",
+        "text_color": "#111111",
+        "muted_color": "#6b675f",
+        "accent_color": "#c89d7c",
+        "border_color": "#ddd8cc",
+        "font_stack": "'Cormorant Garamond', 'Cormorant', Garamond, 'Times New Roman', serif",
+        "tracking": 16,
+        "max_width": 1320,
+        "padding_top": 96,
+        "padding_bottom": 96
+      }
+    },
+    "sr_consult": {
+      "type": "sr-consult",
+      "name": "SR — Consult",
+      "settings": {}
+    }
+  },
+  "order": [
+    "main",
+    "sr_consult",
+    "sr_patron_tiers_BiUh9r",
+    "sr_archival_roadmap_i9zijy",
+    "sr_curator_guide_VtHjGm",
+    "sr_patron_faq_prbhgK",
+    "sr_patron_notes_hgdryy"
+  ]
+}
