@@ -145,7 +145,7 @@
           "settings": {
             "label": "Circle price",
             "value": "25% off",
-            "note": "On eligible pieces, applied at checkout with your Circle email.",
+            "note": "On eligible pieces, applied at checkout while your membership is active.",
             "included": true
           }
         },
@@ -281,7 +281,7 @@
             "period": "Summer 2026",
             "title": "The Atelier Vignette",
             "description": "Four-piece nocturne set: cast metal sculpture, fluid-wave print, ceramic knot holder, two tapers.",
-            "status": "reserved",
+            "status": "live",
             "status_override": "",
             "members_note": "",
             "link_label": "",
@@ -486,7 +486,7 @@
           "type": "question",
           "settings": {
             "question": "What is the Circle price?",
-            "answer": "<p>25% off eligible pieces, applied at checkout with your Circle email while your membership is active. It does not apply to Small Pleasures, gift cards or seasonal capsules.</p>",
+            "answer": "<p>25% off eligible pieces, applied at checkout while your membership is active. It does not apply to Small Pleasures, gift cards or seasonal capsules.</p>",
             "pin": "",
             "open_by_default": false
           }
