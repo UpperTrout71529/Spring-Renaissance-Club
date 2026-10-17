@@ -5,11 +5,17 @@ safe to do any time. Rollback for each step at the end.
 
 ## A. Staging, end to end (test mode)
 
-1. (staging) Stripe test mode: `STRIPE_SECRET_KEY=sk_test_… node scripts/stripe-test-setup.mjs --webhook https://api-staging.springrenaissance.store/webhooks/stripe`
-   — creates Product A/B with `circle_monthly_usd` / `circle_joining_usd`, the
-   endpoint (API `2026-09-30.endive`, Circle events) and stores
-   `STRIPE_CIRCLE_WEBHOOK_SECRET` on staging. Then
-   `npx wrangler secret put STRIPE_SECRET_KEY --env staging` (same test key).
+1. (staging) Stripe test mode, one PowerShell command (any folder):
+   `node C:\Users\FS\Desktop\Spring-Renaissance-Club\scripts\stripe-test-setup.mjs`
+   — asks for the key in a hidden prompt (a restricted `rk_test_` key with the
+   permissions listed in `PERMISSION_PROBES` in the script: Write on Customers,
+   Products, Checkout Sessions, Coupons, Customer portal, Invoices, Prices,
+   Subscriptions, Webhook Endpoints; Read on Charges, Payment Intents), checks
+   those permissions without changing anything, creates Product A/B with
+   `circle_monthly_usd` / `circle_joining_usd` and the staging endpoint (API
+   `2026-09-30.endive`, Circle events), then stores `STRIPE_CIRCLE_WEBHOOK_SECRET`
+   and `STRIPE_SECRET_KEY` on staging through wrangler (stdin, never printed).
+   Missing permissions → it names them and stops before creating anything.
 2. (staging) Stripe test Dashboard: Customer Portal = update card + invoices only;
    custom retry schedule 3 retries (+3, +4, +3 days) then cancel; customer emails off.
 3. (staging) Admin → Economics: shipping S/M/L (your estimates, "estimate" ticked);
